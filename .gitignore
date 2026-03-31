@@ -1,0 +1,17 @@
+node_modules
+# 파이썬
+__pycache__/
+
+# 노드
+node_modules/
+.next/
+
+# 환경 변수
+.env.local
+.env
+
+# 바이너리 / 임시 파일
+*.bin
+
+# config 키 파일
+config/
