@@ -40,6 +40,16 @@ def normalize_date(text):
     return text.strip("-")
 
 
+def normalize_month_date(text):
+    text = normalize_date(text)
+    match = re.search(r"(\d{4})-(\d{1,2})", text)
+    if not match:
+        return ""
+    year = match.group(1)
+    month = match.group(2).zfill(2)
+    return f"{year}-{month}"
+
+
 # -----------------------------
 # 2. OCR 텍스트 보정
 # -----------------------------
@@ -56,6 +66,7 @@ def normalize_ocr_text(text):
         "컴퓨터 사용 능력": "컴퓨터 사용능력",
         "컴 퓨 터 사용능력": "컴퓨터 사용능력",
         "자 격 증": "자격증",
+        "자 격 및 면 허": "자격 및 면허",
         "면 허": "면허",
         "업 품목": "업품목",
         "기 간": "기간",
@@ -73,6 +84,12 @@ def normalize_ocr_text(text):
         "명 칭": "명칭",
         "내 용": "내용",
         "용기술": "용기술",
+        "컴퓨터사용 능력": "컴퓨터 사용능력",
+        "사용가능 언어 및 TOOL": "사용가능언어및TOOL",
+        "부서 / 직위": "부서/직위",
+        "병역 사항": "병역사항",
+        "상벌경력": "상벌 경력",
+        "회혁": "경력사항",
     }
 
     for old, new in replacements.items():
@@ -123,6 +140,13 @@ def extract_between(text, start_keywords, end_keywords):
     return clean_text(match.group(1)) if match else ""
 
 
+def split_sentences(text):
+    if not text:
+        return []
+    parts = re.split(r"[.!?\n]", text)
+    return unique_preserve_order([clean_text(x) for x in parts if clean_text(x)])
+
+
 # -----------------------------
 # 4. 기본 정보
 # -----------------------------
@@ -147,7 +171,7 @@ def extract_name(text):
         if name not in blocked:
             return name
 
-    header = text[:100]
+    header = text[:120]
     candidates = re.findall(r"[가-힣]{2,4}", header)
     for cand in candidates:
         if cand not in blocked:
@@ -183,34 +207,55 @@ def extract_education(text):
     edu_block = extract_between(
         text,
         ["학력", "학"],
-        ["성적", "외국어명", "외국어", "컴퓨터 사용능력", "컴퓨터사용능력"]
+        ["성적", "외국어명", "외국어", "컴퓨터 사용능력", "컴퓨터사용능력", "자격 및 면허", "자격증"]
     )
 
-    hs_match = re.search(
-        r"(\d{4}[.-]\d{1,2})\s*([가-힣A-Za-z0-9]+고등학교).*?(\d{4}[.-]\d{1,2})?",
+    if not edu_block:
+        edu_block = text
+
+    seen = set()
+
+    for match in re.finditer(
+        r"(?:(\d{4}[.-]\d{1,2})\s*[-~]?\s*(\d{4}[.-]\d{1,2})\s*)?([가-힣A-Za-z0-9]+고등학교)\s*(졸업|재학|중퇴)?",
         edu_block
-    )
-    if hs_match:
+    ):
+        school = clean_text(match.group(3))
+        key = ("고졸", school)
+        if key in seen:
+            continue
+        seen.add(key)
+
         results.append({
-            "school": clean_text(hs_match.group(2)),
+            "school": school,
             "degree": "고졸",
             "major": "",
-            "startDate": normalize_date(hs_match.group(1)) if hs_match.group(1) else "",
-            "endDate": normalize_date(hs_match.group(3)) if hs_match.group(3) else "",
+            "startDate": normalize_month_date(match.group(1)) if match.group(1) else "",
+            "endDate": normalize_month_date(match.group(2)) if match.group(2) else "",
             "gpa": None
         })
 
-    uni_match = re.search(
-        r"(\d{4}[.-]\d{1,2})\s*~\s*([가-힣A-Za-z0-9]+대학교?)\s*([가-힣A-Za-z0-9]+학과).*?(\d{4}[.-]\d{1,2})",
+    for match in re.finditer(
+        r"(?:(\d{4}[.-]\d{1,2})\s*[-~]?\s*)?([가-힣A-Za-z0-9]+(?:대학교|대학))\s*([가-힣A-Za-z0-9·\-/]+학과)?\s*(?:(\d{4}[.-]\d{1,2}))?",
         edu_block
-    )
-    if uni_match:
+    ):
+        school = clean_text(match.group(2))
+        major = clean_text(match.group(3)) if match.group(3) else ""
+        degree = "학사"
+
+        if "전문대" in school:
+            degree = "전문학사"
+
+        key = (degree, school, major)
+        if key in seen:
+            continue
+        seen.add(key)
+
         results.append({
-            "school": clean_text(uni_match.group(2)),
-            "degree": "학사",
-            "major": clean_text(uni_match.group(3)),
-            "startDate": normalize_date(uni_match.group(1)),
-            "endDate": normalize_date(uni_match.group(4)),
+            "school": school,
+            "degree": degree,
+            "major": major,
+            "startDate": normalize_month_date(match.group(1)) if match.group(1) else "",
+            "endDate": normalize_month_date(match.group(4)) if match.group(4) else "",
             "gpa": extract_gpa(text)
         })
 
@@ -241,7 +286,7 @@ def extract_language_tests(text):
             results.append({
                 "language": "영어",
                 "testName": "OPIc" if test_name.upper() == "OPIC" else test_name,
-                "date": normalize_date(date_match.group()) if date_match else "",
+                "date": normalize_month_date(date_match.group()) if date_match else "",
                 "score": score_match.group(1) if score_match else ""
             })
 
@@ -271,7 +316,8 @@ def classify_skill(skill):
     }
     tools = {
         "Git", "Docker", "Kubernetes", "Firebase", "MySQL", "MongoDB",
-        "Oracle", "Linux", "Pandas", "NumPy"
+        "Oracle", "Linux", "Pandas", "NumPy", "Excel", "ERP", "SAP",
+        "Microsoft Office", "PowerPoint", "Word", "한글"
     }
 
     if skill in languages:
@@ -288,21 +334,25 @@ def extract_skills(text):
 
     skill_block = extract_between(
         text,
-        ["컴퓨터 사용능력", "컴퓨터사용능력"],
-        ["자격 및 면허", "자격증", "보훈대상여부", "종교"]
+        ["컴퓨터 사용능력", "컴퓨터사용능력", "사용가능언어및TOOL"],
+        ["자격 및 면허", "자격증", "보훈대상여부", "종교", "상벌", "경력"]
     )
+
+    if not skill_block:
+        skill_block = text
 
     skill_keywords = [
         "Python", "JavaScript", "TypeScript", "Java", "C++", "C#", "C",
         "React", "Next.js", "Node.js", "Spring", "Django", "Flask",
         "TensorFlow", "PyTorch", "Pandas", "NumPy", "MySQL", "Oracle",
         "MongoDB", "Firebase", "Git", "Docker", "Kubernetes", "Linux",
-        "SQL", "R", "Go", "Kotlin", "Swift", "PHP", "Vue", "Angular"
+        "SQL", "R", "Go", "Kotlin", "Swift", "PHP", "Vue", "Angular",
+        "Excel", "ERP", "SAP", "Microsoft Office", "PowerPoint", "Word", "한글"
     ]
 
     found = []
     for keyword in skill_keywords:
-        if re.search(rf"(?<![A-Za-z]){re.escape(keyword)}(?![A-Za-z])", skill_block, re.IGNORECASE):
+        if re.search(rf"(?<![A-Za-z가-힣]){re.escape(keyword)}(?![A-Za-z가-힣])", skill_block, re.IGNORECASE):
             found.append(keyword)
 
     found = unique_preserve_order(found)
@@ -329,29 +379,63 @@ def extract_certifications(text):
     block = extract_between(
         text,
         ["자격 및 면허", "자격증"],
-        ["보훈대상여부", "종교", "상벌", "경력", "취미", "특기"]
+        ["보훈대상여부", "종교", "상벌", "경력", "취미", "특기", "병역", "병역사항"]
     )
 
-    cert_keywords = [
+    if not block:
+        block = text
+
+    results = []
+    seen = set()
+
+    known_keywords = [
         "정보처리기사", "SQLD", "ADsP", "ADSP", "컴퓨터활용능력",
-        "정보처리산업기사", "리눅스마스터", "한국사능력검정시험"
+        "정보처리산업기사", "리눅스마스터", "한국사능력검정시험",
+        "지게차 운전기능사"
     ]
 
-    date_candidates = re.findall(r"\d{4}[.-]\d{1,2}", block)
-    results = []
-
     found_names = []
-    for cert in cert_keywords:
-        if re.search(re.escape(cert), block, re.IGNORECASE):
-            found_names.append(cert)
+    for keyword in known_keywords:
+        if re.search(re.escape(keyword), block, re.IGNORECASE):
+            found_names.append(keyword)
 
-    found_names = unique_preserve_order(found_names)
+    pattern_candidates = []
+    patterns = [
+        r"([가-힣A-Za-z0-9 ]+기사)",
+        r"([가-힣A-Za-z0-9 ]+산업기사)",
+        r"([가-힣A-Za-z0-9 ]+기능사)",
+        r"([가-힣A-Za-z0-9 ]+면허)",
+    ]
 
-    for idx, name in enumerate(found_names):
+    for pattern in patterns:
+        pattern_candidates.extend(re.findall(pattern, block))
+
+    candidates = unique_preserve_order(found_names + pattern_candidates)
+    date_candidates = re.findall(r"\d{4}[.-]?\d{0,2}", block)
+
+    for idx, cand in enumerate(candidates):
+        name = clean_text(cand)
+
+        if not name:
+            continue
+
+        name = re.sub(r"^(자|격|증|면허)\s*", "", name)
+        name = clean_text(name)
+
+        if not name or len(name) <= 1:
+            continue
+
+        if name in {"UIO", "TOOL", "Excel", "ERP", "시스템"}:
+            continue
+
+        if name in seen:
+            continue
+        seen.add(name)
+
         results.append({
             "name": name,
             "grade": "",
-            "date": normalize_date(date_candidates[idx]) if idx < len(date_candidates) else ""
+            "date": normalize_month_date(date_candidates[idx]) if idx < len(date_candidates) else ""
         })
 
     return results
@@ -433,7 +517,7 @@ def extract_military(text):
             break
 
     status = ""
-    if "만기제대" in block or "군필" in block:
+    if "만기제대" in block or "군필" in block or "전역" in block:
         status = "군필"
     elif "미필" in block:
         status = "미필"
@@ -444,8 +528,8 @@ def extract_military(text):
         "branch": branch,
         "rank": rank,
         "status": status,
-        "startDate": normalize_date(dates[0]) if len(dates) >= 1 else "",
-        "endDate": normalize_date(dates[1]) if len(dates) >= 2 else ""
+        "startDate": normalize_month_date(dates[0]) if len(dates) >= 1 else "",
+        "endDate": normalize_month_date(dates[1]) if len(dates) >= 2 else ""
     }
 
 
@@ -457,33 +541,80 @@ def extract_experience_items(text):
 
     block = extract_between(
         text,
-        ["경력사항"],
+        ["기간직장명", "기간 직장명", "자기소개서 기간직장명"],
         ["기타", "자기소개서상의", "작성자"]
     )
 
     if not block:
         return []
 
-    if all(x in block for x in ["직장명", "부서/직위", "담당업무", "이직사유"]):
-        if len(block) < 60:
-            return []
-
     results = []
-    range_matches = re.finditer(r"(\d{4}[.-]\d{1,2})\s*~?\s*(\d{4}[.-]\d{1,2})?", block)
+    seen = set()
 
-    for match in range_matches:
-        start_date = normalize_date(match.group(1))
-        end_date = normalize_date(match.group(2)) if match.group(2) else ""
-        span_end = match.end()
-        snippet = clean_text(block[span_end:span_end + 40])
+    lines = re.split(r"(?=\d{4}[.-]\d{1,2})", block)
+
+    for line in lines:
+        line = clean_text(line)
+        if not line:
+            continue
+
+        dates = re.findall(r"\d{4}[.-]\d{1,2}", line)
+        if not dates:
+            continue
+
+        start_date = normalize_month_date(dates[0])
+
+        end_date = ""
+        if "현재" in line:
+            end_date = "현재"
+        elif len(dates) >= 2:
+            end_date = normalize_month_date(dates[1])
+
+        org_match = re.search(
+            r"\d{4}[.-]\d{1,2}\s*(?:~\s*)?(?:현재|\d{4}[.-]\d{1,2})?\s*([가-힣A-Za-z0-9 ]+(?:회사|산업|기업|공사|센터|공장|연구소))",
+            line
+        )
+        if not org_match:
+            continue
+
+        organization = clean_text(org_match.group(1))
+
+        position = ""
+        position_match = re.search(
+            r"(물류관리|생산관리|경리|총무|회계|사원|주임|대리|과장|차장|부장|인턴|매니저|연구원|개발자|디자이너)",
+            line
+        )
+        if position_match:
+            position = clean_text(position_match.group(1))
+
+        responsibilities = []
+
+        responsibility_patterns = [
+            r"(재고 관리[, ]*출고 관리)",
+            r"(생산 일정 관리[, ]*품질 관리)",
+            r"(전표 입력 및 회계 마감 관리)",
+            r"(매입/매출 및 채권채무 관리)",
+            r"(부가세 등 세무신고 자료 준비)",
+            r"(급여/4대보험 등 인사총무 관리)",
+            r"(자금 집행 및 증빙서류 관리)",
+        ]
+        for pattern in responsibility_patterns:
+            match = re.search(pattern, line)
+            if match:
+                responsibilities.append(clean_text(match.group(1)))
+
+        key = (organization, start_date, end_date)
+        if key in seen:
+            continue
+        seen.add(key)
 
         results.append({
-            "organization": snippet,
+            "organization": organization,
             "department": "",
-            "position": "",
+            "position": position,
             "startDate": start_date,
             "endDate": end_date,
-            "responsibilities": [],
+            "responsibilities": unique_preserve_order(responsibilities),
             "reasonForLeaving": ""
         })
 
@@ -498,21 +629,30 @@ def extract_self_introduction(text):
 
     block = extract_between(
         text,
-        ["자기소개서", "경력사항"],
+        ["자기소개서"],
         ["기타", "자기소개서상의", "작성자"]
     )
 
+    if not block:
+        return ""
+
     noise_patterns = [
-        r"^기간\s*직장명\s*부서/직위\s*담당업무\s*이직사유",
-        r"^경력사항",
+        r"기간\s*직장명\s*부서\s*/?\s*직위\s*담당업무\s*이직사유",
+        r"^\s*경력사항",
         r"자기소개서상의 모든 기재사항은 사실임을 확인합니다.*$",
         r"작성자\s*[:：].*$",
         r"\b기타\b.*$",
-        r"용기술$",
+        r"\b내용\s*기술\b.*$",
     ]
 
     for pattern in noise_patterns:
         block = re.sub(pattern, "", block)
+
+    # 자기소개 시작 전의 경력표 부분 제거
+    start_keywords = ["저는", "제가", "항상", "고등학교 졸업 후", "대학 시절"]
+    start_positions = [block.find(keyword) for keyword in start_keywords if keyword in block]
+    if start_positions:
+        block = block[min(start_positions):]
 
     return clean_text(block)
 
@@ -520,7 +660,8 @@ def extract_self_introduction(text):
 def extract_core_competencies(self_intro):
     keywords = [
         "문제 해결", "협업", "데이터 분석", "데이터 기반", "머신러닝", "딥러닝",
-        "논리적", "빠르게 학습", "커뮤니케이션", "책임감", "성실"
+        "논리적", "빠르게 학습", "커뮤니케이션", "책임감", "성실", "꼼꼼",
+        "적응", "품질 관리", "생산 관리", "재고 관리", "출고 관리"
     ]
 
     found = []
@@ -535,6 +676,18 @@ def extract_projects_from_intro(self_intro, skills):
     if not self_intro:
         return []
 
+    sentences = split_sentences(self_intro)
+    responsibilities = []
+
+    project_keywords = ["프로젝트", "해커톤", "캡스톤", "포트폴리오", "개발", "구현"]
+
+    for sentence in sentences:
+        if any(keyword in sentence for keyword in project_keywords):
+            responsibilities.append(sentence)
+
+    if not responsibilities:
+        return []
+
     all_skills = (
         skills.get("languages", [])
         + skills.get("frameworks", [])
@@ -546,19 +699,6 @@ def extract_projects_from_intro(self_intro, skills):
     for skill in all_skills:
         if skill.lower() in self_intro.lower():
             tech_stack.append(skill)
-
-    sentences = re.split(r"[.!?\n]", self_intro)
-    responsibilities = []
-
-    for sentence in sentences:
-        sentence = clean_text(sentence)
-        if not sentence:
-            continue
-        if any(keyword in sentence for keyword in ["프로젝트", "해커톤", "캡스톤", "협업", "머신러닝", "데이터"]):
-            responsibilities.append(sentence)
-
-    if not responsibilities:
-        return []
 
     return [{
         "name": "자기소개 기반 프로젝트/경험",
@@ -581,26 +721,54 @@ def build_embedding_text(resume_data):
     skills = resume_data.get("skills", {})
     certifications = resume_data.get("certifications", [])
     projects = resume_data.get("projects", [])
+    experience = resume_data.get("experience", [])
     self_intro = resume_data.get("selfIntroduction", "")
 
-    summary_parts = [
-        basic.get("name", ""),
-        ", ".join([item.get("major", "") for item in education if item.get("major")]),
-        ", ".join(
-            skills.get("languages", [])
-            + skills.get("frameworks", [])
-            + skills.get("tools", [])
-        ),
-        ", ".join([item.get("name", "") for item in certifications if item.get("name")]),
-    ]
+    education_parts = []
+    for item in education:
+        part = " ".join([
+            item.get("school", ""),
+            item.get("major", ""),
+            item.get("degree", "")
+        ])
+        part = clean_text(part)
+        if part:
+            education_parts.append(part)
+
+    skill_parts = (
+        skills.get("languages", [])
+        + skills.get("frameworks", [])
+        + skills.get("tools", [])
+        + skills.get("etc", [])
+    )
+
+    cert_parts = [item.get("name", "") for item in certifications if item.get("name")]
+
+    experience_parts = []
+    for item in experience:
+        org = clean_text(item.get("organization", ""))
+        pos = clean_text(item.get("position", ""))
+        resp = clean_text(" ".join(item.get("responsibilities", [])))
+
+        part = " / ".join([x for x in [org, pos, resp] if x])
+        part = clean_text(part)
+        if part:
+            experience_parts.append(part)
 
     project_parts = []
     for project in projects:
         project_parts.extend(project.get("responsibilities", []))
         project_parts.extend(project.get("techStack", []))
 
+    summary_parts = [
+        basic.get("name", ""),
+        " / ".join(education_parts),
+        ", ".join(skill_parts),
+        ", ".join(cert_parts)
+    ]
+
     summary = clean_text(" / ".join([x for x in summary_parts if clean_text(x)]))
-    experience_text = clean_text(" / ".join(unique_preserve_order(project_parts)))
+    experience_text = clean_text(" / ".join(unique_preserve_order(experience_parts + project_parts)))
     full_for_embedding = clean_text(" / ".join([summary, experience_text, self_intro]))
 
     return {
