@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@/context/AuthContext'
-import { addResumes, getBookmarks, getResumes, pushRecentJob, removeResume, toggleBookmark } from '@/lib/userStorage'
-import { DASHBOARD_JOBS } from '@/lib/jobs'
+import { useAuth } from '../context/AuthContext'
+import { addResumes, getBookmarks, getResumes, pushRecentJob, removeResume, toggleBookmark } from '../lib/userStorage'
+import { DASHBOARD_JOBS } from '../lib/jobs'
 
 export default function LandingPage() {
   const router = useRouter()
@@ -29,7 +29,7 @@ export default function LandingPage() {
     fileInputRef.current?.click()
   }
 
-  const handleFileSelect = (e) => {
+  const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
 
@@ -45,21 +45,51 @@ export default function LandingPage() {
       return
     }
 
-    const dateStr = new Date()
-      .toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
-      .replace(/\. /g, '.')
-      .replace(/\.$/, '')
+    const file = validFiles[0]
 
-    const mapped = validFiles.map((f) => ({
-      id: Date.now() + Math.random(),
-      name: f.name,
-      size: Math.round(f.size / 1024) + ' KB',
-      date: dateStr,
-    }))
+    try {
+      setIsAnalyzing(true)
+      setAnalysisDone(false)
 
-    setResumes(addResumes(mapped))
-    setShowSavedResumes(true)
-    e.target.value = ''
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const res = await fetch('/api/resume/upload', {
+        method: 'POST',
+        body: formData,
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || '업로드 실패')
+      }
+
+      const dateStr = new Date()
+        .toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+        .replace(/\. /g, '.')
+        .replace(/\.$/, '')
+
+      const mapped = [{
+        id: data.docId || Date.now() + Math.random(),
+        name: file.name,
+        size: Math.round(file.size / 1024) + ' KB',
+        date: dateStr,
+      }]
+
+      setResumes(addResumes(mapped))
+      setShowSavedResumes(true)
+      setSelectedResume(mapped[0])
+
+      setIsAnalyzing(false)
+      setAnalysisDone(true)
+    } catch (error) {
+      console.error(error)
+      alert(error.message || '업로드 중 오류가 발생했습니다.')
+      setIsAnalyzing(false)
+    } finally {
+      e.target.value = ''
+    }
   }
 
   useEffect(() => {

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useNotifications } from '@/context/NotificationContext'
+import { useNotifications } from '../context/NotificationContext'
 
 export default function SlideMenu({ isOpen, onClose }) {
   const pathname = usePathname()

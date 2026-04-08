@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@/context/AuthContext'
-import { INTERN_JOBS } from '@/lib/jobs'
-import { addResumes, getBookmarks, getResumes, pushRecentJob, removeResume, toggleBookmark } from '@/lib/userStorage'
+import { useAuth } from '../context/AuthContext'
+import { INTERN_JOBS } from '../lib/jobs'
+import { addResumes, getBookmarks, getResumes, pushRecentJob, removeResume, toggleBookmark } from '../lib/userStorage'
 
 export default function InternPage() {
   const { isAuthenticated, mounted } = useAuth()

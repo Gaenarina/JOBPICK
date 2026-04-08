@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@/context/AuthContext'
-import { addResumes, getResumes, removeResume } from '@/lib/userStorage'
+import { useAuth } from '../context/AuthContext'
+import { addResumes, getResumes, removeResume } from '../lib/userStorage'
 
 export default function ResumeManagePage() {
   const router = useRouter()

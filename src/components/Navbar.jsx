@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useAuth } from '@/context/AuthContext'
-import { useNotifications } from '@/context/NotificationContext'
+import { useAuth } from '../context/AuthContext'
+import { useNotifications } from '../context/NotificationContext'
 import SlideMenu from './SlideMenu'
 import NotificationPanel from './NotificationPanel'
 
@@ -24,6 +24,7 @@ export default function Navbar() {
           <span className="text-2xl">📋</span>
           <span>JOB PICK</span>
         </Link>
+
         <div className="flex items-center gap-4">
           {showMinimal ? (
             <>
@@ -48,12 +49,14 @@ export default function Navbar() {
                   </span>
                 )}
               </button>
+
               <button
                 onClick={() => setMenuOpen(true)}
                 className="px-4 py-2 bg-gray-800 text-white rounded-md text-sm hover:bg-gray-700 transition-colors"
               >
                 메뉴
               </button>
+
               {!isAuthenticated && (
                 <>
                   <Link href="/login" className="text-gray-800 text-sm hover:text-primary transition-colors">

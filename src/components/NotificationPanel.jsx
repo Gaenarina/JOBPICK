@@ -1,6 +1,6 @@
 'use client'
 
-import { useNotifications } from '@/context/NotificationContext'
+import { useNotifications } from '../context/NotificationContext'
 
 export default function NotificationPanel({ isOpen, onClose }) {
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
