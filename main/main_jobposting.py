@@ -20,7 +20,7 @@ from database.firebase_save_jobposting import (
     save_failed_jobposting,
 )
 
-TARGET_COUNT = 4
+TARGET_COUNT = 10
 
 
 def main():

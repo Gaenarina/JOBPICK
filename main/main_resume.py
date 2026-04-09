@@ -19,7 +19,8 @@ from database.firebase_save_resume import (
 )
 
 
-PDF_PATH = "data/resume_sample/예시이력서_최지훈_고졸.pdf"
+#PDF_PATH = "data/resume_sample/예시이력서_강하린_많은경력.pdf"
+PDF_PATH = "data/resume_sample/예시이력서_박서연_문과.pdf"
 
 
 def main():
