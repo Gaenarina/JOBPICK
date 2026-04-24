@@ -23,15 +23,29 @@ from database.firebase_save_jobposting import (
 TARGET_COUNT = 10
 
 
+def load_existing_links(db):
+    existing_links = set()
+
+    for doc in db.collection("job_postings").stream():
+        data = doc.to_dict() or {}
+        source_url = (
+            data.get("jobPosting", {}).get("sourceUrl", "")
+            or data.get("meta", {}).get("sourceUrl", "")
+            or data.get("sourceUrl", "")
+        )
+        if source_url:
+            existing_links.add(source_url)
+
+    return existing_links
+
+
 def main():
     db = init_firebase("config/firebase_key.json")
     crawler = JobKoreaCrawler(headless=True)
 
     try:
-        existing_links = set([
-            # 필요하면 기존 링크 넣기
-            # "https://www.jobkorea.co.kr/Recruit/GI_Read/12345678"
-        ])
+        existing_links = load_existing_links(db)
+        print(f"[기존 공고 링크 수] {len(existing_links)}")
 
         postings = crawler.crawl_multiple_postings(
             target_count=TARGET_COUNT,
@@ -65,9 +79,6 @@ def main():
 
             posting_type = main_data.get("posting_type", "")
 
-            # -----------------------------
-            # 1. 텍스트 공고 처리
-            # -----------------------------
             if posting_type in ["old_text", "new_text"]:
                 print("\n[텍스트 공고]")
 
@@ -96,9 +107,6 @@ def main():
                 )
                 print(f"\n[Firestore 저장 완료] {saved_id}")
 
-            # -----------------------------
-            # 2. 이미지 공고 처리
-            # -----------------------------
             elif posting_type == "image":
                 print("\n[이미지 공고]")
 
@@ -156,7 +164,15 @@ def main():
                 structured_data = structure_jobposting_from_image(
                     merged_preprocessed_text,
                     image_url=image_urls[0],
-                    company_name_hint=posting.get("company", "")
+                    company_name_hint=posting.get("company", ""),
+                    title_hint=posting.get("title", ""),
+                    source_url=posting.get("url", ""),
+                    meta={
+                        "companyName": posting.get("company", ""),
+                        "title": posting.get("title", ""),
+                        "sourceUrl": posting.get("url", ""),
+                        "imageUrl": image_urls[0],
+                    }
                 )
 
                 print("\n[구조화 결과]")
@@ -175,9 +191,6 @@ def main():
                 )
                 print(f"\n[Firestore 저장 완료] {saved_id}")
 
-            # -----------------------------
-            # 3. 지원하지 않는 공고 유형
-            # -----------------------------
             else:
                 print(f"\n[처리 실패] 알 수 없는 공고 유형: {posting_type}")
 

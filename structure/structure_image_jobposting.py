@@ -57,6 +57,25 @@ MEANINGLESS_VALUES = {
     "하단 공고내용참고",
 }
 
+PLACEHOLDER_PATTERNS = [
+    "상세내용을 입력하세요",
+    "상세 내용을 입력하세요",
+    "내용을 입력하세요",
+    "상세내용 입력",
+    "상세 내용 입력",
+]
+
+def is_placeholder_text(text: Any) -> bool:
+    value = clean_text(text)
+    if not value:
+        return True
+    normalized = re.sub(r"\s+", "", value)
+    return any(re.sub(r"\s+", "", pattern) in normalized for pattern in PLACEHOLDER_PATTERNS)
+
+def filter_placeholder_items(items: list[Any]) -> list[str]:
+    return [sanitize_fragment(item) for item in items if sanitize_fragment(item) and not is_placeholder_text(item)]
+
+
 
 # =========================
 # 2. 클린 함수
@@ -557,10 +576,14 @@ def parse_responsibilities(sections: dict, text: str) -> list[str]:
         "상조회가입", "출퇴근", "오더량", "인프라", "우리 회사는요", "About us",
         "Company Welfare", "Office Environment", "최종 합격", "접수 방법", "기타사항",
         "병원소개", "Welfare",
+        "접수 안내", "접수기간", "접수방법", "온라인접수", "당사채용홈페이지",
+        "전형절차", "기타사항", "문의", "채용홈페이지", "지원하기",
     ]
 
     for item in items:
         if any(keyword.lower() in item.lower() for keyword in blocked_keywords):
+            continue
+        if is_placeholder_text(item):
             continue
         cleaned.append(item)
 
@@ -569,7 +592,9 @@ def parse_responsibilities(sections: dict, text: str) -> list[str]:
         for line in lines:
             if re.search(r"(관리|응대|수술보조|상담|검사|진료보조|접수|조립|설계|개선|테스트|입력)", line):
                 if not re.search(r"(우대사항|우대 사항|자격요건|복리후생|전형절차|전형 절차|접수방법|접수 방법)", line):
-                    cleaned.append(sanitize_fragment(line))
+                    frag = sanitize_fragment(line)
+                    if frag and not is_placeholder_text(frag):
+                        cleaned.append(frag)
 
     return unique_preserve_order(cleaned[:8])
 
@@ -683,6 +708,190 @@ def parse_company_info(text: str, sections: dict) -> dict:
         "location": location,
         "raw": raw,
     }
+
+
+
+
+# =========================
+# 최종 출력 직전 정리
+# =========================
+def compact_text_for_filter(text):
+    return re.sub(r"\s+", "", clean_text(text))
+
+
+def is_bad_output_item(text):
+    value = clean_text(text)
+    if not value:
+        return True
+
+    compact = compact_text_for_filter(value)
+
+    bad_compact_keywords = [
+        "상세내용을입력하세요",
+        "상세내용입력",
+        "내용을입력하세요",
+        "상세내용을작성해주세요",
+        "내용을작성해주세요",
+    ]
+    if any(keyword in compact for keyword in bad_compact_keywords):
+        return True
+
+    if re.fullmatch(r"[0-9○O]+명", value):
+        return True
+
+    if value in {"공통", "필수", "필수요건", "우대사항", "[필수요건]", "[우대사항]", "지원서 접수"}:
+        return True
+
+    return False
+
+
+def is_bad_responsibility_output(text):
+    value = clean_text(text)
+    if is_bad_output_item(value):
+        return True
+
+    blocked_keywords = [
+        "자격요건",
+        "지원자격",
+        "우대사항",
+        "우대조건",
+        "장애인 복지법",
+        "국가유공자",
+        "필수",
+        "접수 안내",
+        "접수기간",
+        "접수방법",
+        "지원방법",
+        "온라인접수",
+        "채용홈페이지",
+        "채용 홈페이지",
+        "전형절차",
+        "유의사항",
+        "문의사항",
+        "지원서 접수",
+        "홈페이지 를 통해 확인 가능",
+        "홈페이지를 통해 확인 가능",
+    ]
+    if any(keyword in value for keyword in blocked_keywords):
+        return True
+
+    # 지역/위치만 잘못 들어온 경우 제거
+    if value in {"서울", "분당", "수원", "평택", "원주", "부산", "대구", "대전", "광주"}:
+        return True
+
+    return False
+
+
+def normalize_education_output(value):
+    value = clean_text(value)
+    if not value:
+        return ""
+
+    patterns = [
+        "학력무관",
+        "고졸 이상", "고졸이상",
+        "초대졸 이상", "초대졸이상",
+        "대졸 이상", "대졸이상",
+        "4년제 대학 졸업", "대학교 졸업", "학사 이상", "학사이상",
+        "석사 이상", "석사이상",
+        "박사 이상", "박사이상",
+        "무관",
+    ]
+    for pattern in patterns:
+        if pattern in value:
+            if pattern in {"고졸 이상", "고졸이상"}:
+                return "고졸이상"
+            if pattern in {"초대졸 이상", "초대졸이상"}:
+                return "초대졸이상"
+            if pattern in {"대졸 이상", "대졸이상", "4년제 대학 졸업", "대학교 졸업", "학사 이상", "학사이상"}:
+                return "대졸이상"
+            if pattern in {"석사 이상", "석사이상"}:
+                return "석사이상"
+            if pattern in {"박사 이상", "박사이상"}:
+                return "박사이상"
+            if pattern in {"학력무관", "무관"}:
+                return "무관"
+
+    return value
+
+
+def clean_output_list(items, responsibility=False, max_len=None):
+    cleaned = []
+    for item in items or []:
+        value = clean_text(item)
+        if not value:
+            continue
+
+        if responsibility:
+            if is_bad_responsibility_output(value):
+                continue
+        else:
+            if is_bad_output_item(value):
+                continue
+
+        if max_len and len(value) > max_len:
+            continue
+
+        cleaned.append(value)
+
+    return unique_preserve_order(cleaned)
+
+
+def final_sanitize_job_posting(job_posting):
+    requirements = job_posting.get("requirements", {}) or {}
+
+    # 담당업무 최종 정리
+    job_posting["responsibilities"] = clean_output_list(
+        job_posting.get("responsibilities", []),
+        responsibility=True,
+    )
+
+    # 학력 필드는 점수 계산용이므로 짧게 표준화
+    education = requirements.get("education", {}) or {}
+    education["minimum"] = normalize_education_output(education.get("minimum", ""))
+    requirements["education"] = education
+
+    # 자격요건/우대사항/스킬/자격증 최종 정리
+    requirements["requiredQualifications"] = clean_output_list(
+        requirements.get("requiredQualifications", []),
+        responsibility=False,
+        max_len=160,
+    )
+    requirements["preferredQualifications"] = clean_output_list(
+        requirements.get("preferredQualifications", []),
+        responsibility=False,
+        max_len=180,
+    )
+    requirements["requiredSkills"] = clean_output_list(
+        requirements.get("requiredSkills", []),
+        responsibility=False,
+        max_len=60,
+    )
+    requirements["preferredSkills"] = clean_output_list(
+        requirements.get("preferredSkills", []),
+        responsibility=False,
+        max_len=80,
+    )
+    requirements["coreCompetencies"] = clean_output_list(
+        requirements.get("coreCompetencies", []),
+        responsibility=False,
+        max_len=60,
+    )
+
+    # certifications는 자격증성 문구만 남기고, 긴 문단은 제거
+    certs = []
+    for item in requirements.get("certifications", []) or []:
+        value = clean_text(item)
+        if not value or is_bad_output_item(value):
+            continue
+        if len(value) > 90:
+            continue
+        if any(keyword in value for keyword in ["자격증", "지도사", "인명구조", "운전면허", "면허", "기사", "기능사"]):
+            certs.append(value)
+    requirements["certifications"] = unique_preserve_order(certs)
+
+    job_posting["requirements"] = requirements
+    return job_posting
 
 
 # =========================
@@ -879,6 +1088,8 @@ def structure_jobposting_from_image(
 
     certifications = []
     for item in preferred_qualifications + required_qualifications:
+        if len(item) > 80:
+            continue
         if "자격증" in item or "보유자" in item:
             certifications.append(item)
 
@@ -890,6 +1101,11 @@ def structure_jobposting_from_image(
             work_type = sanitize_fragment(m.group(1))
     if not work_type:
         work_type = employment_type
+
+    responsibilities = unique_preserve_order([x for x in responsibilities if not is_placeholder_text(x)])
+    required_qualifications = unique_preserve_order([x for x in required_qualifications if not is_placeholder_text(x) and not re.fullmatch(r"[0-9○O]+명", x) and x not in {"공통", "필수요건", "우대사항", "[필수요건]", "[우대사항]"}])
+    preferred_qualifications = unique_preserve_order([x for x in preferred_qualifications if not is_placeholder_text(x)])
+    required_skills = unique_preserve_order([x for x in required_skills if not is_placeholder_text(x)])
 
     job_posting = {
         "companyName": company_name,
@@ -933,6 +1149,7 @@ def structure_jobposting_from_image(
         "extraSections": sections,
     }
 
+    job_posting = final_sanitize_job_posting(job_posting)
     job_posting["embeddingText"] = build_embedding_text(job_posting)
 
     return {

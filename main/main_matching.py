@@ -23,8 +23,8 @@ from embedding.chroma_store import (
 )
 
 
-RESUME_DOC_ID = "b78i1EMnKNQUk1nUjjFh"
-JOB_DOC_ID = "MospcNiJf0Q5u3fzRwdR"
+RESUME_DOC_ID = "sLvudUa2lRqI70GNSSGx"
+JOB_DOC_ID = "jS2zIF9oeFe3gH8XhuQE"
 
 
 def main():
