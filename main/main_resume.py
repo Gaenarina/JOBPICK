@@ -17,35 +17,32 @@ from database.firebase_save_resume import (
     save_resume,
     save_failed_resume,
 )
+from database.firebase_storage_resume import download_resume_from_storage
 
 
-#PDF_PATH = "data/resume_sample/예시이력서_강하린_많은경력.pdf"
-#PDF_PATH = "data/resume_sample/예시이력서_최지훈_고졸.pdf"
-#PDF_PATH = "data/resume_sample/예시이력서_박서연_문과.pdf"
-PDF_PATH = "data/resume_sample/예시이력서_김도현_이과.pdf"
-
-def main():
-    db = init_firebase("config/firebase_key.json")
+def main(doc_id):
+    db, bucket = init_firebase("config/firebase_key.json")
+    local_pdf_path = ""
+    storage_path = ""
 
     try:
-        # -----------------------------
-        # 1. OCR
-        # -----------------------------
-        raw_text = extract_text_from_pdf(PDF_PATH)
+        doc_ref = db.collection("resumes").document(doc_id)
+        doc = doc_ref.get()
 
-        # -----------------------------
-        # 2. 전처리
-        # -----------------------------
+        if not doc.exists:
+            raise Exception("문서 없음")
+
+        data = doc.to_dict()
+        storage_path = data["storagePath"]
+
+        local_pdf_path = download_resume_from_storage(bucket, storage_path)
+
+        raw_text = extract_text_from_pdf(local_pdf_path)
+
         preprocessed_text = preprocess_text(raw_text)
 
-        # -----------------------------
-        # 3. 구조화
-        # -----------------------------
         structured_data = structure_resume(preprocessed_text)
 
-        # -----------------------------
-        # 4. 결과 출력
-        # -----------------------------
         print("\n[OCR 원문]")
         print(raw_text)
 
@@ -55,18 +52,17 @@ def main():
         print("\n[구조화 결과]")
         print(json.dumps(structured_data, ensure_ascii=False, indent=2))
 
-        # -----------------------------
-        # 5. Firestore 저장
-        # -----------------------------
         saved_id = save_resume(
             db=db,
             structured_data=structured_data,
-            source_file_path=PDF_PATH,
+            source_file_path=storage_path,
             raw_text=raw_text,
             preprocessed_text=preprocessed_text
         )
 
         print(f"\n[Firestore 저장 완료] {saved_id}")
+
+        return saved_id
 
     except Exception as error:
         print("\n[처리 실패]")
@@ -74,12 +70,25 @@ def main():
 
         failed_id = save_failed_resume(
             db=db,
-            source_file_path=PDF_PATH,
+            source_file_path=storage_path,
             error_message=str(error)
         )
 
         print(f"\n[Firestore 실패 저장] {failed_id}")
 
+        raise error
+
+    finally:
+        if local_pdf_path and os.path.exists(local_pdf_path):
+            os.remove(local_pdf_path)
+
+
+def process_resume_by_doc_id(doc_id):
+    return main(doc_id)
+
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) < 2:
+        print("사용법: py main/main_resume.py <doc_id>")
+    else:
+        main(sys.argv[1])

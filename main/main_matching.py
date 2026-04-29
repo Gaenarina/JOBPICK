@@ -16,130 +16,73 @@ from matching.matchtest import (
     get_job_embedding_text,
     calculate_full_embedding_similarity,
 )
-from embedding.chroma_store import (
-    get_chroma_collection,
-    upsert_document,
-    query_similar,
-)
 
 
-RESUME_DOC_ID = "sLvudUa2lRqI70GNSSGx"
-JOB_DOC_ID = "jS2zIF9oeFe3gH8XhuQE"
+def process_matching_by_resume_id(resume_doc_id, limit=5):
+    db, _ = init_firebase("config/firebase_key.json")
 
+    resume_snapshot = db.collection("resumes").document(resume_doc_id).get()
 
-def main():
-    db = init_firebase("config/firebase_key.json")
+    if not resume_snapshot.exists:
+        raise Exception(f"이력서 문서가 없습니다: {resume_doc_id}")
 
-    try:
-        resume_snapshot = db.collection("resumes").document(RESUME_DOC_ID).get()
-        job_snapshot = db.collection("job_postings").document(JOB_DOC_ID).get()
+    resume_raw = resume_snapshot.to_dict()
+    resume_for_score = flatten_resume(resume_raw)
+    resume_embedding_text = get_resume_embedding_text(resume_raw)
 
-        if not resume_snapshot.exists:
-            print("[오류] 이력서 문서가 없습니다.")
-            print(f"resume doc id: {RESUME_DOC_ID}")
-            return
+    job_snapshots = db.collection("job_postings").stream()
 
-        if not job_snapshot.exists:
-            print("[오류] 공고 문서가 없습니다.")
-            print(f"jobPosting doc id: {JOB_DOC_ID}")
-            return
+    results = []
 
-        resume_raw = resume_snapshot.to_dict()
+    for job_snapshot in job_snapshots:
+        job_doc_id = job_snapshot.id
         job_raw = job_snapshot.to_dict()
 
-        resume_for_score = flatten_resume(resume_raw)
         job_for_score = flatten_job(job_raw)
 
-        print("\n[정규화된 이력서 데이터]")
-        print(resume_for_score)
-
-        print("\n[정규화된 공고 데이터]")
-        print(job_for_score)
-
-        # 1. 룰 기반 + 의미 기반 점수 계산
         result = calculate_full_score(
             job_for_score,
             resume_for_score,
-            label="실제 Firebase 데이터 비교"
+            label=f"resume {resume_doc_id} - job {job_doc_id}"
         )
 
-        # 2. fullForEmbedding 전체 임베딩 유사도 계산
-        resume_embedding_text = get_resume_embedding_text(resume_raw)
         job_embedding_text = get_job_embedding_text(job_raw)
-
-        print("\n[이력서 fullForEmbedding]")
-        print(resume_embedding_text)
-
-        print("\n[공고 fullForEmbedding]")
-        print(job_embedding_text)
 
         full_sim, full_score = calculate_full_embedding_similarity(
             resume_embedding_text,
             job_embedding_text
         )
 
-        print("\n[전체 임베딩 유사도]")
-        print(f"유사도: {full_sim:.4f}")
-        print(f"20점 환산 점수: {full_score:.2f}")
+        final_result = {
+            "jobId": job_doc_id,
+            "title": job_raw.get("jobPosting", {}).get("title", ""),
+            "company": job_raw.get("jobPosting", {}).get("company", ""),
+            "finalScore": round(result.get("final_score", 0), 2),
+            "ruleTotal": round(result.get("rule_total", 0), 2),
+            "semanticTotal": round(result.get("semantic_total", 0), 2),
+            "embeddingSimilarity": round(full_sim, 4),
+            "embeddingScore": round(full_score, 2),
+            "unmetConditions": result.get("unmet_conditions", []),
+        }
 
-        # 3. ChromaDB 저장
-        collection = get_chroma_collection()
+        results.append(final_result)
 
-        upsert_document(
-            collection=collection,
-            doc_id=f"resume_{RESUME_DOC_ID}",
-            text=resume_embedding_text,
-            metadata={
-                "type": "resume",
-                "docId": RESUME_DOC_ID,
-                "name": resume_raw.get("resume", {}).get("resumeData", {}).get("basicInfo", {}).get("name", "")
-            }
-        )
+    results.sort(key=lambda x: x["finalScore"], reverse=True)
 
-        upsert_document(
-            collection=collection,
-            doc_id=f"job_{JOB_DOC_ID}",
-            text=job_embedding_text,
-            metadata={
-                "type": "job_posting",
-                "docId": JOB_DOC_ID,
-                "title": job_raw.get("jobPosting", {}).get("title", "")
-            }
-        )
+    return results[:limit]
 
-        print("\n[ChromaDB 저장 완료]")
 
-        # 4. 이력서 기준 유사 문서 조회
-        chroma_result = query_similar(
-            collection=collection,
-            query_text=resume_embedding_text,
-            n_results=3
-        )
+def main():
+    if len(sys.argv) < 2:
+        print("사용법: py main/main_matching.py <resume_doc_id>")
+        return
 
-        print("\n[ChromaDB 유사도 조회 결과]")
-        print(chroma_result)
+    resume_doc_id = sys.argv[1]
+    results = process_matching_by_resume_id(resume_doc_id)
 
-        # 5. 발표용 최종 요약
-        print("\n[최종 요약]")
-        print(f"- 룰 기반 점수: {result['rule_total']:.2f}/80")
-        print(f"- 의미 기반 점수: {result['semantic_total']:.2f}/20")
-        print(f"- 합산 점수: {result['final_score']:.2f}/100")
-        print(f"- 전체 임베딩 유사도: {full_sim:.4f}")
-        print(f"- 전체 임베딩 20점 환산: {full_score:.2f}")
-
-        print("\n[미충족 조건]")
-        if result["unmet_conditions"]:
-            for reason in result["unmet_conditions"]:
-                print(f"- {reason}")
-        else:
-            print("- 없음")
-
-        print("\n[최종 결과 dict]")
-        print(result)
-
-    except Exception as error:
-        print("\n[매칭 실패]")
-        print(str(error))
+    print("\n[매칭 결과]")
+    for item in results:
+        print(item)
 
 
 if __name__ == "__main__":
