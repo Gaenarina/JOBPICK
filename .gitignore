@@ -1,1 +1,8 @@
+<<<<<<< HEAD
 node_modules
+=======
+node_modules/
+.next/
+crawler/*.json
+.env
+>>>>>>> a51e57451785840ecca1cdb2190645660673ceaa
