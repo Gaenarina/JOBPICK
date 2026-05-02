@@ -29,6 +29,68 @@ export default function LandingPage() {
     fileInputRef.current?.click()
   }
 
+  const checkResumeStatus = async (resumeId) => {
+    try {
+      const res = await fetch(`/api/resume/${resumeId}`)
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || '상태 조회 실패')
+      }
+
+      const latestStatus = data.status || 'INIT'
+
+      setResumes((prev) =>
+        prev.map((r) =>
+          r.id === resumeId
+            ? { ...r, status: latestStatus }
+            : r
+        )
+      )
+
+      setSelectedResume((prev) =>
+        prev?.id === resumeId
+          ? { ...prev, status: latestStatus }
+          : prev
+      )
+
+      if (latestStatus === 'PROCESSING') {
+        setIsAnalyzing(true)
+        setAnalysisDone(false)
+      }
+
+      if (latestStatus === 'DONE') {
+        setIsAnalyzing(false)
+        setAnalysisDone(true)
+      }
+
+      if (latestStatus === 'FAILED') {
+        setIsAnalyzing(false)
+        setAnalysisDone(false)
+      }
+
+      return latestStatus
+    } catch (error) {
+      console.error(error)
+      return null
+    }
+  }
+
+  const startStatusPolling = (resumeId) => {
+    let count = 0
+    const maxCount = 10
+
+    const timer = setInterval(async () => {
+      count += 1
+
+      const status = await checkResumeStatus(resumeId)
+
+      if (status === 'DONE' || status === 'FAILED' || count >= maxCount) {
+        clearInterval(timer)
+      }
+    }, 2000)
+  }
+
   const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
@@ -75,14 +137,14 @@ export default function LandingPage() {
         name: file.name,
         size: Math.round(file.size / 1024) + ' KB',
         date: dateStr,
+        status: data.status || 'INIT',
       }]
 
       setResumes(addResumes(mapped))
       setShowSavedResumes(true)
       setSelectedResume(mapped[0])
 
-      setIsAnalyzing(false)
-      setAnalysisDone(true)
+      startStatusPolling(mapped[0].id)
     } catch (error) {
       console.error(error)
       alert(error.message || '업로드 중 오류가 발생했습니다.')
@@ -98,7 +160,7 @@ export default function LandingPage() {
     setBookmarkIds(getBookmarks().map((item) => item.id))
   }, [mounted])
 
-  const name = user?.name || '홍길동'
+  const name = user?.displayName || '임현지'
 
   const handleResumeAnalyze = (resume) => {
     setSelectedResume(resume)
@@ -157,6 +219,7 @@ export default function LandingPage() {
           <p className="text-gray-500 text-sm mb-4">
             로그인 후 이력서를 업로드하면 AI가 분석하여 맞춤 채용공고를 추천해드립니다.
           </p>
+
           <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 bg-white">
             <div className="flex flex-wrap gap-3 mb-4">
               <button
@@ -168,6 +231,7 @@ export default function LandingPage() {
               >
                 등록한 이력서 불러오기
               </button>
+
               <button
                 type="button"
                 onClick={handleNewUploadClick}
@@ -175,6 +239,7 @@ export default function LandingPage() {
               >
                 새 이력서 등록하기
               </button>
+
               <input
                 ref={fileInputRef}
                 type="file"
@@ -184,16 +249,23 @@ export default function LandingPage() {
                 onChange={handleFileSelect}
               />
             </div>
-            <p className="text-sm text-gray-500 mb-3">PDF, DOC, DOCX 파일을 업로드하거나, 등록한 이력서를 선택해 분석해보세요.</p>
+
+            <p className="text-sm text-gray-500 mb-3">
+              PDF, DOC, DOCX 파일을 업로드하거나, 등록한 이력서를 선택해 분석해보세요.
+            </p>
+
             {showSavedResumes && (
               <div className="flex flex-col gap-3">
                 {resumes.length === 0 ? (
                   <p className="text-sm text-gray-500">등록된 이력서가 없습니다. 새 이력서를 등록해 주세요.</p>
                 ) : (
                   resumes.map((r) => (
-                    <div key={r.id} className={`flex items-center justify-between gap-3 p-4 border rounded-lg bg-white ${
-                      selectedResume?.id === r.id ? 'border-primary' : 'border-gray-200'
-                    }`}>
+                    <div
+                      key={r.id}
+                      className={`flex items-center justify-between gap-3 p-4 border rounded-lg bg-white ${
+                        selectedResume?.id === r.id ? 'border-primary' : 'border-gray-200'
+                      }`}
+                    >
                       <button
                         type="button"
                         onClick={() => handleResumeAnalyze(r)}
@@ -205,8 +277,15 @@ export default function LandingPage() {
                           <span className="text-sm text-gray-500">
                             {r.size} · {r.date}
                           </span>
+                          <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600">
+                            {r.status === 'INIT' && '업로드 완료'}
+                            {r.status === 'PROCESSING' && '분석 중'}
+                            {r.status === 'DONE' && '분석 완료'}
+                            {r.status === 'FAILED' && '실패'}
+                          </span>
                         </div>
                       </button>
+
                       <button
                         type="button"
                         onClick={() => handleDeleteResume(r.id)}
@@ -219,6 +298,7 @@ export default function LandingPage() {
                 )}
               </div>
             )}
+
             {isAnalyzing && (
               <div className="mt-4 p-4 bg-white/80 rounded-lg flex items-center gap-3 text-sm text-gray-700">
                 <div className="w-5 h-5 border-2 border-gray-200 border-t-primary rounded-full animate-spin" />
@@ -226,20 +306,26 @@ export default function LandingPage() {
               </div>
             )}
           </div>
+
           {analysisDone && (
             <div className="mt-6 bg-white rounded-xl p-4 border border-blue-200">
               <p className="text-sm text-gray-600 mb-2">
                 {name} 님의 이력서 기준으로 아래 채용 공고를 추천드려요.
               </p>
+
               <div className="flex flex-col gap-3">
                 {DASHBOARD_JOBS.slice(0, 3).map((job) => (
                   <div key={job.id} className="flex items-center justify-between gap-3 border border-gray-200 rounded-lg p-4">
                     <div>
                       <p className="text-xs text-gray-500 mb-1">{job.company}</p>
-                      <button onClick={() => handleGoJob(job)} className="font-medium text-sm text-left hover:text-primary transition-colors">
+                      <button
+                        onClick={() => handleGoJob(job)}
+                        className="font-medium text-sm text-left hover:text-primary transition-colors"
+                      >
                         {job.title}
                       </button>
                     </div>
+
                     <div className="flex items-center gap-3">
                       <button onClick={() => handleToggleBookmark(job)} aria-label="북마크">
                         <svg width="22" height="22" viewBox="0 0 24 24" fill={bookmarkIds.includes(job.id) ? '#2563eb' : '#ffffff'} xmlns="http://www.w3.org/2000/svg">
@@ -251,6 +337,7 @@ export default function LandingPage() {
                           />
                         </svg>
                       </button>
+
                       {job.matchRate && (
                         <span className="text-primary font-bold text-lg">{job.matchRate}%</span>
                       )}
@@ -260,6 +347,7 @@ export default function LandingPage() {
               </div>
             </div>
           )}
+
           {isAuthenticated && (
             <div className="mt-4 flex justify-end">
               <button
@@ -276,11 +364,13 @@ export default function LandingPage() {
 
       <section className="mt-8">
         <h2 className="text-lg font-semibold mb-4">인기 커리어</h2>
+
         <div className="mb-4">
           <select className="px-3 py-2 border border-gray-200 rounded-md text-sm bg-white">
             <option>IT/개발</option>
           </select>
         </div>
+
         <div className="flex flex-col gap-4">
           {DASHBOARD_JOBS.slice(0, 2).map((job) => (
             <div key={job.id} className="relative bg-white rounded-lg p-5 shadow-sm border border-gray-200">
@@ -294,10 +384,16 @@ export default function LandingPage() {
                   />
                 </svg>
               </button>
-              <button onClick={() => handleGoJob(job)} className="font-semibold mb-1 hover:text-primary transition-colors text-left">
+
+              <button
+                onClick={() => handleGoJob(job)}
+                className="font-semibold mb-1 hover:text-primary transition-colors text-left"
+              >
                 {job.title}
               </button>
+
               <p className="text-sm text-gray-500 mb-2">{job.company}</p>
+
               <div className="flex gap-2 flex-wrap">
                 <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">{job.career}</span>
                 <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">{job.location}</span>

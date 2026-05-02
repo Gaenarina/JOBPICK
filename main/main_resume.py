@@ -34,6 +34,10 @@ def main(doc_id):
         if not doc.exists:
             raise Exception("문서 없음")
 
+        doc_ref.update({
+            "status": "PROCESSING"
+        })
+
         data = doc.to_dict()
         storage_path = data["storagePath"]
 
@@ -72,8 +76,11 @@ def main(doc_id):
         # -----------------------------
         # 6. Firestore 저장
         # -----------------------------
+        print("[main_resume] 전달할 doc_id:", doc_id)
+
         saved_id = save_resume(
             db=db,
+            doc_id=doc_id,
             structured_data=structured_data,
             source_file_path=storage_path,
             raw_text=raw_text,
@@ -81,6 +88,10 @@ def main(doc_id):
         )
 
         print(f"\n[Firestore 저장 완료] {saved_id}")
+
+        doc_ref.update({
+            "status": "DONE"
+        })
 
     except Exception as error:
         print("\n[처리 실패]")
@@ -93,6 +104,10 @@ def main(doc_id):
         )
 
         print(f"\n[Firestore 실패 저장] {failed_id}")
+
+        doc_ref.update({
+            "status": "FAILED"
+        })
 
     finally:
         if local_pdf_path and os.path.exists(local_pdf_path):

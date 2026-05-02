@@ -3,17 +3,19 @@ from datetime import datetime
 
 def save_resume(
     db,
+    doc_id,  
     structured_data,
     source_file_path="",
     raw_text="",
     preprocessed_text=""
 ):
     """
-    구조화된 이력서 데이터를 Firestore에 저장한다.
+    기존 resumes/{doc_id} 문서에 구조화된 이력서 데이터를 업데이트한다.
     """
-
-    doc_ref = db.collection("resumes").document()
-
+    print("[save_resume] 업데이트할 doc_id:", doc_id)
+    doc_ref = db.collection("resumes").document(doc_id)
+    print("[save_resume] doc_ref.id:", doc_ref.id)
+    
     save_data = {
         "resume": structured_data,
         "meta": {
@@ -21,12 +23,12 @@ def save_resume(
         },
         "rawText": raw_text,
         "preprocessedText": preprocessed_text,
-        "createdAt": datetime.utcnow().isoformat(),
+        "status": "DONE",  # ⭐ 상태 변경
         "updatedAt": datetime.utcnow().isoformat(),
     }
 
-    doc_ref.set(save_data)
-    return doc_ref.id
+    doc_ref.update(save_data)
+    return doc_id
 
 
 def save_failed_resume(

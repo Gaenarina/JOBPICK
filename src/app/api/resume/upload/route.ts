@@ -45,17 +45,18 @@ export async function POST(req: Request) {
     // -----------------------------
     // 4. Python 서버 호출 (🔥 핵심)
     // -----------------------------
-    await fetch("http://localhost:8000/process-resume", {
+    fetch("http://localhost:8000/process-resume", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ docId }),
-    });
+    }).catch(() => {});
 
     return NextResponse.json({
       message: "업로드 및 처리 시작 완료",
       docId,
+      status: "INIT",
     });
 
   } catch (error) {

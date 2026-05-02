@@ -1,49 +1,76 @@
 'use client'
 
-import { createContext, useContext, useState, useEffect } from 'react'
-
-const AUTH_KEY = 'jobpick_user'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import {
+  onAuthStateChanged,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+} from 'firebase/auth'
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore'
+import { auth, db } from '../lib/firebase'
+import { updateProfile } from 'firebase/auth'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
-  const [mounted, setMounted] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(AUTH_KEY)
-      setUser(saved ? JSON.parse(saved) : null)
-    } catch (error) {
-      console.error('인증 정보 로딩 실패:', error)
-      localStorage.removeItem(AUTH_KEY)
-      setUser(null)
-    }
-    setMounted(true)
+    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
+      setUser(firebaseUser)
+      setLoading(false)
+    })
+
+    return () => unsubscribe()
   }, [])
 
-  const login = (email, password, name = '홍길동') => {
-    const userData = { email, name }
-    setUser(userData)
-    localStorage.setItem(AUTH_KEY, JSON.stringify(userData))
+  const signup = async (email, password, name = '') => {
+    const credential = await createUserWithEmailAndPassword(auth, email, password)
+
+    await updateProfile(credential.user, {
+      displayName: name,
+    })
+
+    await setDoc(
+      doc(db, 'users', credential.user.uid),
+      {
+        uid: credential.user.uid,
+        email: credential.user.email,
+        name,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    )
+
+    return credential.user
   }
 
-  const signup = (name, email) => {
-    const userData = { email, name: name || '홍길동' }
-    setUser(userData)
-    localStorage.setItem(AUTH_KEY, JSON.stringify(userData))
+  const login = async (email, password) => {
+    const credential = await signInWithEmailAndPassword(auth, email, password)
+    return credential.user
   }
 
-  const logout = () => {
-    setUser(null)
-    localStorage.removeItem(AUTH_KEY)
+  const logout = async () => {
+    await signOut(auth)
   }
 
-  return (
-    <AuthContext.Provider value={{ user, login, signup, logout, isAuthenticated: !!user, mounted }}>
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      user,
+      loading,
+      login,
+      signup,
+      logout,
+      isAuthenticated: !!user,
+      mounted: !loading,
+    }),
+    [user, loading]
   )
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {

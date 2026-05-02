@@ -17,22 +17,31 @@ export default function SignupPage() {
   const { signup } = useAuth()
   const router = useRouter()
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
+
     if (!termsAgreed) {
       alert('필수 항목을 모두 입력해주세요.')
       return
     }
+
     if (password !== passwordConfirm) {
       alert('비밀번호가 일치하지 않습니다.')
       return
     }
+
     if (password.length < 8) {
       alert('비밀번호는 최소 8자 이상 입력해주세요.')
       return
     }
-    signup(name, email)
-    router.replace('/dashboard')
+
+    try {
+      await signup(email, password, name)
+      router.replace('/') // 또는 '/dashboard'
+    } catch (error) {
+      console.error(error)
+      alert(`회원가입 실패: ${error.message}`)
+    }
   }
 
   return (

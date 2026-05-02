@@ -12,11 +12,19 @@ export default function LoginPage() {
   const { login } = useAuth()
   const router = useRouter()
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    if (email && password) {
-      login(email, password)
-      router.replace('/dashboard')
+
+    if (!email || !password) return
+
+    try {
+      const loggedInUser = await login(email, password)
+      console.log('로그인 성공:', loggedInUser)
+      alert('로그인 성공')
+      router.replace('/')
+    } catch (error) {
+      console.error('로그인 에러:', error)
+      alert(`로그인 실패: ${error.message}`)
     }
   }
 
