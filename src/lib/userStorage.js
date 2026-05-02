@@ -5,6 +5,7 @@ const APPLICATION_KEY = 'jobpick_applications'
 const RECENT_KEY = 'jobpick_recent_jobs'
 const BOOKMARK_KEY = 'jobpick_bookmarks'
 
+/*   */
 function readJson(key, fallback) {
   if (typeof window === 'undefined') return fallback
   try {

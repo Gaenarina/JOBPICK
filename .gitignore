@@ -17,6 +17,9 @@ chroma_db/
 archive/
 *.bin
 
+# Crawler
+crawler/*.json
+
 # Firebase / key / config
 config/
 firebase_key.json
