@@ -1,2 +1,11 @@
-
 node_modules/
+.next/
+.env.local
+
+config/firebase_key.json
+firebase_key.json
+vision_key.json
+
+__pycache__/
+*.pyc
+debug_jobkorea_image.bin
