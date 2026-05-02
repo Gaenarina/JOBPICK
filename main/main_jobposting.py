@@ -20,8 +20,23 @@ from database.firebase_save_jobposting import (
     save_failed_jobposting,
 )
 
+TARGET_COUNT = 10
 
-TARGET_COUNT = 4
+
+def load_existing_links(db):
+    existing_links = set()
+
+    for doc in db.collection("job_postings").stream():
+        data = doc.to_dict() or {}
+        source_url = (
+            data.get("jobPosting", {}).get("sourceUrl", "")
+            or data.get("meta", {}).get("sourceUrl", "")
+            or data.get("sourceUrl", "")
+        )
+        if source_url:
+            existing_links.add(source_url)
+
+    return existing_links
 
 
 def main():
@@ -29,7 +44,13 @@ def main():
     crawler = JobKoreaCrawler(headless=True)
 
     try:
-        postings = crawler.crawl_multiple_postings(target_count=TARGET_COUNT)
+        existing_links = load_existing_links(db)
+        print(f"[기존 공고 링크 수] {len(existing_links)}")
+
+        postings = crawler.crawl_multiple_postings(
+            target_count=TARGET_COUNT,
+            existing_links=existing_links
+        )
 
         for index, posting in enumerate(postings, start=1):
             print("\n" + "=" * 100)
@@ -39,6 +60,7 @@ def main():
             print("공고 링크:", posting.get("url", ""))
 
             main_data = posting.get("main") or {}
+            summary_data = posting.get("summary") or {}
 
             if not main_data:
                 print("\n[처리 실패] 메인 공고 내용이 없습니다.")
@@ -57,9 +79,6 @@ def main():
 
             posting_type = main_data.get("posting_type", "")
 
-            # -----------------------------
-            # 1. 텍스트 공고 처리
-            # -----------------------------
             if posting_type in ["old_text", "new_text"]:
                 print("\n[텍스트 공고]")
 
@@ -67,6 +86,13 @@ def main():
 
                 print("\n[구조화 결과]")
                 print(json.dumps(structured_data, ensure_ascii=False, indent=2))
+
+                raw_crawled_text = main_data.get("raw_crawled_text", "")
+                raw_summary_text = summary_data.get("raw_summary_text", "")
+
+                merged_raw_text = "\n\n".join([
+                    text for text in [raw_crawled_text, raw_summary_text] if text
+                ])
 
                 saved_id = save_jobposting(
                     db=db,
@@ -76,14 +102,11 @@ def main():
                     title=posting.get("title", ""),
                     posting_type=posting_type,
                     image_url="",
-                    raw_text="",
+                    raw_text=merged_raw_text,
                     preprocessed_text=""
                 )
                 print(f"\n[Firestore 저장 완료] {saved_id}")
 
-            # -----------------------------
-            # 2. 이미지 공고 처리
-            # -----------------------------
             elif posting_type == "image":
                 print("\n[이미지 공고]")
 
@@ -141,7 +164,15 @@ def main():
                 structured_data = structure_jobposting_from_image(
                     merged_preprocessed_text,
                     image_url=image_urls[0],
-                    company_name_hint=posting.get("company", "")
+                    company_name_hint=posting.get("company", ""),
+                    title_hint=posting.get("title", ""),
+                    source_url=posting.get("url", ""),
+                    meta={
+                        "companyName": posting.get("company", ""),
+                        "title": posting.get("title", ""),
+                        "sourceUrl": posting.get("url", ""),
+                        "imageUrl": image_urls[0],
+                    }
                 )
 
                 print("\n[구조화 결과]")
@@ -160,9 +191,6 @@ def main():
                 )
                 print(f"\n[Firestore 저장 완료] {saved_id}")
 
-            # -----------------------------
-            # 3. 지원하지 않는 공고 유형
-            # -----------------------------
             else:
                 print(f"\n[처리 실패] 알 수 없는 공고 유형: {posting_type}")
 

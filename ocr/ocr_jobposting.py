@@ -1,15 +1,20 @@
 # ocr_jobposting
 
+import os
 import requests
 from google.cloud import vision
 from google.oauth2 import service_account
 
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
+
+VISION_KEY_PATH = os.path.join(PROJECT_ROOT, "config", "vision_key.json")
 
 # -----------------------------
 # 1. Google Vision 인증
 # -----------------------------
 credentials = service_account.Credentials.from_service_account_file(
-    "C:/Users/82108/jobpick/config/vision_key.json"
+    VISION_KEY_PATH
 )
 
 vision_client = vision.ImageAnnotatorClient(credentials=credentials)

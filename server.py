@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import traceback
 from main.main_resume import process_resume_by_doc_id
+from main.main_matching import process_matching_by_resume_id
 
 app = Flask(__name__)
 
@@ -14,8 +15,15 @@ def process_resume():
     doc_id = data.get("docId")
 
     try:
-        process_resume_by_doc_id(doc_id)
-        return jsonify({"message": "처리 완료"})
+        resume_id = process_resume_by_doc_id(doc_id)
+        matches = process_matching_by_resume_id(resume_id)
+
+        return jsonify({
+            "message": "처리 완료",
+            "resumeId": resume_id,
+            "matches": matches
+        })
+
     except Exception as e:
         print("\n[Python 서버 처리 실패]")
         print(traceback.format_exc())

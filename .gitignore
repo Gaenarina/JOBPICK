@@ -1,11 +1,24 @@
-node_modules/
-.next/
-.env.local
-
-config/firebase_key.json
-firebase_key.json
-vision_key.json
-
+# Python
+venv/
+.venv/
 __pycache__/
 *.pyc
-debug_jobkorea_image.bin
+
+# Node / Next
+node_modules/
+.next/
+
+# 환경 변수
+.env
+.env.local
+
+# DB / 임시 파일
+chroma_db/
+archive/
+*.bin
+
+# Firebase / key / config
+config/
+firebase_key.json
+vision_key.json
+sunlit-plasma-488515-g8-8704e17d4636.json
