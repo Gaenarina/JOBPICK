@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from '@/lib/firebaseAdmin";
+import { db } from "@/lib/firebaseAdmin";
 
 export async function GET(req, { params }) {
   try {
