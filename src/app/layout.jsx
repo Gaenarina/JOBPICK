@@ -1,6 +1,6 @@
-import { AuthProvider } from '../context/AuthContext'
-import { NotificationProvider } from '../context/NotificationContext'
-import Navbar from '../components/Navbar'
+import { AuthProvider } from '@/context/AuthContext'
+import { NotificationProvider } from '@/context/NotificationContext'
+import Navbar from '@/components/Navbar'
 import './globals.css'
 
 export const metadata = {

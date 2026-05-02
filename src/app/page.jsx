@@ -2,9 +2,9 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '../context/AuthContext'
-import { addResumes, getBookmarks, getResumes, pushRecentJob, removeResume, toggleBookmark } from '../lib/userStorage'
-import { DASHBOARD_JOBS } from '../lib/jobs'
+import { useAuth } from '@/context/AuthContext'
+import { addResumes, getBookmarks, getResumes, pushRecentJob, removeResume, toggleBookmark } from '@/lib/userStorage'
+import { DASHBOARD_JOBS } from '@/lib/jobs'
 
 export default function LandingPage() {
   const router = useRouter()

@@ -2,8 +2,8 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '../context/AuthContext'
-import { getBookmarks, getRecentJobs, toggleBookmark } from '../lib/userStorage'
+import { useAuth } from '@/context/AuthContext'
+import { getBookmarks, getRecentJobs, toggleBookmark } from '@/lib/userStorage'
 import { useState } from 'react'
 
 export default function RecentJobsPage() {

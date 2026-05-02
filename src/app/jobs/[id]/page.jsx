@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
-import { useAuth } from '../context/AuthContext'
-import { getJobById } from '../lib/jobs'
-import { getBookmarks, toggleBookmark } from '../lib/userStorage'
+import { useAuth } from '@/context/AuthContext'
+import { getJobById } from '@/lib/jobs'
+import { getBookmarks, toggleBookmark } from '@/lib/userStorage'
 
 export default function JobDetailPage() {
   const router = useRouter()

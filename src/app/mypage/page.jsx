@@ -3,8 +3,8 @@
 import { useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '../context/AuthContext'
-import { getApplications, getBookmarks, getRecentJobs, getResumes } from '../lib/userStorage'
+import { useAuth } from '@/context/AuthContext'
+import { getApplications, getBookmarks, getRecentJobs, getResumes } from '@/lib/userStorage'
 
 const ACTIVITY_ITEMS = [
   { href: '/mypage/resumes', icon: '📄', label: '이력서 관리', key: 'resumes' },

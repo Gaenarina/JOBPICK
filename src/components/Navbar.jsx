@@ -3,8 +3,8 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useAuth } from '../context/AuthContext'
-import { useNotifications } from '../context/NotificationContext'
+import { useAuth } from '@/context/AuthContext'
+import { useNotifications } from '@/context/NotificationContext'
 import SlideMenu from './SlideMenu'
 import NotificationPanel from './NotificationPanel'
 

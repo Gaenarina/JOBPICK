@@ -8,7 +8,7 @@ import {
   signOut,
 } from 'firebase/auth'
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore'
-import { auth, db } from '../lib/firebase'
+import { auth, db } from '@/lib/firebase'
 import { updateProfile } from 'firebase/auth'
 
 const AuthContext = createContext(null)

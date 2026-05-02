@@ -2,9 +2,9 @@
 
 import { useMemo, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '../context/AuthContext'
-import { addResumes, getApplications, getBookmarks, getResumes, pushRecentJob, toggleBookmark, upsertApplication } from '../lib/userStorage'
-import { DASHBOARD_JOBS } from '../lib/jobs'
+import { useAuth } from '@/context/AuthContext'
+import { addResumes, getApplications, getBookmarks, getResumes, pushRecentJob, toggleBookmark, upsertApplication } from '@/lib/userStorage'
+import { DASHBOARD_JOBS } from '@/lib/jobs'
 
 export default function DashboardPage() {
   const { user, isAuthenticated, mounted } = useAuth()
