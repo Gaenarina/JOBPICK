@@ -20,7 +20,7 @@ from database.firebase_save_jobposting import (
     save_failed_jobposting,
 )
 
-TARGET_COUNT = 10
+TARGET_COUNT = 5
 
 
 def load_existing_links(db):
@@ -40,7 +40,7 @@ def load_existing_links(db):
 
 
 def main():
-    db = init_firebase("config/firebase_key.json")
+    db, _ = init_firebase("config/firebase_key.json")
     crawler = JobKoreaCrawler(headless=True)
 
     try:

@@ -1,3 +1,4 @@
+/*
 export const DASHBOARD_JOBS = [
   { id: 'd-1', title: '의료기기 물품 입출고 관리 및 사무 보조 채용', company: '(주)프롬메드', location: '경기 하남시', career: '신입·경력1년↑', category: '사무·총무', matchRate: 71, salary: '3,400만원' },
   { id: 'd-2', title: 'DB전문영업본부 경력 보험설계사', company: '(주)미래전략금융서비스', location: '서울 중구', career: '경력', category: '영업·고객상담', matchRate: 60, salary: '3,800만원' },
@@ -12,6 +13,17 @@ export const INTERN_JOBS = [
 ]
 
 export const ALL_JOBS = [...DASHBOARD_JOBS, ...INTERN_JOBS]
+
+export function getJobById(id) {
+  return ALL_JOBS.find((job) => String(job.id) === String(id))
+}
+*/
+
+export const DASHBOARD_JOBS = []
+
+export const INTERN_JOBS = []
+
+export const ALL_JOBS = []
 
 export function getJobById(id) {
   return ALL_JOBS.find((job) => String(job.id) === String(id))
