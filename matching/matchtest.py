@@ -4,11 +4,13 @@ from typing import Any, Dict, List, Tuple
 from sentence_transformers import SentenceTransformer, util
 
 
-# =============================
-# 0. 모델 로드
-# =============================
 MODEL_NAME = "jhgan/ko-sroberta-multitask"
 _model = None
+
+RULE_WEIGHT = 50.0
+SEMANTIC_WEIGHT = 50.0
+RESPONSIBILITY_SEMANTIC_WEIGHT = 35.0
+QUALIFICATION_SEMANTIC_WEIGHT = 15.0
 
 
 def get_model():
@@ -18,9 +20,6 @@ def get_model():
     return _model
 
 
-# =============================
-# 1. 공통 유틸
-# =============================
 def safe_str(value: Any) -> str:
     if value is None:
         return ""
@@ -53,7 +52,6 @@ def as_list(value: Any) -> List[Any]:
         value = value.strip()
         if not value:
             return []
-        # 쉼표/슬래시/줄바꿈 기반 분리. 단, 너무 긴 문장은 그대로 하나로 둔다.
         if any(sep in value for sep in [",", "\n", "|"]):
             return [x.strip() for x in re.split(r"[,\n|]+", value) if x.strip()]
         return [value]
@@ -75,16 +73,12 @@ def unique_preserve_order(items: List[Any]) -> List[str]:
     return result
 
 
-# =============================
-# 2. 스킬 정규화/비교
-# =============================
 INVALID_SKILL_TOKENS = {
     "", "c", "r", "im", "cs", "c/s", "i/b", "o/b", "ib", "ob",
     "a", "b", "d", "e", "f", "g", "n/a", "없음", "무관"
 }
 
 SKILL_ALIASES = {
-    # office / tools
     "excel": "excel",
     "엑셀": "excel",
     "microsoft excel": "excel",
@@ -110,7 +104,6 @@ SKILL_ALIASES = {
     "power bi": "power bi",
     "spss": "spss",
 
-    # languages
     "python": "python",
     "파이썬": "python",
     "java": "java",
@@ -132,7 +125,6 @@ SKILL_ALIASES = {
     "csharp": "c#",
     "sql": "sql",
 
-    # frontend/backend
     "react": "react",
     "react.js": "react",
     "reactjs": "react",
@@ -153,7 +145,6 @@ SKILL_ALIASES = {
     "django": "django",
     "flask": "flask",
 
-    # db/infra
     "mysql": "mysql",
     "mariadb": "mysql",
     "postgresql": "postgresql",
@@ -189,10 +180,9 @@ def normalize_skill(skill: Any) -> str:
     value = re.sub(r"\s+", " ", value).strip()
     value = value.strip(" ,./;:()[]{}<>|\\\"'")
 
-    # OCR 조각/너무 짧은 토큰 제거
     if value in INVALID_SKILL_TOKENS:
         return ""
-    if len(value) == 1 and value not in {"c"}:  # c는 위에서 제거
+    if len(value) == 1 and value not in {"c"}:
         return ""
 
     return SKILL_ALIASES.get(value, value)
@@ -209,10 +199,10 @@ def flatten_skill_items(value: Any) -> List[str]:
 
     normalized = []
     for item in raw_items:
-        # 긴 문장 안에 쉼표로 스킬이 있는 경우 처리
         text = clean_text(item)
         if not text:
             continue
+
         pieces = re.split(r"[,/|·ㆍ]+", text)
         if len(pieces) > 1:
             for p in pieces:
@@ -243,9 +233,6 @@ def calculate_skill_score(job_skills: Dict[str, Any], resume_skills: List[str]) 
     return score, len(matched), len(required_skills), True, matched
 
 
-# =============================
-# 3. 학력/경력/자격증 계산
-# =============================
 EDU_LEVELS = {
     "무관": 0,
     "학력무관": 0,
@@ -266,6 +253,7 @@ def normalize_education(value: Any) -> str:
     text = clean_text(value)
     if not text:
         return ""
+
     text_no_space = re.sub(r"\s+", "", text)
 
     if "학력무관" in text_no_space or text_no_space == "무관":
@@ -280,6 +268,7 @@ def normalize_education(value: Any) -> str:
         return "석사"
     if "박사" in text_no_space:
         return "박사"
+
     return text
 
 
@@ -338,6 +327,7 @@ def calculate_text_similarity(text1: str, text2: str) -> float:
     emb1 = model.encode(text1, convert_to_tensor=True)
     emb2 = model.encode(text2, convert_to_tensor=True)
     sim = util.cos_sim(emb1, emb2).item()
+
     return max(0.0, min(1.0, float(sim)))
 
 
@@ -362,7 +352,6 @@ def calculate_experience_score(job: Dict[str, Any], resume: Dict[str, Any]) -> T
     min_years = extract_min_years(job.get("experience", {}))
     resume_exp = float(resume.get("experienceYears", 0) or 0)
 
-    # 20점 = 연수 10점 + 관련성 10점
     year_max = 10.0
     relevance_max = 10.0
 
@@ -429,9 +418,6 @@ def calculate_certification_score(job_certs: List[Any], resume_certs: List[Any])
     return score, len(matched), len(required), True, matched
 
 
-# =============================
-# 4. 자격요건 룰 기반 점수
-# =============================
 QUALIFICATION_NOISE_KEYWORDS = [
     "담당업무", "업무", "상담문의", "고객문의", "청약", "배정", "정리",
     "어드민", "챗팅상담", "채팅상담", "처리", "운영관리", "유지보수",
@@ -441,6 +427,7 @@ QUALIFICATION_NOISE_KEYWORDS = [
 
 def is_valid_required_qualification(text: Any) -> bool:
     value = clean_text(text)
+
     if not value:
         return False
     if len(value) <= 2:
@@ -451,6 +438,7 @@ def is_valid_required_qualification(text: Any) -> bool:
         return False
     if any(k in value for k in QUALIFICATION_NOISE_KEYWORDS):
         return False
+
     return True
 
 
@@ -478,23 +466,18 @@ def calculate_qualification_rule_score(required_quals: List[Any], resume: Dict[s
     return score, matched, len(required), True
 
 
-# =============================
-# 5. 의미 기반 점수
-# =============================
 def calculate_semantic_score(resume_text: str, job_text: str, max_score: float) -> Tuple[float, float]:
     sim = calculate_text_similarity(resume_text, job_text)
     return sim, sim * max_score
 
 
-# =============================
-# 6. Firebase 문서 평탄화
-# =============================
 def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
     resume_root = firebase_resume_doc.get("resume", firebase_resume_doc) or {}
     data = resume_root.get("resumeData", resume_root) or {}
 
     skills_map = data.get("skills", {}) or {}
     skills = []
+
     if isinstance(skills_map, dict):
         skills.extend(as_list(skills_map.get("tools", [])))
         skills.extend(as_list(skills_map.get("languages", [])))
@@ -502,10 +485,12 @@ def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
         skills.extend(as_list(skills_map.get("etc", [])))
     else:
         skills.extend(as_list(skills_map))
+
     skills = unique_preserve_order(skills)
 
     education_list = data.get("education", []) or []
     education = ""
+
     if education_list:
         first_edu = education_list[0]
         if isinstance(first_edu, dict):
@@ -522,9 +507,11 @@ def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
             certifications.append(cert.get("name", ""))
         else:
             certifications.append(cert)
+
     certifications = unique_preserve_order(certifications)
 
     projects = []
+
     for exp in as_list(data.get("experience", [])):
         if isinstance(exp, dict):
             parts = [
@@ -568,6 +555,7 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
 
     education = ""
     edu_obj = requirements.get("education", {}) or {}
+
     if isinstance(edu_obj, dict):
         education = edu_obj.get("minimum", "")
     else:
@@ -598,9 +586,6 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# =============================
-# 7. 임베딩 텍스트 생성
-# =============================
 def get_resume_embedding_text(firebase_resume_doc: Dict[str, Any]) -> str:
     resume_root = firebase_resume_doc.get("resume", firebase_resume_doc) or {}
     data = resume_root.get("resumeData", resume_root) or {}
@@ -610,6 +595,7 @@ def get_resume_embedding_text(firebase_resume_doc: Dict[str, Any]) -> str:
         return clean_text(embedding.get("fullForEmbedding"))
 
     flat = flatten_resume(firebase_resume_doc)
+
     return clean_text(" / ".join([
         safe_str(flat.get("education", "")),
         safe_str(flat.get("skills", [])),
@@ -626,6 +612,7 @@ def get_job_embedding_text(firebase_job_doc: Dict[str, Any]) -> str:
         return clean_text(embedding.get("fullForEmbedding"))
 
     flat = flatten_job(firebase_job_doc)
+
     return clean_text(" / ".join([
         safe_str(flat.get("education", "")),
         safe_str(flat.get("skills", {})),
@@ -636,35 +623,27 @@ def get_job_embedding_text(firebase_job_doc: Dict[str, Any]) -> str:
 
 def calculate_full_embedding_similarity(resume_embedding_text: str, job_embedding_text: str) -> Tuple[float, float]:
     sim = calculate_text_similarity(resume_embedding_text, job_embedding_text)
-    return sim, sim * 20
+    return sim, sim * SEMANTIC_WEIGHT
 
 
-# =============================
-# 8. 최종 점수 계산
-# =============================
 def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str = "매칭") -> Dict[str, Any]:
     print(f"\n=== {label} 계산 과정 ===")
 
-    # 기술 점수: 실제 정규화된 스킬명이 일치할 때만 점수
     skill_score, skill_match_count, skill_total_count, skill_used, matched_skills = calculate_skill_score(
         job.get("skills", {}), resume.get("skills", [])
     )
 
-    # 학력 점수
     edu_score, edu_used, job_edu_level, resume_edu_level = calculate_education_score(
         job.get("education", ""), resume.get("education", "")
     )
 
-    # 경력 점수: 연수 10 + 관련성 10
     exp_score, exp_detail = calculate_experience_score(job, resume)
     exp_used = True
 
-    # 자격증 점수
     cert_score, cert_match_count, cert_total_count, cert_used, matched_certs = calculate_certification_score(
         job.get("certifications", []), resume.get("certifications", [])
     )
 
-    # 자격요건 룰 점수
     required_quals = (job.get("qualifications", {}) or {}).get("required", [])
     qual_rule_score, matched_quals, qual_total_count, qual_used = calculate_qualification_rule_score(
         required_quals, resume
@@ -699,20 +678,32 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         rule_score_max += 10
         active_rule_items.append("qualifications_rule")
 
-    rule_total = rule_score_sum
+    if rule_score_max > 0:
+        rule_total = (rule_score_sum / rule_score_max) * RULE_WEIGHT
+    else:
+        rule_total = 0.0
 
-    # 의미 기반 점수
     resume_exp_text = clean_text(" ".join(as_list(resume.get("projects", []))))
     job_resp_text = clean_text(" ".join(as_list(job.get("responsibilities", []))))
     job_qual_text = clean_text(" ".join(as_list((job.get("qualifications", {}) or {}).get("required", []))))
 
-    resp_sim, resp_score = calculate_semantic_score(resume_exp_text, job_resp_text, 15) if job_resp_text else (0.0, 0.0)
-    qual_sim, qual_score = calculate_semantic_score(resume_exp_text, job_qual_text, 5) if job_qual_text else (0.0, 0.0)
-    semantic_total = resp_score + qual_score
+    resp_sim, resp_score = calculate_semantic_score(
+        resume_exp_text,
+        job_resp_text,
+        RESPONSIBILITY_SEMANTIC_WEIGHT
+    ) if job_resp_text else (0.0, 0.0)
 
+    qual_sim, qual_score = calculate_semantic_score(
+        resume_exp_text,
+        job_qual_text,
+        QUALIFICATION_SEMANTIC_WEIGHT
+    ) if job_qual_text else (0.0, 0.0)
+
+    semantic_total = resp_score + qual_score
     final_score = min(rule_total + semantic_total, 100.0)
 
     unmet_conditions = []
+
     if skill_used and skill_match_count < skill_total_count:
         unmet_conditions.append("필수 기술 미충족")
     if edu_used and edu_score < 10:
@@ -725,6 +716,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         unmet_conditions.append("필수 자격요건 미충족")
 
     print("[룰 기반]")
+
     if skill_used:
         print(f"- 기술 점수: {skill_score:.2f}/30 (일치 {skill_match_count}/{skill_total_count}, 매칭: {matched_skills})")
     else:
@@ -751,19 +743,20 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         print("- 자격요건 룰 기반 점수: 평가 제외 (공고 필수 자격요건 없음)")
 
     print(f"룰 기반 원점수: {rule_score_sum:.2f}/{rule_score_max:.1f}")
-    print(f"룰 기반 점수 합계: {rule_total:.2f}/80")
+    print(f"룰 기반 환산 점수: {rule_total:.2f}/{RULE_WEIGHT:.0f}")
 
     print("[의미 기반]")
-    print(f"- responsibilities 유사도 점수: {resp_score:.2f}/15 (유사도 {resp_sim:.4f})")
-    print(f"- qualifications 유사도 점수: {qual_score:.2f}/5 (유사도 {qual_sim:.4f})")
-    print(f"의미 기반 점수 합계: {semantic_total:.2f}/20")
+    print(f"- responsibilities 유사도 점수: {resp_score:.2f}/{RESPONSIBILITY_SEMANTIC_WEIGHT:.0f} (유사도 {resp_sim:.4f})")
+    print(f"- qualifications 유사도 점수: {qual_score:.2f}/{QUALIFICATION_SEMANTIC_WEIGHT:.0f} (유사도 {qual_sim:.4f})")
+    print(f"의미 기반 점수 합계: {semantic_total:.2f}/{SEMANTIC_WEIGHT:.0f}")
 
     print("[최종 점수]")
-    print(f"- 룰 기반 점수: {rule_total:.2f}/80")
-    print(f"- 의미 기반 점수: {semantic_total:.2f}/20")
+    print(f"- 룰 기반 점수: {rule_total:.2f}/{RULE_WEIGHT:.0f}")
+    print(f"- 의미 기반 점수: {semantic_total:.2f}/{SEMANTIC_WEIGHT:.0f}")
     print(f"- 합산 점수: {final_score:.2f}/100")
 
     print("[미충족 조건]")
+
     if unmet_conditions:
         for condition in unmet_conditions:
             print(f"- {condition}")
@@ -801,12 +794,16 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "qual_used": qual_used,
             "rule_score_sum": rule_score_sum,
             "rule_score_max": rule_score_max,
+            "rule_total_max": RULE_WEIGHT,
             "active_rule_items": active_rule_items,
         },
         "semantic_details": {
             "resp_sim": resp_sim,
             "resp_score": resp_score,
+            "resp_score_max": RESPONSIBILITY_SEMANTIC_WEIGHT,
             "qual_sim": qual_sim,
             "qual_score": qual_score,
+            "qual_score_max": QUALIFICATION_SEMANTIC_WEIGHT,
+            "semantic_total_max": SEMANTIC_WEIGHT,
         },
     }

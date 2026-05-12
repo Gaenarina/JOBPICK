@@ -3,7 +3,13 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
-import { addResumes, getBookmarks, getResumes, pushRecentJob, toggleBookmark } from '@/lib/userStorage'
+import {
+  addResumes,
+  getBookmarks,
+  getResumes,
+  pushRecentJob,
+  toggleBookmark,
+} from '@/lib/userStorage'
 
 const MATCH_API_URL = process.env.NEXT_PUBLIC_MATCH_API_URL || 'http://localhost:8000/process-resume'
 
@@ -21,7 +27,7 @@ function toDisplayText(value, fallback = '') {
   }
 
   if (typeof value === 'string' || typeof value === 'number') {
-    return String(value)
+    return String(value).trim()
   }
 
   if (Array.isArray(value)) {
@@ -58,11 +64,11 @@ function normalizeJobs(jobs) {
       id: String(jobId || ''),
       jobId: String(jobId || ''),
       title: toDisplayText(job.title, '제목 없음'),
-      company: toDisplayText(job.company, '회사명 없음'),
-      location: toDisplayText(job.location, '지역 미정'),
-      career: toDisplayText(job.career, '경력 미정'),
-      category: toDisplayText(job.category, '직무 미정'),
-      salary: toDisplayText(job.salary, '급여 미정'),
+      company: toDisplayText(job.company || job.companyName, '회사명 없음'),
+      location: toDisplayText(job.location, ''),
+      career: toDisplayText(job.career || job.experience, ''),
+      category: toDisplayText(job.category || job.jobCategory, ''),
+      salary: toDisplayText(job.salary, ''),
       matchRate: job.matchRate ?? Math.round(Number(job.finalScore || 0)),
     }
   })
@@ -155,8 +161,14 @@ export default function JobsPage() {
       const title = String(job.title || '').toLowerCase()
       const company = String(job.company || '').toLowerCase()
 
-      const regionMatched = selectedRegion === '전체' || location.startsWith(selectedRegion)
-      const categoryMatched = selectedCategory === '전체' || category === selectedCategory
+      const regionMatched =
+        selectedRegion === '전체' ||
+        location.startsWith(selectedRegion)
+
+      const categoryMatched =
+        selectedCategory === '전체' ||
+        category === selectedCategory
+
       const searchMatched =
         !keyword ||
         title.includes(keyword) ||
@@ -320,7 +332,7 @@ export default function JobsPage() {
     )
   }
 
-  const name = user?.name || '회원'
+  const name = user?.name || user?.displayName || '회원'
 
   return (
     <main className="max-w-5xl mx-auto p-4 md:p-8">
@@ -362,17 +374,12 @@ export default function JobsPage() {
               <option value="IT/개발">IT/개발</option>
               <option value="디자인">디자인</option>
               <option value="마케팅">마케팅</option>
-              <option value="영업">영업</option>
-              <option value="회계">회계</option>
-              <option value="금융/보험">금융/보험</option>
+              <option value="영업·고객상담">영업·고객상담</option>
+              <option value="사무·총무">사무·총무</option>
               <option value="교육">교육</option>
               <option value="의료/바이오">의료/바이오</option>
-              <option value="건축/시설">건축/시설</option>
-              <option value="공공/복지">공공/복지</option>
-              <option value="미디어/문화/스포츠">미디어/문화/스포츠</option>
-              <option value="고객상담/TM">고객상담/TM</option>
               <option value="운전/운송/배송">운전/운송/배송</option>
-              <option value="법무/사무/총무">법무/사무/총무</option>
+              <option value="건축/시설">건축/시설</option>
             </select>
 
             <button
@@ -466,15 +473,29 @@ export default function JobsPage() {
                   </button>
 
                   <div className="flex gap-2 mb-2 flex-wrap">
-                    <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
-                      {job.location}
-                    </span>
-                    <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
-                      {job.career}
-                    </span>
-                    <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
-                      {job.category}
-                    </span>
+                    {job.category && (
+                      <span className="text-xs px-2 py-1 bg-blue-50 rounded text-blue-600">
+                        {job.category}
+                      </span>
+                    )}
+
+                    {job.location && (
+                      <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                        {job.location}
+                      </span>
+                    )}
+
+                    {job.career && (
+                      <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                        {job.career}
+                      </span>
+                    )}
+
+                    {job.salary && (
+                      <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                        {job.salary}
+                      </span>
+                    )}
                   </div>
 
                   <div className="mt-4 flex gap-2">

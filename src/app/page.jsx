@@ -12,8 +12,14 @@ import {
   toggleBookmark,
 } from '@/lib/userStorage'
 
+const MATCH_API_URL = process.env.NEXT_PUBLIC_MATCH_API_URL || 'http://localhost:8000/process-resume'
+
 function getJobKey(job) {
   return String(job?.id || job?.jobId || '')
+}
+
+function getResumeDocId(resume) {
+  return resume?.docId || resume?.resumeId || resume?.id
 }
 
 function toDisplayText(value, fallback = '') {
@@ -22,7 +28,7 @@ function toDisplayText(value, fallback = '') {
   }
 
   if (typeof value === 'string' || typeof value === 'number') {
-    return String(value)
+    return String(value).trim()
   }
 
   if (Array.isArray(value)) {
@@ -50,21 +56,52 @@ function toDisplayText(value, fallback = '') {
   return fallback
 }
 
+function normalizeMatchRate(job) {
+  const rawScore =
+    job.matchRate ??
+    job.finalScore ??
+    job.final_score ??
+    job.score ??
+    job.matchScore ??
+    job.match_score ??
+    job.similarity ??
+    0
+
+  const numberScore = Number(rawScore)
+
+  if (!Number.isFinite(numberScore)) {
+    return 0
+  }
+
+  if (numberScore > 0 && numberScore <= 1) {
+    return Math.round(numberScore * 100)
+  }
+
+  return Math.round(numberScore)
+}
+
 function normalizeJobs(jobs) {
   return (jobs || []).map((job) => {
-    const jobId = job.id || job.jobId
+    const source = job.jobPosting
+      ? {
+          ...job.jobPosting,
+          ...job,
+        }
+      : job
+
+    const jobId = source.id || source.jobId || job.id || job.jobId
 
     return {
-      ...job,
+      ...source,
       id: String(jobId || ''),
       jobId: String(jobId || ''),
-      title: toDisplayText(job.title, '제목 없음'),
-      company: toDisplayText(job.company, '회사명 없음'),
-      location: toDisplayText(job.location, '지역 미정'),
-      career: toDisplayText(job.career, '경력 미정'),
-      category: toDisplayText(job.category, '직무 미정'),
-      salary: toDisplayText(job.salary, '급여 미정'),
-      matchRate: job.matchRate ?? Math.round(Number(job.finalScore || 0)),
+      title: toDisplayText(source.title, '제목 없음'),
+      company: toDisplayText(source.company || source.companyName, '회사명 없음'),
+      location: toDisplayText(source.location, ''),
+      career: toDisplayText(source.career || source.experience, ''),
+      category: toDisplayText(source.category || source.jobCategory, ''),
+      salary: toDisplayText(source.salary, ''),
+      matchRate: normalizeMatchRate(source),
     }
   })
 }
@@ -74,7 +111,9 @@ export default function LandingPage() {
   const { user, isAuthenticated, mounted } = useAuth()
 
   const [jobs, setJobs] = useState([])
+  const [matchedJobs, setMatchedJobs] = useState([])
   const [isLoadingJobs, setIsLoadingJobs] = useState(false)
+  const [selectedPopularCategory, setSelectedPopularCategory] = useState('전체')
 
   const [resumes, setResumes] = useState([])
   const fileInputRef = useRef(null)
@@ -94,68 +133,6 @@ export default function LandingPage() {
 
   const handleNewUploadClick = () => {
     fileInputRef.current?.click()
-  }
-
-  const checkResumeStatus = async (resumeId) => {
-    try {
-      const res = await fetch(`/api/resume/${resumeId}`)
-      const data = await res.json()
-
-      if (!res.ok) {
-        throw new Error(data.error || '상태 조회 실패')
-      }
-
-      const latestStatus = data.status || 'INIT'
-
-      setResumes((prev) =>
-        prev.map((resume) =>
-          resume.id === resumeId
-            ? { ...resume, status: latestStatus }
-            : resume
-        )
-      )
-
-      setSelectedResume((prev) =>
-        prev?.id === resumeId
-          ? { ...prev, status: latestStatus }
-          : prev
-      )
-
-      if (latestStatus === 'PROCESSING') {
-        setIsAnalyzing(true)
-        setAnalysisDone(false)
-      }
-
-      if (latestStatus === 'DONE') {
-        setIsAnalyzing(false)
-        setAnalysisDone(true)
-      }
-
-      if (latestStatus === 'FAILED') {
-        setIsAnalyzing(false)
-        setAnalysisDone(false)
-      }
-
-      return latestStatus
-    } catch (error) {
-      console.error(error)
-      return null
-    }
-  }
-
-  const startStatusPolling = (resumeId) => {
-    let count = 0
-    const maxCount = 10
-
-    const timer = setInterval(async () => {
-      count += 1
-
-      const status = await checkResumeStatus(resumeId)
-
-      if (status === 'DONE' || status === 'FAILED' || count >= maxCount) {
-        clearInterval(timer)
-      }
-    }, 2000)
   }
 
   const fetchJobs = async () => {
@@ -180,6 +157,127 @@ export default function LandingPage() {
     }
   }
 
+  const runAiMatchingByResume = async (resume) => {
+    const resumeId = getResumeDocId(resume)
+
+    if (!resumeId) {
+      alert('이력서 문서 ID를 찾을 수 없습니다.')
+      return
+    }
+
+    setSelectedResume(resume)
+    setIsAnalyzing(true)
+    setAnalysisDone(false)
+    setMatchedJobs([])
+
+    try {
+      const res = await fetch(MATCH_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ docId: resumeId }),
+      })
+
+      const data = await res.json()
+
+      console.log('메인 AI 매칭 응답:', data)
+
+      if (!res.ok) {
+        throw new Error(data.error || 'AI 매칭 실패')
+      }
+
+      const matches = normalizeJobs(data.matches || [])
+        .sort((a, b) => Number(b.matchRate || 0) - Number(a.matchRate || 0))
+
+      setMatchedJobs(matches)
+      localStorage.setItem('jobpick_matched_jobs', JSON.stringify(matches))
+      setAnalysisDone(true)
+
+      if (!matches.length) {
+        alert('매칭 결과가 비어 있습니다. 백엔드 matches 반환값을 확인해주세요.')
+      }
+    } catch (error) {
+      console.error(error)
+      alert(error.message || 'AI 매칭 중 오류가 발생했습니다.')
+      setAnalysisDone(false)
+    } finally {
+      setIsAnalyzing(false)
+    }
+  }
+
+  const checkResumeStatus = async (resume, shouldRunMatching = false) => {
+    const resumeId = getResumeDocId(resume)
+
+    if (!resumeId) {
+      return null
+    }
+
+    try {
+      const res = await fetch(`/api/resume/${resumeId}`)
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || '상태 조회 실패')
+      }
+
+      const latestStatus = data.status || 'INIT'
+
+      setResumes((prev) =>
+        prev.map((item) =>
+          getResumeDocId(item) === resumeId
+            ? { ...item, status: latestStatus }
+            : item
+        )
+      )
+
+      setSelectedResume((prev) =>
+        getResumeDocId(prev) === resumeId
+          ? { ...prev, status: latestStatus }
+          : prev
+      )
+
+      if (latestStatus === 'PROCESSING') {
+        setIsAnalyzing(true)
+        setAnalysisDone(false)
+      }
+
+      if (latestStatus === 'DONE') {
+        if (shouldRunMatching) {
+          await runAiMatchingByResume({ ...resume, status: latestStatus })
+        } else {
+          setIsAnalyzing(false)
+          setAnalysisDone(false)
+        }
+      }
+
+      if (latestStatus === 'FAILED') {
+        setIsAnalyzing(false)
+        setAnalysisDone(false)
+      }
+
+      return latestStatus
+    } catch (error) {
+      console.error(error)
+      return null
+    }
+  }
+
+  const startStatusPolling = (resume) => {
+    let count = 0
+    const maxCount = 10
+
+    const timer = setInterval(async () => {
+      count += 1
+
+      const status = await checkResumeStatus(resume, true)
+
+      if (status === 'DONE' || status === 'FAILED' || count >= maxCount) {
+        clearInterval(timer)
+      }
+    }, 2000)
+  }
+
   const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
@@ -201,6 +299,7 @@ export default function LandingPage() {
     try {
       setIsAnalyzing(true)
       setAnalysisDone(false)
+      setMatchedJobs([])
 
       const formData = new FormData()
       formData.append('file', file)
@@ -223,22 +322,24 @@ export default function LandingPage() {
 
       const docId = data.docId || data.resumeId || data.id || String(Date.now())
 
-      const mapped = [
-        {
-          id: docId,
-          docId,
-          name: file.name,
-          size: Math.round(file.size / 1024) + ' KB',
-          date: dateStr,
-          status: data.status || 'INIT',
-        },
-      ]
+      const mappedResume = {
+        id: docId,
+        docId,
+        name: file.name,
+        size: Math.round(file.size / 1024) + ' KB',
+        date: dateStr,
+        status: data.status || 'INIT',
+      }
 
-      setResumes(addResumes(mapped))
+      setResumes(addResumes([mappedResume]))
       setShowSavedResumes(true)
-      setSelectedResume(mapped[0])
+      setSelectedResume(mappedResume)
 
-      startStatusPolling(mapped[0].id)
+      if (mappedResume.status === 'DONE') {
+        await runAiMatchingByResume(mappedResume)
+      } else {
+        startStatusPolling(mappedResume)
+      }
     } catch (error) {
       console.error(error)
       alert(error.message || '업로드 중 오류가 발생했습니다.')
@@ -254,19 +355,28 @@ export default function LandingPage() {
     setResumes(getResumes())
     setBookmarkIds(getBookmarks().map((item) => getJobKey(item)))
     fetchJobs()
+
+    try {
+      const savedMatchedJobs = localStorage.getItem('jobpick_matched_jobs')
+
+      if (savedMatchedJobs) {
+        const parsed = JSON.parse(savedMatchedJobs)
+        const normalized = normalizeJobs(parsed)
+
+        if (normalized.length > 0) {
+          setMatchedJobs(normalized)
+          setAnalysisDone(true)
+        }
+      }
+    } catch (error) {
+      console.error('저장된 매칭 결과 불러오기 실패:', error)
+    }
   }, [mounted])
 
   const name = user?.displayName || user?.name || '회원'
 
   const handleResumeAnalyze = (resume) => {
-    setSelectedResume(resume)
-    setAnalysisDone(false)
-    setIsAnalyzing(true)
-
-    setTimeout(() => {
-      setIsAnalyzing(false)
-      setAnalysisDone(true)
-    }, 1000)
+    runAiMatchingByResume(resume)
   }
 
   const handleDeleteResume = (resumeId) => {
@@ -274,9 +384,11 @@ export default function LandingPage() {
 
     setResumes(next)
 
-    if (selectedResume?.id === resumeId) {
+    if (getResumeDocId(selectedResume) === resumeId) {
       setSelectedResume(null)
       setAnalysisDone(false)
+      setMatchedJobs([])
+      localStorage.removeItem('jobpick_matched_jobs')
     }
   }
 
@@ -290,8 +402,14 @@ export default function LandingPage() {
     setBookmarkIds(next.map((item) => getJobKey(item)))
   }
 
-  const recommendedJobs = jobs.slice(0, 3)
-  const popularJobs = jobs.slice(0, 2)
+  const recommendedJobs = matchedJobs.slice(0, 3)
+
+  const popularJobs = jobs
+    .filter((job) => {
+      if (selectedPopularCategory === '전체') return true
+      return job.category === selectedPopularCategory
+    })
+    .slice(0, 2)
 
   return (
     <main className="max-w-3xl mx-auto p-8">
@@ -365,7 +483,7 @@ export default function LandingPage() {
                     <div
                       key={resume.id}
                       className={`flex items-center justify-between gap-3 p-4 border rounded-lg bg-white ${
-                        selectedResume?.id === resume.id ? 'border-primary' : 'border-gray-200'
+                        getResumeDocId(selectedResume) === getResumeDocId(resume) ? 'border-primary' : 'border-gray-200'
                       }`}
                     >
                       <button
@@ -439,6 +557,32 @@ export default function LandingPage() {
                           >
                             {job.title}
                           </button>
+
+                          <div className="flex gap-2 mt-2 flex-wrap">
+                            {job.category && (
+                              <span className="text-xs px-2 py-1 bg-blue-50 rounded text-blue-600">
+                                {job.category}
+                              </span>
+                            )}
+
+                            {job.location && (
+                              <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                                {job.location}
+                              </span>
+                            )}
+
+                            {job.career && (
+                              <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                                {job.career}
+                              </span>
+                            )}
+
+                            {job.salary && (
+                              <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                                {job.salary}
+                              </span>
+                            )}
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-3">
@@ -460,7 +604,7 @@ export default function LandingPage() {
                           </button>
 
                           {job.matchRate > 0 && (
-                            <span className="text-primary font-bold text-lg">{job.matchRate}%</span>
+                            <span className="text-primary font-bold text-lg">{job.matchRate}점</span>
                           )}
                         </div>
                       </div>
@@ -489,8 +633,21 @@ export default function LandingPage() {
         <h2 className="text-lg font-semibold mb-4">인기 커리어</h2>
 
         <div className="mb-4">
-          <select className="px-3 py-2 border border-gray-200 rounded-md text-sm bg-white">
-            <option>IT/개발</option>
+          <select
+            value={selectedPopularCategory}
+            onChange={(e) => setSelectedPopularCategory(e.target.value)}
+            className="px-3 py-2 border border-gray-200 rounded-md text-sm bg-white"
+          >
+            <option value="전체">전체</option>
+            <option value="IT/개발">IT/개발</option>
+            <option value="디자인">디자인</option>
+            <option value="마케팅">마케팅</option>
+            <option value="영업·고객상담">영업·고객상담</option>
+            <option value="사무·총무">사무·총무</option>
+            <option value="교육">교육</option>
+            <option value="의료/바이오">의료/바이오</option>
+            <option value="운전/운송/배송">운전/운송/배송</option>
+            <option value="건축/시설">건축/시설</option>
           </select>
         </div>
 
@@ -538,8 +695,29 @@ export default function LandingPage() {
                     <p className="text-sm text-gray-500 mb-2">{job.company}</p>
 
                     <div className="flex gap-2 flex-wrap">
-                      <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">{job.career}</span>
-                      <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">{job.location}</span>
+                      {job.category && (
+                        <span className="text-xs px-2 py-1 bg-blue-50 rounded text-blue-600">
+                          {job.category}
+                        </span>
+                      )}
+
+                      {job.location && (
+                        <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                          {job.location}
+                        </span>
+                      )}
+
+                      {job.career && (
+                        <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                          {job.career}
+                        </span>
+                      )}
+
+                      {job.salary && (
+                        <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                          {job.salary}
+                        </span>
+                      )}
                     </div>
                   </div>
                 )
