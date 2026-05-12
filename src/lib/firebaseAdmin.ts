@@ -18,6 +18,6 @@ if (!admin.apps.length) {
 }
 
 const db = admin.firestore();
-const bucket = admin.storage().bucket();
+const bucket = admin.storage().bucket("jobpick.firebasestorage.app");
 
 export { admin, db, bucket };

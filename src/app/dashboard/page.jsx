@@ -65,6 +65,12 @@ function normalizeJobs(jobs) {
       ...job,
       id: String(jobId || ''),
       jobId: String(jobId || ''),
+      sourceUrl:
+        job.sourceUrl ||
+        job.url ||
+        job.jobPosting?.sourceUrl ||
+        job.meta?.sourceUrl ||
+        '',
       title: toDisplayText(job.title, '제목 없음'),
       company: toDisplayText(job.company, '회사명 없음'),
       location: toDisplayText(job.location, '지역 미정'),
@@ -210,7 +216,10 @@ export default function DashboardPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ docId: resumeId }),
+        body: JSON.stringify({
+          docId: resumeId,
+          userId: user.uid || user.id,
+        }),
       })
 
       const data = await res.json()
@@ -280,6 +289,7 @@ export default function DashboardPage() {
       for (const file of validFiles) {
         const formData = new FormData()
         formData.append('file', file)
+        formData.append('userId', user.uid || user.id)
 
         const res = await fetch('/api/resume/upload', {
           method: 'POST',
@@ -319,7 +329,13 @@ export default function DashboardPage() {
 
   const handleViewJob = (job) => {
     pushRecentJob(job)
-    router.push(`/jobs/${job.id || job.jobId}`)
+
+    if (job.sourceUrl) {
+      window.open(job.sourceUrl, '_blank', 'noopener,noreferrer')
+      return
+    }
+
+    alert('원본 공고 링크를 찾을 수 없습니다.')
   }
 
   const handleToggleBookmark = (job) => {
