@@ -14,6 +14,7 @@ import {
 } from '@/lib/userStorage'
 
 const MATCH_API_URL = process.env.NEXT_PUBLIC_MATCH_API_URL || 'http://localhost:8000/process-resume'
+const ONE_MATCH_API_URL = process.env.NEXT_PUBLIC_ONE_MATCH_API_URL || 'http://localhost:8000/process-one-match'
 
 function getJobKey(job) {
   return String(job?.id || job?.jobId || '')
@@ -59,27 +60,52 @@ function toDisplayText(value, fallback = '') {
 
 function normalizeJobs(jobs) {
   return (jobs || []).map((job) => {
-    const jobId = job.id || job.jobId
+    const source = job.jobPosting
+      ? {
+          ...job,
+          ...job.jobPosting,
+        }
+      : job
+
+    const jobId = source.id || source.jobId || job.id || job.jobId
 
     return {
-      ...job,
+      ...source,
       id: String(jobId || ''),
       jobId: String(jobId || ''),
       sourceUrl:
-        job.sourceUrl ||
-        job.url ||
         job.jobPosting?.sourceUrl ||
+        job.jobPosting?.url ||
+        job.jobPosting?.link ||
+        source.sourceUrl ||
+        source.url ||
+        source.link ||
+        source.jobUrl ||
+        source.job_url ||
+        source.recruitUrl ||
+        source.recruit_url ||
         job.meta?.sourceUrl ||
         '',
-      title: toDisplayText(job.title, '제목 없음'),
-      company: toDisplayText(job.company || job.companyName, '회사명 없음'),
-      location: toDisplayText(job.location, ''),
-      career: toDisplayText(job.career || job.experience, ''),
-      category: toDisplayText(job.category || job.jobCategory, ''),
-      salary: toDisplayText(job.salary, ''),
-      matchRate: job.matchRate ?? Math.round(Number(job.finalScore || 0)),
+      title: toDisplayText(source.title, '제목 없음'),
+      company: toDisplayText(source.company || source.companyName, '회사명 없음'),
+      location: toDisplayText(source.location, ''),
+      career: toDisplayText(source.career || source.experience, ''),
+      category: toDisplayText(source.category || source.jobCategory, ''),
+      salary: toDisplayText(source.salary, ''),
+      matchRate: source.matchRate ?? Math.round(Number(source.finalScore || job.finalScore || 0)),
     }
   })
+}
+function attachSourceUrlToMatches(matches, jobList) {
+  const jobUrlMap = jobList.reduce((acc, job) => {
+    acc[String(job.id || job.jobId)] = job.sourceUrl
+    return acc
+  }, {})
+
+  return normalizeJobs(matches).map((job) => ({
+    ...job,
+    sourceUrl: job.sourceUrl || jobUrlMap[String(job.id || job.jobId)] || '',
+  }))
 }
 
 export default function DashboardPage() {
@@ -99,6 +125,8 @@ export default function DashboardPage() {
   const [appliedMap, setAppliedMap] = useState({})
   const [resumes, setResumes] = useState([])
   const [matchedJobs, setMatchedJobs] = useState([])
+  const [scoreMap, setScoreMap] = useState({})
+  const [scoringJobId, setScoringJobId] = useState(null)
 
   useEffect(() => {
     if (mounted && !isAuthenticated) {
@@ -169,6 +197,15 @@ export default function DashboardPage() {
     fetchJobs()
   }, [mounted, isAuthenticated])
 
+  useEffect(() => {
+    if (!jobs.length || !matchedJobs.length) return
+
+    const fixedMatches = attachSourceUrlToMatches(matchedJobs, jobs)
+
+    setMatchedJobs(fixedMatches)
+    localStorage.setItem('jobpick_matched_jobs', JSON.stringify(fixedMatches))
+  }, [jobs, matchedJobs.length])
+
   const filteredJobs = useMemo(() => {
     const keyword = searchQuery.trim().toLowerCase()
 
@@ -236,8 +273,16 @@ export default function DashboardPage() {
         throw new Error(data.error || 'AI 매칭 실패')
       }
 
-      const matches = normalizeJobs(data.matches || [])
+      const jobUrlMap = jobs.reduce((acc, job) => {
+        acc[String(job.id || job.jobId)] = job.sourceUrl
+        return acc
+      }, {})
 
+      const matches = normalizeJobs(data.matches || []).map((job) => ({
+        ...job,
+        sourceUrl: job.sourceUrl || jobUrlMap[String(job.id || job.jobId)] || '',
+      }))
+      
       console.log('AI 매칭 결과:', matches)
 
       if (!matches.length) {
@@ -349,21 +394,59 @@ export default function DashboardPage() {
     setBookmarkIds(next.map((item) => getJobKey(item)))
   }
 
-  const handleApply = (job) => {
-    const jobKey = getJobKey(job)
-    const status = '검토 중'
-
-    const application = {
-      jobId: jobKey,
-      company: job.company,
-      title: job.title,
-      appliedAt: new Date().toLocaleDateString('ko-KR'),
-      status,
+  const handleCalculateScore = async (job) => {
+    if (!resumes.length) {
+      alert('먼저 이력서를 첨부해주세요.')
+      return
     }
 
-    upsertApplication(application)
-    setAppliedMap((prev) => ({ ...prev, [jobKey]: application }))
-    alert('지원이 완료되었습니다.')
+    const resumeId = getResumeDocId(resumes[0])
+    const jobKey = getJobKey(job)
+
+    if (!resumeId) {
+      alert('이력서 문서 ID를 찾을 수 없습니다.')
+      return
+    }
+
+    setScoringJobId(jobKey)
+
+    try {
+      const res = await fetch(ONE_MATCH_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          docId: resumeId,
+          userId: user.uid || user.id,
+          jobId: jobKey,
+          force: true,
+        }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || '점수 계산 실패')
+      }
+
+      const targetJob = normalizeJobs([data.match])[0]
+
+      if (!targetJob) {
+        alert('점수 계산 결과를 찾을 수 없습니다.')
+        return
+      }
+
+      setScoreMap((prev) => ({
+        ...prev,
+        [jobKey]: targetJob.matchRate ?? Math.round(Number(targetJob.finalScore || 0)),
+      }))
+    } catch (error) {
+      console.error(error)
+      alert(error.message || '점수 계산 중 오류가 발생했습니다.')
+    } finally {
+      setScoringJobId(null)
+    }
   }
 
   const handleResetMatching = () => {
@@ -551,15 +634,23 @@ export default function DashboardPage() {
                       공고 보기
                     </button>
 
-                    <button
-                      onClick={() => handleApply(job)}
-                      disabled={!!appliedMap[jobKey]}
-                      className={`px-3 py-2 rounded-lg text-sm ${
-                        appliedMap[jobKey] ? 'bg-gray-200 text-gray-500' : 'bg-primary text-white'
-                      }`}
-                    >
-                      {appliedMap[jobKey] ? appliedMap[jobKey].status : '지원하기'}
-                    </button>
+                    {!aiMatched && (
+                      <>
+                        <button
+                          onClick={() => handleCalculateScore(job)}
+                          disabled={scoringJobId === jobKey}
+                          className="px-3 py-2 rounded-lg text-sm bg-primary text-white disabled:opacity-60"
+                        >
+                          {scoringJobId === jobKey ? '계산 중' : '점수 계산하기'}
+                        </button>
+
+                        {scoreMap[jobKey] !== undefined && (
+                          <span className="px-3 py-2 rounded-lg bg-blue-50 text-primary text-sm font-bold">
+                            {scoreMap[jobKey]}점
+                          </span>
+                        )}
+                      </>
+                    )}
                   </div>
 
                   {aiMatched && (

@@ -95,6 +95,12 @@ function normalizeJobs(jobs) {
       ...source,
       id: String(jobId || ''),
       jobId: String(jobId || ''),
+      sourceUrl:
+        source.sourceUrl ||
+        source.url ||
+        source.jobPosting?.sourceUrl ||
+        source.meta?.sourceUrl ||
+        '',
       title: toDisplayText(source.title, '제목 없음'),
       company: toDisplayText(source.company || source.companyName, '회사명 없음'),
       location: toDisplayText(source.location, ''),
@@ -396,6 +402,16 @@ export default function LandingPage() {
     pushRecentJob(job)
     router.push(`/jobs/${job.id || job.jobId}`)
   }
+  const handleGoPopularJob = (job) => {
+    pushRecentJob(job)
+
+    if (job.sourceUrl) {
+      window.open(job.sourceUrl, '_blank', 'noopener,noreferrer')
+      return
+    }
+
+    alert('원본 공고 링크를 찾을 수 없습니다.')
+  }
 
   const handleToggleBookmark = (job) => {
     const next = toggleBookmark(job)
@@ -686,7 +702,7 @@ export default function LandingPage() {
                     </button>
 
                     <button
-                      onClick={() => handleGoJob(job)}
+                      onClick={() => handleGoPopularJob(job)}
                       className="font-semibold mb-1 hover:text-primary transition-colors text-left pr-8"
                     >
                       {job.title}

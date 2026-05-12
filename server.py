@@ -10,6 +10,7 @@ from database.firebase_save_matching import (
 
 from main.main_resume import process_resume_by_doc_id
 from main.main_matching import process_matching_by_resume_id
+from main.main_matching_one import process_matching_one_by_ids
 
 app = Flask(__name__)
 CORS(app)
@@ -301,6 +302,34 @@ def read_matching_result(resume_id):
             "error": str(e)
         }), 500
 
+@app.route("/process-one-match", methods=["POST"])
+def process_one_match():
+    try:
+        data = request.get_json(silent=True) or {}
+
+        doc_id = data.get("docId")
+        job_id = data.get("jobId")
+
+        if not doc_id:
+            return jsonify({"error": "docId가 필요합니다."}), 400
+
+        if not job_id:
+            return jsonify({"error": "jobId가 필요합니다."}), 400
+
+        result = process_matching_one_by_ids(doc_id, job_id)
+
+        return jsonify({
+            "message": "1:1 매칭 완료",
+            "match": result
+        })
+
+    except Exception as e:
+        print("\n[1:1 매칭 처리 실패]")
+        print(traceback.format_exc())
+
+        return jsonify({
+            "error": str(e)
+        }), 500
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)
