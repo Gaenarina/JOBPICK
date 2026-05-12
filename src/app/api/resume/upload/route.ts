@@ -6,6 +6,7 @@ export async function POST(req: Request) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
+    const userId = formData.get("userId") as string;
 
     if (!file) {
       return NextResponse.json({ error: "파일 없음" }, { status: 400 });
@@ -35,6 +36,7 @@ export async function POST(req: Request) {
     // 3. Firestore 문서 생성
     // -----------------------------
     await db.collection("resumes").doc(docId).set({
+      userId,
       filename: file.name,
       storagePath,
       status: "INIT",
@@ -50,7 +52,10 @@ export async function POST(req: Request) {
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ docId }),
+      body: JSON.stringify({
+        docId,
+        userId,
+      }),
     }).catch(() => {});
 
     return NextResponse.json({
