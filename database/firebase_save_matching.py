@@ -29,20 +29,34 @@ def make_json_safe(value):
     return str(value)
 
 
-def save_matching_result(db, resume_id, matches):
-    doc_ref = db.collection("matching_results").document(str(resume_id))
-
+def save_matching_result(
+    db,
+    resume_id,
+    matches=None,
+    top_fit_matches=None,
+    top_accessible_matches=None,
+    top_confidence_matches=None,
+):
     safe_matches = make_json_safe(matches or [])
+    safe_top_fit = make_json_safe(top_fit_matches or [])
+    safe_top_accessible = make_json_safe(top_accessible_matches or [])
+    safe_top_confidence = make_json_safe(top_confidence_matches or [])
 
     save_data = {
         "resumeId": str(resume_id),
         "matches": safe_matches,
+        "topFitMatches": safe_top_fit,
+        "topAccessibleMatches": safe_top_accessible,
+        "topConfidenceMatches": safe_top_confidence,
         "matchCount": len(safe_matches),
+        "topFitCount": len(safe_top_fit),
+        "topAccessibleCount": len(safe_top_accessible),
+        "topConfidenceCount": len(safe_top_confidence),
         "status": "DONE",
         "updatedAt": datetime.utcnow().isoformat(),
     }
 
-    doc_ref.set(save_data, merge=True)
+    db.collection("matching_results").document(str(resume_id)).set(save_data, merge=True)
 
     return str(resume_id)
 
@@ -55,12 +69,22 @@ def get_matching_result(db, resume_id):
         return None
 
     data = doc.to_dict() or {}
+
     matches = data.get("matches", [])
+    top_fit_matches = data.get("topFitMatches", [])
+    top_accessible_matches = data.get("topAccessibleMatches", [])
+    top_confidence_matches = data.get("topConfidenceMatches", [])
 
     return {
         "resumeId": data.get("resumeId", str(resume_id)),
         "matches": matches,
+        "topFitMatches": top_fit_matches,
+        "topAccessibleMatches": top_accessible_matches,
+        "topConfidenceMatches": top_confidence_matches,
         "matchCount": data.get("matchCount", len(matches)),
+        "topFitCount": data.get("topFitCount", len(top_fit_matches)),
+        "topAccessibleCount": data.get("topAccessibleCount", len(top_accessible_matches)),
+        "topConfidenceCount": data.get("topConfidenceCount", len(top_confidence_matches)),
         "status": data.get("status", "DONE"),
         "updatedAt": data.get("updatedAt", ""),
     }

@@ -205,7 +205,11 @@ export default function JobsPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ docId: resumeId }),
+        body: JSON.stringify({
+          docId: resumeId,
+          userId: user?.uid || user?.id || '',
+          force: true,
+        }),
       })
 
       const data = await res.json()
@@ -216,7 +220,7 @@ export default function JobsPage() {
         throw new Error(data.error || 'AI 매칭 실패')
       }
 
-      const matches = normalizeJobs(data.matches || [])
+      const matches = normalizeJobs(data.topFitMatches || data.matches || [])
 
       console.log('AI 매칭 결과:', matches)
 

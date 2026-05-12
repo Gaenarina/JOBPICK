@@ -182,7 +182,11 @@ export default function LandingPage() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ docId: resumeId }),
+        body: JSON.stringify({
+          docId: resumeId,
+          userId: user?.uid || user?.id || '',
+          force: true,
+        }),
       })
 
       const data = await res.json()
@@ -193,8 +197,7 @@ export default function LandingPage() {
         throw new Error(data.error || 'AI 매칭 실패')
       }
 
-      const matches = normalizeJobs(data.matches || [])
-        .sort((a, b) => Number(b.matchRate || 0) - Number(a.matchRate || 0))
+      const matches = normalizeJobs(data.topFitMatches || data.matches || [])
 
       setMatchedJobs(matches)
       localStorage.setItem('jobpick_matched_jobs', JSON.stringify(matches))
@@ -341,11 +344,8 @@ export default function LandingPage() {
       setShowSavedResumes(true)
       setSelectedResume(mappedResume)
 
-      if (mappedResume.status === 'DONE') {
-        await runAiMatchingByResume(mappedResume)
-      } else {
-        startStatusPolling(mappedResume)
-      }
+      await runAiMatchingByResume(mappedResume)
+      
     } catch (error) {
       console.error(error)
       alert(error.message || '업로드 중 오류가 발생했습니다.')

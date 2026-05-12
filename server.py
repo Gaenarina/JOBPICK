@@ -9,7 +9,7 @@ from database.firebase_save_matching import (
 )
 
 from main.main_resume import process_resume_by_doc_id
-from main.main_matching import process_matching_by_resume_id
+from main.main_matching import process_matching_groups_by_resume_id
 from main.main_matching_one import process_matching_one_by_ids
 
 app = Flask(__name__)
@@ -18,23 +18,11 @@ CORS(app)
 db, bucket = init_firebase("config/firebase_key.json")
 
 
-def get_match_score(item):
+def get_score_value(item, keys):
     if not isinstance(item, dict):
         return 0
 
-    score_keys = [
-        "matchRate",
-        "finalScore",
-        "final_score",
-        "score",
-        "matchScore",
-        "match_score",
-        "similarity",
-        "totalScore",
-        "total_score",
-    ]
-
-    for key in score_keys:
+    for key in keys:
         value = item.get(key)
 
         try:
@@ -50,12 +38,29 @@ def get_match_score(item):
     return 0
 
 
-def get_top_matches(matches, limit=5):
-    return sorted(
-        matches or [],
-        key=get_match_score,
-        reverse=True
-    )[:limit]
+def get_fit_score(item):
+    return get_score_value(item, [
+        "fitScore",
+        "fit_score",
+        "finalScore",
+        "final_score",
+        "matchRate",
+        "match_rate",
+    ])
+
+
+def get_accessibility_score(item):
+    return get_score_value(item, [
+        "accessibilityScore",
+        "accessibility_score",
+    ])
+
+
+def get_confidence_score(item):
+    return get_score_value(item, [
+        "confidenceScore",
+        "confidence_score",
+    ])
 
 
 def get_company_from_job_data(data):
@@ -162,26 +167,127 @@ def fill_missing_company_names(db, matches):
     return fixed_matches
 
 
-def return_cached_result(cached_result):
+def dedupe_matches(matches):
+    result = []
+    seen = set()
+
+    for item in matches or []:
+        if not isinstance(item, dict):
+            continue
+
+        job_id = get_match_job_id(item)
+
+        if not job_id:
+            continue
+
+        key = str(job_id)
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+        result.append(item)
+
+    return result
+
+
+def build_matching_groups(matches, limit=5):
+    unique_matches = dedupe_matches(matches)
+
+    top_fit_matches = sorted(
+        unique_matches,
+        key=get_fit_score,
+        reverse=True
+    )[:limit]
+
+    top_accessible_matches = sorted(
+        unique_matches,
+        key=get_accessibility_score,
+        reverse=True
+    )[:limit]
+
+    top_confidence_matches = sorted(
+        unique_matches,
+        key=get_confidence_score,
+        reverse=True
+    )[:limit]
+
+    return {
+        "matches": unique_matches,
+        "topFitMatches": top_fit_matches,
+        "topAccessibleMatches": top_accessible_matches,
+        "topConfidenceMatches": top_confidence_matches,
+    }
+
+
+def normalize_matching_groups(groups):
     matches = fill_missing_company_names(
         db,
-        cached_result.get("matches", [])
+        groups.get("matches", [])
     )
-    matches = get_top_matches(matches, limit=5)
+
+    top_fit_matches = fill_missing_company_names(
+        db,
+        groups.get("topFitMatches", [])
+    )
+
+    top_accessible_matches = fill_missing_company_names(
+        db,
+        groups.get("topAccessibleMatches", [])
+    )
+
+    top_confidence_matches = fill_missing_company_names(
+        db,
+        groups.get("topConfidenceMatches", [])
+    )
+
+    if not top_fit_matches or not top_accessible_matches or not top_confidence_matches:
+        rebuilt_groups = build_matching_groups(matches, limit=5)
+
+        if not top_fit_matches:
+            top_fit_matches = rebuilt_groups["topFitMatches"]
+
+        if not top_accessible_matches:
+            top_accessible_matches = rebuilt_groups["topAccessibleMatches"]
+
+        if not top_confidence_matches:
+            top_confidence_matches = rebuilt_groups["topConfidenceMatches"]
+
+    return {
+        "matches": matches,
+        "topFitMatches": top_fit_matches,
+        "topAccessibleMatches": top_accessible_matches,
+        "topConfidenceMatches": top_confidence_matches,
+    }
+
+
+def return_cached_result(cached_result):
+    groups = normalize_matching_groups({
+        "matches": cached_result.get("matches", []),
+        "topFitMatches": cached_result.get("topFitMatches", []),
+        "topAccessibleMatches": cached_result.get("topAccessibleMatches", []),
+        "topConfidenceMatches": cached_result.get("topConfidenceMatches", []),
+    })
 
     save_matching_result(
         db=db,
         resume_id=cached_result["resumeId"],
-        matches=matches,
+        matches=groups["matches"],
+        top_fit_matches=groups["topFitMatches"],
+        top_accessible_matches=groups["topAccessibleMatches"],
+        top_confidence_matches=groups["topConfidenceMatches"],
     )
 
     return jsonify({
         "message": "저장된 매칭 결과 조회 완료",
         "resumeId": cached_result["resumeId"],
-        "matches": matches,
-        "matchCount": len(matches or []),
+        "matches": groups["topFitMatches"],
+        "topFitMatches": groups["topFitMatches"],
+        "topAccessibleMatches": groups["topAccessibleMatches"],
+        "topConfidenceMatches": groups["topConfidenceMatches"],
+        "matchCount": len(groups["matches"] or []),
         "cached": True,
-        "updatedAt": cached_result["updatedAt"],
+        "updatedAt": cached_result.get("updatedAt", ""),
     })
 
 
@@ -230,18 +336,23 @@ def process_resume():
                 return return_cached_result(cached_result)
 
         print("[9] 매칭 점수 계산 시작")
-        matches = process_matching_by_resume_id(resume_id)
-        matches = fill_missing_company_names(db, matches)
-        matches = get_top_matches(matches, limit=5)
+        groups = process_matching_groups_by_resume_id(resume_id, limit=5)
+        groups = normalize_matching_groups(groups)
 
         print("[10] 매칭 점수 계산 완료")
-        print("[11] matches 개수:", len(matches or []))
+        print("[11] matches 개수:", len(groups["matches"] or []))
+        print("[11-1] topFitMatches 개수:", len(groups["topFitMatches"] or []))
+        print("[11-2] topAccessibleMatches 개수:", len(groups["topAccessibleMatches"] or []))
+        print("[11-3] topConfidenceMatches 개수:", len(groups["topConfidenceMatches"] or []))
 
         print("[12] Firestore matching_results 저장 시작")
         save_matching_result(
             db=db,
             resume_id=resume_id,
-            matches=matches,
+            matches=groups["matches"],
+            top_fit_matches=groups["topFitMatches"],
+            top_accessible_matches=groups["topAccessibleMatches"],
+            top_confidence_matches=groups["topConfidenceMatches"],
         )
         print("[13] Firestore matching_results 저장 완료")
 
@@ -250,8 +361,11 @@ def process_resume():
         return jsonify({
             "message": "처리 완료",
             "resumeId": resume_id,
-            "matches": matches,
-            "matchCount": len(matches or []),
+            "matches": groups["topFitMatches"],
+            "topFitMatches": groups["topFitMatches"],
+            "topAccessibleMatches": groups["topAccessibleMatches"],
+            "topConfidenceMatches": groups["topConfidenceMatches"],
+            "matchCount": len(groups["matches"] or []),
             "cached": False,
         })
 
@@ -274,22 +388,29 @@ def read_matching_result(resume_id):
                 "error": "저장된 매칭 결과가 없습니다."
             }), 404
 
-        matches = fill_missing_company_names(
-            db,
-            result.get("matches", [])
-        )
-        matches = get_top_matches(matches, limit=5)
+        groups = normalize_matching_groups({
+            "matches": result.get("matches", []),
+            "topFitMatches": result.get("topFitMatches", []),
+            "topAccessibleMatches": result.get("topAccessibleMatches", []),
+            "topConfidenceMatches": result.get("topConfidenceMatches", []),
+        })
 
         save_matching_result(
             db=db,
             resume_id=result["resumeId"],
-            matches=matches,
+            matches=groups["matches"],
+            top_fit_matches=groups["topFitMatches"],
+            top_accessible_matches=groups["topAccessibleMatches"],
+            top_confidence_matches=groups["topConfidenceMatches"],
         )
 
         return jsonify({
             "resumeId": result["resumeId"],
-            "matches": matches,
-            "matchCount": len(matches or []),
+            "matches": groups["topFitMatches"],
+            "topFitMatches": groups["topFitMatches"],
+            "topAccessibleMatches": groups["topAccessibleMatches"],
+            "topConfidenceMatches": groups["topConfidenceMatches"],
+            "matchCount": len(groups["matches"] or []),
             "status": result.get("status", "DONE"),
             "updatedAt": result.get("updatedAt", ""),
         })
@@ -302,6 +423,7 @@ def read_matching_result(resume_id):
             "error": str(e)
         }), 500
 
+
 @app.route("/process-one-match", methods=["POST"])
 def process_one_match():
     try:
@@ -311,15 +433,22 @@ def process_one_match():
         job_id = data.get("jobId")
 
         if not doc_id:
-            return jsonify({"error": "docId가 필요합니다."}), 400
+            return jsonify({
+                "error": "docId가 필요합니다."
+            }), 400
 
         if not job_id:
-            return jsonify({"error": "jobId가 필요합니다."}), 400
+            return jsonify({
+                "error": "jobId가 필요합니다."
+            }), 400
 
         result = process_matching_one_by_ids(doc_id, job_id)
+        result = fill_missing_company_names(db, [result])[0]
 
         return jsonify({
             "message": "1:1 매칭 완료",
+            "resumeId": doc_id,
+            "jobId": job_id,
             "match": result
         })
 
@@ -330,6 +459,7 @@ def process_one_match():
         return jsonify({
             "error": str(e)
         }), 500
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)

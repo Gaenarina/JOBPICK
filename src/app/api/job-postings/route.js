@@ -88,6 +88,31 @@ function cleanLocationOutput(value) {
     .trim()
 }
 
+function normalizeRegionName(region) {
+  const regionMap = {
+    서울특별시: '서울',
+    부산광역시: '부산',
+    대구광역시: '대구',
+    인천광역시: '인천',
+    광주광역시: '광주',
+    대전광역시: '대전',
+    울산광역시: '울산',
+    세종특별자치시: '세종',
+    경기도: '경기',
+    강원도: '강원',
+    충청북도: '충북',
+    충청남도: '충남',
+    전라북도: '전북',
+    전라남도: '전남',
+    경상북도: '경북',
+    경상남도: '경남',
+    제주도: '제주',
+    제주특별자치도: '제주',
+  }
+
+  return regionMap[region] || region
+}
+
 function shortenLocation(value) {
   let text = toDisplayText(value, '')
 
@@ -101,36 +126,35 @@ function shortenLocation(value) {
     .trim()
 
   text = text
-    .split(/인근지하철|지하철|도보|버스|출구|역에서|역\s|주차|복리후생|근무시간|급여|담당업무|자격요건|우대사항/)[0]
+    .split(/지도보기|인근지하철|지하철|도보|버스|출구|역에서|역\s|주차|복리후생|근무시간|급여|담당업무|자격요건|우대사항/)[0]
     .trim()
 
   const regionPattern =
-    '(?:서울|서울특별시|부산|부산광역시|대구|대구광역시|인천|인천광역시|광주|광주광역시|대전|대전광역시|울산|울산광역시|세종|세종특별자치시|경기|경기도|강원|강원도|충북|충청북도|충남|충청남도|전북|전라북도|전남|전라남도|경북|경상북도|경남|경상남도|제주|제주도|제주특별자치도)'
-
-  const firstAdmin = '[가-힣]+(?:시|군|구)'
-  const secondAdmin = '(?:\\s+[가-힣]+(?:구|군))?'
-
-  const roadMatch = text.match(
-    new RegExp(
-      `(${regionPattern}\\s+${firstAdmin}${secondAdmin}\\s+[가-힣A-Za-z0-9\\s]+?(?:로|길)\\s*\\d+(?:-\\d+)?)`
-    )
-  )
-
-  if (roadMatch) {
-    return cleanLocationOutput(roadMatch[1])
-  }
+    '(서울|서울특별시|부산|부산광역시|대구|대구광역시|인천|인천광역시|광주|광주광역시|대전|대전광역시|울산|울산광역시|세종|세종특별자치시|경기|경기도|강원|강원도|충북|충청북도|충남|충청남도|전북|전라북도|전남|전라남도|경북|경상북도|경남|경상남도|제주|제주도|제주특별자치도)'
 
   const areaMatch = text.match(
     new RegExp(
-      `(${regionPattern}\\s+${firstAdmin}${secondAdmin}(?:\\s+[가-힣0-9]+(?:읍|면|동|가|리))?)`
+      `${regionPattern}\\s+([가-힣]+(?:시|군|구))(?:\\s+([가-힣0-9]+(?:구|군|읍|면|동|가|리)))?`
     )
   )
 
   if (areaMatch) {
-    return cleanLocationOutput(areaMatch[1])
+    const region = normalizeRegionName(areaMatch[1])
+    const firstArea = areaMatch[2]
+    const secondArea = areaMatch[3] || ''
+
+    let result = `${region} ${firstArea}`
+
+    if (secondArea) {
+      result += ` ${secondArea}`
+    }
+
+    return cleanLocationOutput(result)
   }
 
-  return text.length > 25 ? `${cleanLocationOutput(text).slice(0, 25).trim()}...` : cleanLocationOutput(text)
+  const cleanedText = cleanLocationOutput(text)
+
+  return cleanedText.length > 15 ? `${cleanedText.slice(0, 15).trim()}...` : cleanedText
 }
 
 function getTextPool(jobPosting) {

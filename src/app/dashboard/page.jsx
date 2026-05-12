@@ -278,10 +278,7 @@ export default function DashboardPage() {
         return acc
       }, {})
 
-      const matches = normalizeJobs(data.matches || []).map((job) => ({
-        ...job,
-        sourceUrl: job.sourceUrl || jobUrlMap[String(job.id || job.jobId)] || '',
-      }))
+      const matches = normalizeJobs(data.topFitMatches || data.matches || [])
       
       console.log('AI 매칭 결과:', matches)
 
