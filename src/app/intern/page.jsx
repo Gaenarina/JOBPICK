@@ -119,42 +119,42 @@ export default function InternPage() {
 
   if (!mounted || !isAuthenticated) {
     return (
-      <main className="max-w-5xl mx-auto p-8 flex items-center justify-center min-h-[60vh]">
+      <main className="max-w-5xl mx-auto p-4 md:p-8 flex items-center justify-center min-h-[60vh]">
         <div className="animate-spin w-10 h-10 border-2 border-primary border-t-transparent rounded-full" />
       </main>
     )
   }
 
   return (
-    <main className="max-w-5xl mx-auto p-6 sm:p-8">
-      <div className="flex flex-wrap gap-3 mb-8">
+    <main className="max-w-5xl mx-auto p-4 md:p-8">
+      <div className="flex flex-wrap gap-2 md:gap-3 mb-6 md:mb-8">
         <button
           type="button"
           onClick={() => setActiveTab('realtime')}
-          className={`px-6 py-3 rounded-xl ${activeTab === 'realtime' ? 'bg-primary text-white' : 'bg-slate-100 text-gray-700'}`}
+          className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl text-sm md:text-base ${activeTab === 'realtime' ? 'bg-primary text-white' : 'bg-slate-100 text-gray-700'}`}
         >
           실시간 공고
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('salary')}
-          className={`px-6 py-3 rounded-xl ${activeTab === 'salary' ? 'bg-primary text-white' : 'bg-slate-100 text-gray-700'}`}
+          className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl text-sm md:text-base ${activeTab === 'salary' ? 'bg-primary text-white' : 'bg-slate-100 text-gray-700'}`}
         >
           신입연봉
         </button>
         <button
           type="button"
           onClick={() => setActiveTab('coaching')}
-          className={`px-6 py-3 rounded-xl ${activeTab === 'coaching' ? 'bg-primary text-white' : 'bg-slate-100 text-gray-700'}`}
+          className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl text-sm md:text-base ${activeTab === 'coaching' ? 'bg-primary text-white' : 'bg-slate-100 text-gray-700'}`}
         >
           AI 자소서 코칭
         </button>
       </div>
 
       {activeTab === 'coaching' && (
-        <section className="mb-8 bg-gradient-to-r from-blue-500/80 to-cyan-200 rounded-3xl border border-blue-400 p-5 text-white">
-          <h2 className="text-3xl font-semibold mb-1">AI 자소서 코칭</h2>
-          <p className="text-blue-50 mb-4">AI가 자기소개서를 분석하고 개선 방향을 제시해드립니다.</p>
+        <section className="mb-8 bg-gradient-to-r from-blue-500/80 to-cyan-200 rounded-3xl border border-blue-400 p-4 md:p-5 text-white">
+          <h2 className="text-2xl md:text-3xl font-semibold mb-1">AI 자소서 코칭</h2>
+          <p className="text-sm md:text-base text-blue-50 mb-4">AI가 자기소개서를 분석하고 개선 방향을 제시해드립니다.</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
             <button
               type="button"
@@ -245,10 +245,10 @@ export default function InternPage() {
 
       {activeTab === 'realtime' && (
         <section>
-          <h2 className="text-4xl font-bold mb-5">실시간 공고</h2>
+          <h2 className="text-2xl md:text-4xl font-bold mb-4 md:mb-5">실시간 공고</h2>
           <div className="space-y-4">
             {INTERN_JOBS.map((job) => (
-              <div key={job.id} className="bg-white border border-gray-200 rounded-2xl p-5 relative">
+              <div key={job.id} className="bg-white border border-gray-200 rounded-2xl p-4 md:p-5 relative">
                 <button onClick={() => handleToggleBookmark(job)} className="absolute top-5 right-5" aria-label="북마크">
                   <svg width="22" height="22" viewBox="0 0 24 24" fill={bookmarkIds.includes(job.id) ? '#2563eb' : '#ffffff'} xmlns="http://www.w3.org/2000/svg">
                     <path
@@ -259,8 +259,8 @@ export default function InternPage() {
                     />
                   </svg>
                 </button>
-                <p className="text-2xl text-gray-500 mb-2">{job.company}</p>
-                <button onClick={() => goJobDetail(job)} className="text-3xl font-semibold mb-3 text-left hover:text-primary transition-colors">
+                <p className="text-base md:text-2xl text-gray-500 mb-2">{job.company}</p>
+                <button onClick={() => goJobDetail(job)} className="text-lg md:text-3xl font-semibold mb-3 text-left hover:text-primary transition-colors">
                   {job.title}
                 </button>
                 <div className="flex gap-2">
@@ -275,10 +275,10 @@ export default function InternPage() {
 
       {activeTab === 'salary' && (
         <section>
-          <h2 className="text-4xl font-bold mb-5">신입연봉</h2>
+          <h2 className="text-2xl md:text-4xl font-bold mb-4 md:mb-5">신입연봉</h2>
           <div className="space-y-4">
             {INTERN_JOBS.map((job) => (
-              <div key={job.id} className="bg-white border border-gray-200 rounded-2xl p-5 flex justify-between items-center gap-3 relative">
+              <div key={job.id} className="bg-white border border-gray-200 rounded-2xl p-4 md:p-5 flex justify-between items-center gap-3 relative">
                 <button onClick={() => handleToggleBookmark(job)} className="absolute top-5 right-5" aria-label="북마크">
                   <svg width="22" height="22" viewBox="0 0 24 24" fill={bookmarkIds.includes(job.id) ? '#2563eb' : '#ffffff'} xmlns="http://www.w3.org/2000/svg">
                     <path
@@ -290,12 +290,12 @@ export default function InternPage() {
                   </svg>
                 </button>
                 <div>
-                  <p className="text-2xl text-gray-500 mb-1">{job.company}</p>
-                  <button onClick={() => goJobDetail(job)} className="text-3xl font-semibold text-left hover:text-primary transition-colors">
+                  <p className="text-base md:text-2xl text-gray-500 mb-1">{job.company}</p>
+                  <button onClick={() => goJobDetail(job)} className="text-lg md:text-3xl font-semibold text-left hover:text-primary transition-colors">
                     {job.title}
                   </button>
                 </div>
-                <p className="text-4xl font-bold text-primary whitespace-nowrap">{job.salary}</p>
+                <p className="text-2xl md:text-4xl font-bold text-primary whitespace-nowrap">{job.salary}</p>
               </div>
             ))}
           </div>

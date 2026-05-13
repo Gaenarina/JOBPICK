@@ -452,16 +452,16 @@ export default function LandingPage() {
       )}
 
       <section className="mt-8 md:mt-10">
-        <div className="bg-blue-50 rounded-2xl p-6 md:p-8 border border-blue-200">
-          <h2 className="text-xl md:text-2xl font-bold mb-4 flex items-center gap-2">
+        <div className="bg-blue-50 rounded-2xl p-5 md:p-8 border border-blue-200">
+          <h2 className="text-2xl md:text-2xl font-bold mb-4 flex items-center gap-2">
             <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-primary" aria-hidden />
             AI 커리어 매칭 분석
           </h2>
-          <p className="text-gray-500 text-sm md:text-base mb-4">
+          <p className="text-gray-500 text-base md:text-base mb-4">
             로그인 후 이력서를 업로드하면 AI가 분석하여 맞춤 채용공고를 추천해드립니다.
           </p>
 
-          <div className="border-2 border-dashed border-gray-200 rounded-xl md:rounded-2xl p-6 md:p-8 bg-white">
+          <div className="border-2 border-dashed border-gray-200 rounded-xl md:rounded-2xl p-5 md:p-8 bg-white">
             <div className="flex flex-wrap gap-3 mb-4">
               <button
                 type="button"
@@ -552,7 +552,7 @@ export default function LandingPage() {
 
           {analysisDone && (
             <div className="mt-6 bg-white rounded-xl md:rounded-2xl p-5 md:p-6 border border-blue-200">
-              <p className="text-sm md:text-base text-gray-600 mb-3">
+              <p className="text-base md:text-base text-gray-600 mb-3">
                 {name} 님의 이력서 기준으로 아래 채용 공고를 추천드려요.
               </p>
 
@@ -652,7 +652,7 @@ export default function LandingPage() {
       </section>
 
       <section className="mt-10 md:mt-12">
-        <h2 className="text-xl md:text-3xl font-bold mb-4 md:mb-6">인기 커리어</h2>
+        <h2 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">인기 커리어</h2>
 
         <div className="mb-4">
           <select

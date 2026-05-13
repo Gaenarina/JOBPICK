@@ -20,9 +20,9 @@ export default function Navbar() {
 
   return (
     <>
-      <nav className="flex items-center justify-between px-4 sm:px-8 py-5 md:py-6 min-h-[64px] md:min-h-[72px] bg-white shadow-sm">
-        <Link href="/" className="flex items-center gap-2 font-bold text-xl md:text-2xl text-primary">
-          <ClipboardList className="w-8 h-8 md:w-10 md:h-10" aria-hidden />
+      <nav className="flex items-center justify-between px-4 sm:px-8 py-5 md:py-6 min-h-[72px] md:min-h-[76px] bg-white shadow-sm">
+        <Link href="/" className="flex items-center gap-2 font-bold text-2xl md:text-3xl text-primary">
+          <ClipboardList className="w-9 h-9 md:w-10 md:h-10" aria-hidden />
           <span>JOB PICK</span>
         </Link>
 
@@ -53,7 +53,7 @@ export default function Navbar() {
 
               <button
                 onClick={() => setMenuOpen(true)}
-                className="px-4 py-2 bg-gray-800 text-white rounded-md text-sm hover:bg-gray-700 transition-colors"
+                className="hidden md:inline-flex px-4 py-2 bg-gray-800 text-white rounded-md text-sm hover:bg-gray-700 transition-colors"
               >
                 메뉴
               </button>

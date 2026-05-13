@@ -456,7 +456,7 @@ export default function DashboardPage() {
 
   if (!mounted || !isAuthenticated) {
     return (
-      <main className="max-w-3xl mx-auto p-8 flex items-center justify-center min-h-[60vh]">
+      <main className="max-w-3xl mx-auto p-4 md:p-8 flex items-center justify-center min-h-[60vh]">
         <div className="animate-spin w-10 h-10 border-2 border-primary border-t-transparent rounded-full" />
       </main>
     )
@@ -470,18 +470,18 @@ export default function DashboardPage() {
   const btnSecondaryInactive = 'px-5 py-3 rounded-xl font-medium transition-colors bg-slate-100 text-gray-700 hover:bg-slate-200'
 
   return (
-    <main className="max-w-5xl mx-auto p-6 sm:p-8">
+    <main className="max-w-5xl mx-auto p-4 md:p-8">
       <section className="mb-8">
-        <h1 className="text-4xl font-bold mb-6">채용 정보</h1>
+        <h1 className="text-2xl md:text-4xl font-bold mb-4 md:mb-6">채용 정보</h1>
 
-        <div className="rounded-2xl bg-white border border-gray-200 p-6">
-          <form onSubmit={handleSearchSubmit} className="mb-6 flex gap-2">
+        <div className="rounded-2xl bg-white border border-gray-200 p-4 md:p-6">
+          <form onSubmit={handleSearchSubmit} className="mb-4 md:mb-6 flex gap-2">
             <input
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="포지션, 회사명, 키워드 검색"
-              className="flex-1 bg-slate-100 rounded-xl px-5 py-4 text-gray-700 text-xl outline-none border border-transparent focus:border-primary"
+              className="flex-1 bg-slate-100 rounded-xl px-4 md:px-5 py-3 md:py-4 text-gray-700 text-base md:text-xl outline-none border border-transparent focus:border-primary"
             />
             <button type="submit" className="px-5 py-3 rounded-xl bg-slate-700 text-white">
               검색
@@ -564,7 +564,7 @@ export default function DashboardPage() {
 
       <section className="mt-8">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-3xl font-bold">
+          <h2 className="text-2xl md:text-3xl font-bold">
             {aiMatched ? `${name}님 맞춤 공고` : '추천 공고'}
           </h2>
           <div className="px-4 py-2 bg-slate-100 rounded-xl text-sm text-gray-600">
@@ -588,7 +588,7 @@ export default function DashboardPage() {
               const jobKey = getJobKey(job)
 
               return (
-                <div key={jobKey} className="relative bg-white rounded-2xl p-6 border border-gray-200 min-h-[210px]">
+                <div key={jobKey} className="relative bg-white rounded-2xl p-5 md:p-6 border border-gray-200 min-h-[210px]">
                   <button
                     onClick={() => handleToggleBookmark(job)}
                     className="absolute top-5 right-5 text-xl"
@@ -610,11 +610,11 @@ export default function DashboardPage() {
                     </svg>
                   </button>
 
-                  <p className="text-2xl text-gray-500 mb-2 pr-8">{job.company}</p>
+                  <p className="text-base md:text-2xl text-gray-500 mb-2 pr-8">{job.company}</p>
 
                   <button
                     onClick={() => handleViewJob(job)}
-                    className="text-3xl font-semibold mb-4 text-left hover:text-primary transition-colors pr-8"
+                    className="text-lg md:text-3xl font-semibold mb-4 text-left hover:text-primary transition-colors pr-8"
                   >
                     {job.title}
                   </button>

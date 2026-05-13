@@ -2,11 +2,12 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, Briefcase, User } from 'lucide-react'
+import { Home, Briefcase, GraduationCap, User } from 'lucide-react'
 
 const NAV_ITEMS = [
   { href: '/', label: '홈', icon: Home },
   { href: '/dashboard', label: '채용정보', icon: Briefcase },
+  { href: '/intern', label: '신입인턴', icon: GraduationCap },
   { href: '/mypage', label: '마이페이지', icon: User },
 ]
 
@@ -19,10 +20,10 @@ export default function MobileBottomNav() {
 
   return (
     <nav
-      className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur-sm safe-area-pb"
+      className="md:hidden fixed bottom-0 left-0 right-0 z-30 border-t border-gray-200 bg-white/95 backdrop-blur-sm pb-[env(safe-area-inset-bottom)]"
       aria-label="하단 메뉴"
     >
-      <div className="flex items-stretch justify-around max-w-lg mx-auto h-14">
+      <div className="flex items-stretch justify-around max-w-lg mx-auto h-16">
         {NAV_ITEMS.map((item) => {
           const active =
             item.href === '/'
