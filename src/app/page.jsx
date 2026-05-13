@@ -122,6 +122,8 @@ export default function LandingPage() {
   const [matchedJobs, setMatchedJobs] = useState([])
   const [isLoadingJobs, setIsLoadingJobs] = useState(false)
   const [selectedPopularCategory, setSelectedPopularCategory] = useState('전체')
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10
 
   const [resumes, setResumes] = useState([])
   const fileInputRef = useRef(null)
@@ -422,12 +424,19 @@ export default function LandingPage() {
 
   const recommendedJobs = matchedJobs.slice(0, 3)
 
-  const popularJobs = jobs
-    .filter((job) => {
-      if (selectedPopularCategory === '전체') return true
-      return job.category === selectedPopularCategory
-    })
-    .slice(0, 2)
+  const filteredJobs = jobs.filter((job) => {
+    if (selectedPopularCategory === '전체') return true
+    return job.category === selectedPopularCategory
+  })
+
+  const totalPages = Math.ceil(filteredJobs.length / itemsPerPage)
+  const startIndex = (currentPage - 1) * itemsPerPage
+  const endIndex = startIndex + itemsPerPage
+  const popularJobs = filteredJobs.slice(startIndex, endIndex)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedPopularCategory])
 
   return (
     <main className="max-w-5xl mx-auto p-4 md:p-8">
@@ -679,73 +688,93 @@ export default function LandingPage() {
             <p className="text-sm md:text-base text-gray-500">DB 공고를 불러오는 중입니다...</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-4 md:gap-6">
-            {popularJobs.length === 0 ? (
-              <div className="bg-white rounded-2xl p-6 md:p-8 border border-gray-200 text-sm md:text-base text-gray-500">
-                표시할 공고가 없습니다.
-              </div>
-            ) : (
-              popularJobs.map((job) => {
-                const jobKey = getJobKey(job)
+          <>
+            <div className="flex flex-col gap-4 md:gap-6">
+              {popularJobs.length === 0 ? (
+                <div className="bg-white rounded-2xl p-6 md:p-8 border border-gray-200 text-sm md:text-base text-gray-500">
+                  표시할 공고가 없습니다.
+                </div>
+              ) : (
+                popularJobs.map((job) => {
+                  const jobKey = getJobKey(job)
 
-                return (
-                  <div key={jobKey} className="relative bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-gray-200">
-                    <button onClick={() => handleToggleBookmark(job)} className="absolute top-5 right-5 md:top-6 md:right-6" aria-label="북마크">
-                      <svg
-                        width="22"
-                        height="22"
-                        viewBox="0 0 24 24"
-                        fill={bookmarkIds.includes(jobKey) ? '#2563eb' : '#ffffff'}
-                        xmlns="http://www.w3.org/2000/svg"
+                  return (
+                    <div key={jobKey} className="relative bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-gray-200">
+                      <button onClick={() => handleToggleBookmark(job)} className="absolute top-5 right-5 md:top-6 md:right-6" aria-label="북마크">
+                        <svg
+                          width="22"
+                          height="22"
+                          viewBox="0 0 24 24"
+                          fill={bookmarkIds.includes(jobKey) ? '#2563eb' : '#ffffff'}
+                          xmlns="http://www.w3.org/2000/svg"
+                        >
+                          <path
+                            d="M6 3.75C6 3.33579 6.33579 3 6.75 3H17.25C17.6642 3 18 3.33579 18 3.75V21L12 16.5L6 21V3.75Z"
+                            stroke={bookmarkIds.includes(jobKey) ? '#2563eb' : '#94a3b8'}
+                            strokeWidth="1.8"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </button>
+
+                      <button
+                        onClick={() => handleGoPopularJob(job)}
+                        className="font-bold text-lg md:text-2xl mb-2 hover:text-primary transition-colors text-left pr-10"
                       >
-                        <path
-                          d="M6 3.75C6 3.33579 6.33579 3 6.75 3H17.25C17.6642 3 18 3.33579 18 3.75V21L12 16.5L6 21V3.75Z"
-                          stroke={bookmarkIds.includes(jobKey) ? '#2563eb' : '#94a3b8'}
-                          strokeWidth="1.8"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </button>
+                        {job.title}
+                      </button>
 
-                    <button
-                      onClick={() => handleGoPopularJob(job)}
-                      className="font-bold text-lg md:text-2xl mb-2 hover:text-primary transition-colors text-left pr-10"
-                    >
-                      {job.title}
-                    </button>
+                      <p className="text-base md:text-lg text-gray-500 mb-3">{job.company}</p>
 
-                    <p className="text-base md:text-lg text-gray-500 mb-3">{job.company}</p>
+                      <div className="flex gap-2 flex-wrap">
+                        {job.category && (
+                          <span className="text-xs md:text-sm px-2 py-1 bg-blue-50 rounded text-blue-600">
+                            {job.category}
+                          </span>
+                        )}
 
-                    <div className="flex gap-2 flex-wrap">
-                      {job.category && (
-                        <span className="text-xs md:text-sm px-2 py-1 bg-blue-50 rounded text-blue-600">
-                          {job.category}
-                        </span>
-                      )}
+                        {job.location && (
+                          <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                            {job.location}
+                          </span>
+                        )}
 
-                      {job.location && (
-                        <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
-                          {job.location}
-                        </span>
-                      )}
+                        {job.career && (
+                          <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                            {job.career}
+                          </span>
+                        )}
 
-                      {job.career && (
-                        <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
-                          {job.career}
-                        </span>
-                      )}
-
-                      {job.salary && (
-                        <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
-                          {job.salary}
-                        </span>
-                      )}
+                        {job.salary && (
+                          <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                            {job.salary}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )
-              })
+                  )
+                })
+              )}
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex justify-center items-center gap-2 mt-6">
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page)}
+                    className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
+                      currentPage === page
+                        ? 'bg-primary text-white'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    {page}
+                  </button>
+                ))}
+              </div>
             )}
-          </div>
+          </>
         )}
       </section>
     </main>

@@ -26,6 +26,7 @@ export default function MyPage() {
   const [savingNickname, setSavingNickname] = useState(false)
   const [uploadingPhoto, setUploadingPhoto] = useState(false)
   const [withdrawStep, setWithdrawStep] = useState(0)
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
 
   useEffect(() => {
     if (mounted && !isAuthenticated) {
@@ -187,35 +188,37 @@ export default function MyPage() {
               )}
             </div>
 
-            <div className="flex flex-wrap gap-2 justify-center md:justify-start">
-              <button
-                type="button"
-                onClick={() => avatarInputRef.current?.click()}
-                disabled={uploadingPhoto}
-                className="inline-flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl bg-slate-900 text-white font-medium hover:bg-slate-800 disabled:opacity-50 transition-colors"
-              >
-                <Camera className="w-4 h-4" aria-hidden />
-                사진 업로드
-              </button>
-              {user.photoURL && (
+            {isEditingProfile && (
+              <div className="flex flex-wrap gap-2 justify-center md:justify-start">
                 <button
                   type="button"
-                  onClick={handleRemovePhoto}
+                  onClick={() => avatarInputRef.current?.click()}
                   disabled={uploadingPhoto}
-                  className="inline-flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl bg-white text-gray-700 font-medium border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                  className="inline-flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl bg-slate-900 text-white font-medium hover:bg-slate-800 disabled:opacity-50 transition-colors"
                 >
-                  <Trash2 className="w-4 h-4" aria-hidden />
-                  사진 삭제
+                  <Camera className="w-4 h-4" aria-hidden />
+                  사진 업로드
                 </button>
-              )}
-              <input
-                ref={avatarInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleAvatarSelect}
-              />
-            </div>
+                {user.photoURL && (
+                  <button
+                    type="button"
+                    onClick={handleRemovePhoto}
+                    disabled={uploadingPhoto}
+                    className="inline-flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl bg-white text-gray-700 font-medium border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" aria-hidden />
+                    사진 삭제
+                  </button>
+                )}
+                <input
+                  ref={avatarInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarSelect}
+                />
+              </div>
+            )}
           </div>
 
           <div className="flex-1 min-w-0 w-full">
@@ -224,35 +227,42 @@ export default function MyPage() {
                 <h2 className="text-xl md:text-2xl font-bold text-gray-900 truncate">{displayName}</h2>
                 <p className="text-sm md:text-base text-gray-500 break-all">{email}</p>
               </div>
-              <div className="hidden md:flex items-center gap-2 text-gray-400">
-                <PencilLine className="w-5 h-5" aria-hidden />
-              </div>
-            </div>
-
-            <div className="mt-5 flex flex-col sm:flex-row gap-2 sm:items-end">
-              <div className="flex-1">
-                <label className="block text-xs font-medium text-gray-600 mb-1.5">닉네임</label>
-                <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 focus-within:ring-2 focus-within:ring-primary/15 focus-within:border-primary">
-                  <PencilLine className="w-4 h-4 text-gray-400" aria-hidden />
-                  <input
-                    type="text"
-                    value={nickname}
-                    onChange={(e) => setNickname(e.target.value)}
-                    maxLength={40}
-                    className="w-full bg-transparent outline-none text-base text-gray-800"
-                    placeholder="닉네임을 입력하세요"
-                  />
-                </div>
-              </div>
               <button
                 type="button"
-                onClick={handleSaveNickname}
-                disabled={savingNickname || !nickname.trim()}
-                className="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white font-medium text-sm hover:bg-primary-dark disabled:opacity-50 transition-colors"
+                onClick={() => setIsEditingProfile(!isEditingProfile)}
+                className="flex items-center gap-2 text-gray-400 hover:text-primary transition-colors"
+                aria-label="프로필 편집"
               >
-                {savingNickname ? '저장 중...' : '저장'}
+                <PencilLine className="w-5 h-5" aria-hidden />
               </button>
             </div>
+
+            {isEditingProfile && (
+              <div className="mt-5 flex flex-col sm:flex-row gap-2 sm:items-end">
+                <div className="flex-1">
+                  <label className="block text-xs font-medium text-gray-600 mb-1.5">닉네임</label>
+                  <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2.5 focus-within:ring-2 focus-within:ring-primary/15 focus-within:border-primary">
+                    <PencilLine className="w-4 h-4 text-gray-400" aria-hidden />
+                    <input
+                      type="text"
+                      value={nickname}
+                      onChange={(e) => setNickname(e.target.value)}
+                      maxLength={40}
+                      className="w-full bg-transparent outline-none text-base text-gray-800"
+                      placeholder="닉네임을 입력하세요"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSaveNickname}
+                  disabled={savingNickname || !nickname.trim()}
+                  className="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white font-medium text-sm hover:bg-primary-dark disabled:opacity-50 transition-colors"
+                >
+                  {savingNickname ? '저장 중...' : '저장'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
