@@ -11,6 +11,7 @@ import {
   removeResume,
   toggleBookmark,
 } from '@/lib/userStorage'
+import { FileText, Sparkles } from 'lucide-react'
 
 const MATCH_API_URL = process.env.NEXT_PUBLIC_MATCH_API_URL || 'http://localhost:8000/process-resume'
 
@@ -429,40 +430,43 @@ export default function LandingPage() {
     .slice(0, 2)
 
   return (
-    <main className="max-w-3xl mx-auto p-8">
+    <main className="max-w-5xl mx-auto p-4 md:p-8">
       {isAuthenticated ? (
-        <section className="py-8">
-          <h1 className="text-2xl font-bold mb-1">
+        <section className="py-6 md:py-8">
+          <h1 className="text-2xl md:text-4xl font-bold mb-1">
             안녕하세요, <span className="text-primary">{name}</span> 님!
           </h1>
-          <p className="text-gray-500">AI 기반 이력서/채용공고 매칭 서비스예요.</p>
+          <p className="text-gray-500 text-base md:text-lg">AI 기반 이력서/채용공고 매칭 서비스예요.</p>
         </section>
       ) : (
-        <section className="text-center py-12">
-          <h1 className="text-3xl font-bold text-primary mb-2">로그인을 해주세요!</h1>
-          <p className="text-gray-500 mb-6">AI 기반 이력서/채용공고 매칭 서비스예요.</p>
+        <section className="text-center py-10 md:py-12">
+          <h1 className="text-3xl md:text-5xl font-bold text-primary mb-2">로그인을 해주세요!</h1>
+          <p className="text-gray-500 mb-6 text-base md:text-lg">AI 기반 이력서/채용공고 매칭 서비스예요.</p>
           <button
             onClick={handleGetStarted}
-            className="px-8 py-3 bg-primary text-white rounded-lg font-medium hover:bg-primary-dark transition-colors"
+            className="px-8 py-3 md:py-4 md:text-lg bg-primary text-white rounded-xl font-medium hover:bg-primary-dark transition-colors"
           >
             로그인하고 시작하기
           </button>
         </section>
       )}
 
-      <section className="mt-8">
-        <div className="bg-blue-50 rounded-xl p-6 border border-blue-200">
-          <h2 className="text-lg font-semibold mb-4">⭐ AI 커리어 매칭 분석</h2>
-          <p className="text-gray-500 text-sm mb-4">
+      <section className="mt-8 md:mt-10">
+        <div className="bg-blue-50 rounded-2xl p-6 md:p-8 border border-blue-200">
+          <h2 className="text-xl md:text-2xl font-bold mb-4 flex items-center gap-2">
+            <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-primary" aria-hidden />
+            AI 커리어 매칭 분석
+          </h2>
+          <p className="text-gray-500 text-sm md:text-base mb-4">
             로그인 후 이력서를 업로드하면 AI가 분석하여 맞춤 채용공고를 추천해드립니다.
           </p>
 
-          <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 bg-white">
+          <div className="border-2 border-dashed border-gray-200 rounded-xl md:rounded-2xl p-6 md:p-8 bg-white">
             <div className="flex flex-wrap gap-3 mb-4">
               <button
                 type="button"
                 onClick={handleShowSavedClick}
-                className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                className={`px-5 py-2.5 rounded-xl text-sm md:text-base font-medium ${
                   showSavedResumes ? 'bg-primary text-white' : 'bg-slate-100 text-gray-700'
                 }`}
               >
@@ -472,7 +476,7 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={handleNewUploadClick}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-slate-900 text-white"
+                className="px-5 py-2.5 rounded-xl text-sm md:text-base font-medium bg-slate-900 text-white"
               >
                 새 이력서 등록하기
               </button>
@@ -487,7 +491,7 @@ export default function LandingPage() {
               />
             </div>
 
-            <p className="text-sm text-gray-500 mb-3">
+            <p className="text-sm md:text-base text-gray-500 mb-3">
               PDF, DOC, DOCX 파일을 업로드하거나, 등록한 이력서를 선택해 분석해보세요.
             </p>
 
@@ -508,7 +512,7 @@ export default function LandingPage() {
                         onClick={() => handleResumeAnalyze(resume)}
                         className="flex items-center gap-4 text-left flex-1"
                       >
-                        <span className="text-2xl">📄</span>
+                        <FileText className="w-6 h-6 text-gray-500" aria-hidden />
 
                         <div className="flex flex-col">
                           <span className="font-medium">{resume.name}</span>
@@ -547,14 +551,14 @@ export default function LandingPage() {
           </div>
 
           {analysisDone && (
-            <div className="mt-6 bg-white rounded-xl p-4 border border-blue-200">
-              <p className="text-sm text-gray-600 mb-2">
+            <div className="mt-6 bg-white rounded-xl md:rounded-2xl p-5 md:p-6 border border-blue-200">
+              <p className="text-sm md:text-base text-gray-600 mb-3">
                 {name} 님의 이력서 기준으로 아래 채용 공고를 추천드려요.
               </p>
 
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-4">
                 {recommendedJobs.length === 0 ? (
-                  <p className="text-sm text-gray-500">
+                  <p className="text-sm md:text-base text-gray-500">
                     표시할 추천 공고가 없습니다.
                   </p>
                 ) : (
@@ -564,45 +568,50 @@ export default function LandingPage() {
                     return (
                       <div
                         key={jobKey}
-                        className="flex items-center justify-between gap-3 border border-gray-200 rounded-lg p-4"
+                        className="flex items-center justify-between gap-3 border border-gray-200 rounded-xl p-5 md:p-6"
                       >
-                        <div>
-                          <p className="text-xs text-gray-500 mb-1">{job.company}</p>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm md:text-base text-gray-500 mb-1">{job.company}</p>
                           <button
                             onClick={() => handleGoJob(job)}
-                            className="font-medium text-sm text-left hover:text-primary transition-colors"
+                            className="font-semibold text-base md:text-lg text-left hover:text-primary transition-colors"
                           >
                             {job.title}
                           </button>
 
                           <div className="flex gap-2 mt-2 flex-wrap">
                             {job.category && (
-                              <span className="text-xs px-2 py-1 bg-blue-50 rounded text-blue-600">
+                              <span className="text-xs md:text-sm px-2 py-1 bg-blue-50 rounded text-blue-600">
                                 {job.category}
                               </span>
                             )}
 
                             {job.location && (
-                              <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                              <span className="text-xs md:text-sm px-2 py-1 bg-slate-100 rounded text-gray-500">
                                 {job.location}
                               </span>
                             )}
 
                             {job.career && (
-                              <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                              <span className="text-xs md:text-sm px-2 py-1 bg-slate-100 rounded text-gray-500">
                                 {job.career}
                               </span>
                             )}
 
                             {job.salary && (
-                              <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
+                              <span className="text-xs md:text-sm px-2 py-1 bg-slate-100 rounded text-gray-500">
                                 {job.salary}
                               </span>
                             )}
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          {job.matchRate > 0 && (
+                            <span className="text-primary font-bold text-lg md:text-xl whitespace-nowrap">
+                              {job.matchRate}점
+                            </span>
+                          )}
                           <button onClick={() => handleToggleBookmark(job)} aria-label="북마크">
                             <svg
                               width="22"
@@ -619,10 +628,6 @@ export default function LandingPage() {
                               />
                             </svg>
                           </button>
-
-                          {job.matchRate > 0 && (
-                            <span className="text-primary font-bold text-lg">{job.matchRate}점</span>
-                          )}
                         </div>
                       </div>
                     )
@@ -637,7 +642,7 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={() => router.push('/dashboard')}
-                className="px-5 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary-dark transition-colors"
+                className="px-6 py-2.5 md:py-3 md:text-base bg-primary text-white rounded-xl font-medium hover:bg-primary-dark transition-colors"
               >
                 채용정보로 이동
               </button>
@@ -646,14 +651,14 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="mt-8">
-        <h2 className="text-lg font-semibold mb-4">인기 커리어</h2>
+      <section className="mt-10 md:mt-12">
+        <h2 className="text-xl md:text-3xl font-bold mb-4 md:mb-6">인기 커리어</h2>
 
         <div className="mb-4">
           <select
             value={selectedPopularCategory}
             onChange={(e) => setSelectedPopularCategory(e.target.value)}
-            className="px-3 py-2 border border-gray-200 rounded-md text-sm bg-white"
+            className="px-4 py-3 border border-gray-200 rounded-xl text-sm md:text-base bg-white w-full sm:w-auto min-h-[48px]"
           >
             <option value="전체">전체</option>
             <option value="IT/개발">IT/개발</option>
@@ -669,14 +674,14 @@ export default function LandingPage() {
         </div>
 
         {isLoadingJobs ? (
-          <div className="p-6 bg-white rounded-lg border border-gray-200 text-center">
-            <div className="w-8 h-8 border-2 border-gray-200 border-t-primary rounded-full animate-spin mx-auto mb-3" />
-            <p className="text-sm text-gray-500">DB 공고를 불러오는 중입니다...</p>
+          <div className="p-8 md:p-10 bg-white rounded-2xl border border-gray-200 text-center">
+            <div className="w-10 h-10 border-2 border-gray-200 border-t-primary rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-sm md:text-base text-gray-500">DB 공고를 불러오는 중입니다...</p>
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 md:gap-6">
             {popularJobs.length === 0 ? (
-              <div className="bg-white rounded-lg p-5 border border-gray-200 text-sm text-gray-500">
+              <div className="bg-white rounded-2xl p-6 md:p-8 border border-gray-200 text-sm md:text-base text-gray-500">
                 표시할 공고가 없습니다.
               </div>
             ) : (
@@ -684,8 +689,8 @@ export default function LandingPage() {
                 const jobKey = getJobKey(job)
 
                 return (
-                  <div key={jobKey} className="relative bg-white rounded-lg p-5 shadow-sm border border-gray-200">
-                    <button onClick={() => handleToggleBookmark(job)} className="absolute top-4 right-4" aria-label="북마크">
+                  <div key={jobKey} className="relative bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-gray-200">
+                    <button onClick={() => handleToggleBookmark(job)} className="absolute top-5 right-5 md:top-6 md:right-6" aria-label="북마크">
                       <svg
                         width="22"
                         height="22"
@@ -704,16 +709,16 @@ export default function LandingPage() {
 
                     <button
                       onClick={() => handleGoPopularJob(job)}
-                      className="font-semibold mb-1 hover:text-primary transition-colors text-left pr-8"
+                      className="font-bold text-lg md:text-2xl mb-2 hover:text-primary transition-colors text-left pr-10"
                     >
                       {job.title}
                     </button>
 
-                    <p className="text-sm text-gray-500 mb-2">{job.company}</p>
+                    <p className="text-base md:text-lg text-gray-500 mb-3">{job.company}</p>
 
                     <div className="flex gap-2 flex-wrap">
                       {job.category && (
-                        <span className="text-xs px-2 py-1 bg-blue-50 rounded text-blue-600">
+                        <span className="text-xs md:text-sm px-2 py-1 bg-blue-50 rounded text-blue-600">
                           {job.category}
                         </span>
                       )}

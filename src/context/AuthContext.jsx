@@ -6,6 +6,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
+  sendPasswordResetEmail,
+  deleteUser,
 } from 'firebase/auth'
 import { doc, serverTimestamp, setDoc } from 'firebase/firestore'
 import { auth, db } from '@/lib/firebase'
@@ -57,6 +59,17 @@ export function AuthProvider({ children }) {
     await signOut(auth)
   }
 
+  const sendPasswordReset = async (email) => {
+    await sendPasswordResetEmail(auth, email)
+  }
+
+  const deleteAccount = async () => {
+    if (!auth.currentUser) {
+      throw new Error('로그인이 필요합니다.')
+    }
+    await deleteUser(auth.currentUser)
+  }
+
   const value = useMemo(
     () => ({
       user,
@@ -64,6 +77,8 @@ export function AuthProvider({ children }) {
       login,
       signup,
       logout,
+      sendPasswordReset,
+      deleteAccount,
       isAuthenticated: !!user,
       mounted: !loading,
     }),

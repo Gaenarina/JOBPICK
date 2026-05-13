@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { X } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { getJobById } from '@/lib/jobs'
 import { getBookmarks, toggleBookmark } from '@/lib/userStorage'
@@ -165,13 +166,13 @@ export default function JobDetailPage() {
                 onClick={() => setShowDetail(false)}
                 className="text-gray-400 hover:text-gray-600"
               >
-                ✕
+                <X className="w-5 h-5" aria-hidden />
               </button>
             </div>
 
             <div className="rounded-xl bg-slate-50 p-4 mb-4">
               <p className="text-sm text-gray-500">최종 매칭 점수</p>
-              <p className="text-3xl font-bold text-primary">
+              <p className="text-2xl md:text-3xl font-bold text-primary">
                 {job.finalScore ?? job.matchRate}점
               </p>
               <p className="text-sm text-gray-600 mt-2">

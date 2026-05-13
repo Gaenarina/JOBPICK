@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useNotifications } from '@/context/NotificationContext'
+import { Home, Briefcase, GraduationCap, FileText, Eye, Building2, User, X } from 'lucide-react'
 
 export default function SlideMenu({ isOpen, onClose }) {
   const pathname = usePathname()
@@ -11,17 +12,16 @@ export default function SlideMenu({ isOpen, onClose }) {
   if (!isOpen) return null
 
   const mainItems = [
-    { href: '/', icon: '🏠', label: '홈' },
-    { href: '/dashboard', icon: '💼', label: '채용정보' },
-    { href: '/intern', icon: '🎓', label: '신입·인턴' },
+    { href: '/', icon: Home, label: '홈' },
+    { href: '/dashboard', icon: Briefcase, label: '채용정보' },
+    { href: '/intern', icon: GraduationCap, label: '신입·인턴' },
   ]
 
   const myPageItems = [
-    { href: '/mypage/resumes', icon: '📄', label: '이력서 관리', badge: badgeCounts.resume },
-    { href: '/mypage/applications', icon: '🕐', label: '지원현황', badge: badgeCounts.application },
-    { href: '/mypage/recent', icon: '👁️', label: '최근 본 공고' },
-    { href: '/mypage/bookmarks', icon: '🏢', label: '관심기업', badge: badgeCounts.company },
-    { href: '/mypage', icon: '👤', label: '마이페이지' },
+    { href: '/mypage/resumes', icon: FileText, label: '이력서 관리', badge: badgeCounts.resume },
+    { href: '/mypage/recent', icon: Eye, label: '최근 본 공고' },
+    { href: '/mypage/bookmarks', icon: Building2, label: '관심기업', badge: badgeCounts.company },
+    { href: '/mypage', icon: User, label: '마이페이지' },
   ]
 
   return (
@@ -43,7 +43,7 @@ export default function SlideMenu({ isOpen, onClose }) {
             className="p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
             aria-label="메뉴 닫기"
           >
-            ✕
+            <X className="w-5 h-5" aria-hidden />
           </button>
         </div>
         <nav className="flex-1 overflow-y-auto p-4">
@@ -61,7 +61,7 @@ export default function SlideMenu({ isOpen, onClose }) {
                         isActive ? 'bg-primary text-white' : 'text-gray-700'
                       }`}
                     >
-                      <span className="text-lg">{item.icon}</span>
+                      <item.icon className="w-5 h-5" aria-hidden />
                       <span>{item.label}</span>
                     </Link>
                   </li>
@@ -84,7 +84,7 @@ export default function SlideMenu({ isOpen, onClose }) {
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="text-lg">{item.icon}</span>
+                      <item.icon className="w-5 h-5" aria-hidden />
                       <span>{item.label}</span>
                     </div>
                     {item.badge !== undefined && item.badge > 0 && (

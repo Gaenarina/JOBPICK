@@ -1,6 +1,7 @@
 import { AuthProvider } from '@/context/AuthContext'
 import { NotificationProvider } from '@/context/NotificationContext'
 import Navbar from '@/components/Navbar'
+import AppShell from '@/components/AppShell'
 import './globals.css'
 
 export const metadata = {
@@ -15,7 +16,7 @@ export default function RootLayout({ children }) {
         <AuthProvider>
           <NotificationProvider>
             <Navbar />
-            {children}
+            <AppShell>{children}</AppShell>
           </NotificationProvider>
         </AuthProvider>
       </body>

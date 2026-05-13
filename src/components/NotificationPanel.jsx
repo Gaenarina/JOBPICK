@@ -1,11 +1,21 @@
 'use client'
 
 import { useNotifications } from '@/context/NotificationContext'
+import { Bell, CalendarClock, CheckCheck, FileText, Sparkles, X } from 'lucide-react'
 
 export default function NotificationPanel({ isOpen, onClose }) {
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications()
 
   if (!isOpen) return null
+
+  const renderIcon = (iconKey) => {
+    const cls = 'w-6 h-6 text-gray-700'
+    if (iconKey === 'file') return <FileText className={cls} aria-hidden />
+    if (iconKey === 'sparkles') return <Sparkles className={cls} aria-hidden />
+    if (iconKey === 'calendar') return <CalendarClock className={cls} aria-hidden />
+    if (iconKey === 'bell') return <Bell className={cls} aria-hidden />
+    return <Bell className={cls} aria-hidden />
+  }
 
   return (
     <>
@@ -27,7 +37,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
               className="p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
               aria-label="알림 닫기"
             >
-              ✕
+              <X className="w-5 h-5" aria-hidden />
             </button>
           </div>
           <div className="flex items-center justify-between">
@@ -39,7 +49,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
                 onClick={markAllAsRead}
                 className="flex items-center gap-1.5 text-sm text-primary font-medium hover:underline"
               >
-                <span>☑</span>
+                <CheckCheck className="w-4 h-4" aria-hidden />
                 전체 읽음
               </button>
             )}
@@ -55,7 +65,7 @@ export default function NotificationPanel({ isOpen, onClose }) {
                     !notification.read ? 'bg-blue-50/50' : ''
                   }`}
                 >
-                  <span className="text-2xl flex-shrink-0">{notification.icon}</span>
+                  <span className="flex-shrink-0 mt-0.5">{renderIcon(notification.icon)}</span>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-800 mb-0.5">{notification.title}</p>
                     <p className="text-sm text-gray-500 line-clamp-2">{notification.content}</p>

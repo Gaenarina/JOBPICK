@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
 import SlideMenu from './SlideMenu'
 import NotificationPanel from './NotificationPanel'
+import { Bell, ClipboardList } from 'lucide-react'
 
 export default function Navbar() {
   const pathname = usePathname()
@@ -19,9 +20,9 @@ export default function Navbar() {
 
   return (
     <>
-      <nav className="flex items-center justify-between px-8 py-4 bg-white shadow-sm">
-        <Link href="/" className="flex items-center gap-2 font-bold text-lg text-primary">
-          <span className="text-2xl">📋</span>
+      <nav className="flex items-center justify-between px-4 sm:px-8 py-5 md:py-6 min-h-[64px] md:min-h-[72px] bg-white shadow-sm">
+        <Link href="/" className="flex items-center gap-2 font-bold text-xl md:text-2xl text-primary">
+          <ClipboardList className="w-8 h-8 md:w-10 md:h-10" aria-hidden />
           <span>JOB PICK</span>
         </Link>
 
@@ -42,7 +43,7 @@ export default function Navbar() {
                 className="relative p-2 text-xl hover:bg-gray-100 rounded-lg transition-colors"
                 aria-label="알림"
               >
-                🔔
+                <Bell className="w-6 h-6 text-gray-800" aria-hidden />
                 {unreadCount > 0 && (
                   <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 flex items-center justify-center bg-primary text-white text-xs font-medium rounded-full">
                     {unreadCount}
