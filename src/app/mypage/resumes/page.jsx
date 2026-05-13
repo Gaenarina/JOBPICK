@@ -7,14 +7,15 @@ import { addResumes, getResumes, removeResume } from '@/lib/userStorage'
 
 export default function ResumeManagePage() {
   const router = useRouter()
-  const { isAuthenticated, mounted } = useAuth()
+  const { user, isAuthenticated, mounted } = useAuth()
+  const resumeUserId = user?.uid || user?.id || ''
   const [resumes, setResumes] = useState([])
   const fileInputRef = useRef(null)
 
   useEffect(() => {
     if (mounted && !isAuthenticated) router.replace('/login')
-    if (mounted && isAuthenticated) setResumes(getResumes())
-  }, [mounted, isAuthenticated, router])
+    if (mounted && isAuthenticated) setResumes(getResumes(resumeUserId))
+  }, [mounted, isAuthenticated, router, resumeUserId])
 
   if (!mounted || !isAuthenticated) return null
 
@@ -50,12 +51,12 @@ export default function ResumeManagePage() {
       date: dateStr,
     }))
 
-    setResumes(addResumes(mapped))
+    setResumes(addResumes(mapped, resumeUserId))
     e.target.value = ''
   }
 
   const handleDeleteResume = (resumeId) => {
-    setResumes(removeResume(resumeId))
+    setResumes(removeResume(resumeId, resumeUserId))
   }
 
   return (

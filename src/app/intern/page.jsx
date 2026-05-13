@@ -7,7 +7,8 @@ import { INTERN_JOBS } from '@/lib/jobs'
 import { addResumes, getBookmarks, getResumes, pushRecentJob, removeResume, toggleBookmark } from '@/lib/userStorage'
 
 export default function InternPage() {
-  const { isAuthenticated, mounted } = useAuth()
+  const { user, isAuthenticated, mounted } = useAuth()
+  const resumeUserId = user?.uid || user?.id || ''
   const router = useRouter()
   const [activeTab, setActiveTab] = useState('coaching')
   const [savedResumes, setSavedResumes] = useState([])
@@ -28,9 +29,9 @@ export default function InternPage() {
 
   useEffect(() => {
     if (!mounted) return
-    setSavedResumes(getResumes())
+    setSavedResumes(getResumes(resumeUserId))
     setBookmarkIds(getBookmarks().map((item) => item.id))
-  }, [mounted])
+  }, [mounted, resumeUserId])
 
   const attachSavedResume = (resume) => {
     setCoachingFiles((prev) => {
@@ -88,7 +89,7 @@ export default function InternPage() {
       date: dateStr,
     }))
 
-    const next = addResumes(mapped)
+    const next = addResumes(mapped, resumeUserId)
     setSavedResumes(next)
     setCoachingFiles((prev) => [...mapped, ...prev])
     if (mapped.length > 0) startCoaching(mapped[0])
@@ -96,7 +97,7 @@ export default function InternPage() {
   }
 
   const handleDeleteSavedResume = (resumeId) => {
-    const next = removeResume(resumeId)
+    const next = removeResume(resumeId, resumeUserId)
     setSavedResumes(next)
     setCoachingFiles((prev) => prev.filter((r) => r.id !== resumeId))
     if (selectedResume?.id === resumeId) {

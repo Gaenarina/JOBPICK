@@ -39,7 +39,7 @@ export default function MyPage() {
   const name = user?.name || '홍길동'
   const email = user?.email || 'example@email.com'
   const initial = name.charAt(0)
-  const resumes = getResumes()
+  const resumes = getResumes(user?.uid || user?.id || '')
   const applications = getApplications()
   const recentJobs = getRecentJobs()
   const bookmarks = getBookmarks()

@@ -115,6 +115,7 @@ function normalizeJobs(jobs) {
 export default function LandingPage() {
   const router = useRouter()
   const { user, isAuthenticated, mounted } = useAuth()
+  const resumeUserId = user?.uid || user?.id || ''
 
   const [jobs, setJobs] = useState([])
   const [matchedJobs, setMatchedJobs] = useState([])
@@ -340,7 +341,7 @@ export default function LandingPage() {
         status: data.status || 'INIT',
       }
 
-      setResumes(addResumes([mappedResume]))
+      setResumes(addResumes([mappedResume], resumeUserId))
       setShowSavedResumes(true)
       setSelectedResume(mappedResume)
 
@@ -358,7 +359,7 @@ export default function LandingPage() {
   useEffect(() => {
     if (!mounted) return
 
-    setResumes(getResumes())
+    setResumes(getResumes(resumeUserId))
     setBookmarkIds(getBookmarks().map((item) => getJobKey(item)))
     fetchJobs()
 
@@ -377,7 +378,7 @@ export default function LandingPage() {
     } catch (error) {
       console.error('저장된 매칭 결과 불러오기 실패:', error)
     }
-  }, [mounted])
+  }, [mounted, resumeUserId])
 
   const name = user?.displayName || user?.name || '회원'
 
@@ -386,7 +387,7 @@ export default function LandingPage() {
   }
 
   const handleDeleteResume = (resumeId) => {
-    const next = removeResume(resumeId)
+    const next = removeResume(resumeId, resumeUserId)
 
     setResumes(next)
 
