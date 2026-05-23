@@ -23,7 +23,7 @@ export default function ResumeManagePage() {
     fileInputRef.current?.click()
   }
 
-  const handleFileSelect = (e) => {
+  const handleFileSelect = async (e) => {
     const files = Array.from(e.target.files || [])
     if (!files.length) return
 
@@ -40,19 +40,50 @@ export default function ResumeManagePage() {
     }
 
     const dateStr = new Date()
-      .toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+      .toLocaleDateString('ko-KR', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      })
       .replace(/\. /g, '.')
       .replace(/\.$/, '')
 
-    const mapped = validFiles.map((f) => ({
-      id: Date.now() + Math.random(),
-      name: f.name,
-      size: Math.round(f.size / 1024) + ' KB',
-      date: dateStr,
-    }))
+    try {
+      const uploadedResumes = []
 
-    setResumes(addResumes(mapped, resumeUserId))
-    e.target.value = ''
+      for (const file of validFiles) {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('userId', resumeUserId)
+
+        const res = await fetch('/api/resume/upload', {
+          method: 'POST',
+          body: formData,
+        })
+
+        const data = await res.json()
+
+        if (!res.ok) {
+          throw new Error(data.error || '업로드 실패')
+        }
+
+        uploadedResumes.push({
+          id: data.docId,
+          docId: data.docId,
+          name: file.name,
+          size: Math.round(file.size / 1024) + ' KB',
+          date: dateStr,
+          status: data.status || 'INIT',
+        })
+      }
+
+      setResumes(addResumes(uploadedResumes, resumeUserId))
+    } catch (error) {
+      console.error(error)
+      alert('이력서 업로드 실패')
+    } finally {
+      e.target.value = ''
+    }
   }
 
   const handleDeleteResume = (resumeId) => {
@@ -81,15 +112,23 @@ export default function ResumeManagePage() {
           />
         </div>
       </div>
+
       {resumes.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-gray-500">등록된 이력서가 없습니다.</div>
+        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-gray-500">
+          등록된 이력서가 없습니다.
+        </div>
       ) : (
         <div className="space-y-3">
           {resumes.map((resume) => (
-            <div key={resume.id} className="bg-white border border-gray-200 rounded-xl p-4 flex items-center justify-between gap-3">
+            <div
+              key={resume.id}
+              className="bg-white border border-gray-200 rounded-xl p-4 flex items-center justify-between gap-3"
+            >
               <div>
                 <p className="font-semibold">{resume.name}</p>
-                <p className="text-sm text-gray-500">{resume.size} · {resume.date}</p>
+                <p className="text-sm text-gray-500">
+                  {resume.size} · {resume.date}
+                </p>
               </div>
               <button
                 type="button"

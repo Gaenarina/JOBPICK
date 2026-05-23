@@ -124,7 +124,7 @@ export default function LandingPage() {
 
   const [resumes, setResumes] = useState([])
   const fileInputRef = useRef(null)
-  const [showSavedResumes, setShowSavedResumes] = useState(false)
+  const [showSavedResumes, setShowSavedResumes] = useState(true)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisDone, setAnalysisDone] = useState(false)
   const [selectedResume, setSelectedResume] = useState(null)
@@ -313,6 +313,7 @@ export default function LandingPage() {
 
       const formData = new FormData()
       formData.append('file', file)
+      formData.append('userId', user?.uid || user?.id || 'anonymous')
 
       const res = await fetch('/api/resume/upload', {
         method: 'POST',

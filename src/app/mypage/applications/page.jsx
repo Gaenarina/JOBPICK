@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAuth } from '@/context/AuthContext'
-import { getApplications, getBookmarks, toggleBookmark } from '@/lib/userStorage'
+import { useAuth } from '../context/AuthContext'
+import { getApplications, getBookmarks, toggleBookmark } from '../lib/userStorage'
 
 const STATUS_STYLE = {
   '검토 중': 'bg-amber-100 text-amber-700',
