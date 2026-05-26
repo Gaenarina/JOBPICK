@@ -3,5 +3,13 @@
     "paths": {
       "@/*": ["./src/*"]
     }
-  }
+  },
+    "exclude": [
+    "node_modules",
+    ".next",
+    "out",
+    "venv",
+    "venv_backup",
+    "**/venv/**"
+  ]
 }
