@@ -15,6 +15,7 @@ const ACTIVITY_ITEMS = [
   { href: '/mypage/resumes', icon: FileText, label: '이력서 관리', key: 'resumes' },
   { href: '/mypage/recent', icon: Eye, label: '최근 본 공고', key: 'recent' },
   { href: '/mypage/bookmarks', icon: Building2, label: '관심기업', key: 'bookmarks' },
+  { href: '/mypage/matching-history', icon: Eye, label: 'AI 매칭 기록', key: 'matching-history' },
 ]
 
 export default function MyPage() {
