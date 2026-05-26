@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
+import { ClipboardList, User, Mail, Lock, Eye, EyeOff } from 'lucide-react'
 
 export default function SignupPage() {
   const [name, setName] = useState('')
@@ -48,7 +49,7 @@ export default function SignupPage() {
     <main className="min-h-[calc(100vh-60px)] flex items-center justify-center p-8 bg-gradient-to-br from-sky-100 to-sky-50">
       <div className="w-full max-w-[420px] bg-white rounded-2xl p-10 shadow-lg">
         <div className="flex items-center justify-center gap-2 font-bold text-xl text-gray-800 mb-6">
-          <span className="text-2xl">📋</span>
+          <ClipboardList className="w-7 h-7 text-primary" aria-hidden />
           <span>JOB PICK</span>
         </div>
         <h1 className="text-2xl font-bold text-center mb-6">회원가입</h1>
@@ -56,7 +57,7 @@ export default function SignupPage() {
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">이름</label>
             <div className="flex items-center border border-gray-200 rounded-lg px-4 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
-              <span className="mr-2 opacity-60">👤</span>
+              <User className="w-4 h-4 text-gray-400 mr-2" aria-hidden />
               <input
                 type="text"
                 placeholder="홍길동"
@@ -70,7 +71,7 @@ export default function SignupPage() {
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">이메일</label>
             <div className="flex items-center border border-gray-200 rounded-lg px-4 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
-              <span className="mr-2 opacity-60">✉️</span>
+              <Mail className="w-4 h-4 text-gray-400 mr-2" aria-hidden />
               <input
                 type="email"
                 placeholder="example@email.com"
@@ -84,7 +85,7 @@ export default function SignupPage() {
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">비밀번호</label>
             <div className="flex items-center border border-gray-200 rounded-lg px-4 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
-              <span className="mr-2 opacity-60">🔒</span>
+              <Lock className="w-4 h-4 text-gray-400 mr-2" aria-hidden />
               <input
                 type={showPassword ? 'text' : 'password'}
                 placeholder="........"
@@ -98,7 +99,7 @@ export default function SignupPage() {
                 onClick={() => setShowPassword(!showPassword)}
                 className="ml-1 p-1"
               >
-                {showPassword ? '🙈' : '👁️'}
+                {showPassword ? <EyeOff className="w-5 h-5 text-gray-600" aria-hidden /> : <Eye className="w-5 h-5 text-gray-600" aria-hidden />}
               </button>
             </div>
             <span className="text-xs text-gray-500">최소 8자 이상 입력해주세요</span>
@@ -106,7 +107,7 @@ export default function SignupPage() {
           <div className="flex flex-col gap-2">
             <label className="text-sm font-medium">비밀번호 확인</label>
             <div className="flex items-center border border-gray-200 rounded-lg px-4 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
-              <span className="mr-2 opacity-60">🔒</span>
+              <Lock className="w-4 h-4 text-gray-400 mr-2" aria-hidden />
               <input
                 type={showPasswordConfirm ? 'text' : 'password'}
                 placeholder="........"
@@ -120,7 +121,7 @@ export default function SignupPage() {
                 onClick={() => setShowPasswordConfirm(!showPasswordConfirm)}
                 className="ml-1 p-1"
               >
-                {showPasswordConfirm ? '🙈' : '👁️'}
+                {showPasswordConfirm ? <EyeOff className="w-5 h-5 text-gray-600" aria-hidden /> : <Eye className="w-5 h-5 text-gray-600" aria-hidden />}
               </button>
             </div>
           </div>
