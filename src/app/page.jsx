@@ -138,10 +138,20 @@ export default function LandingPage() {
   }
 
   const handleShowSavedClick = () => {
+    if (!isAuthenticated) {
+      router.push('/login')
+      return
+    }
+
     setShowSavedResumes((prev) => !prev)
   }
 
   const handleNewUploadClick = () => {
+    if (!isAuthenticated) {
+      router.push('/login')
+      return
+    }
+
     fileInputRef.current?.click()
   }
 
@@ -190,7 +200,7 @@ export default function LandingPage() {
           docId: resumeId,
           userId: user?.uid || user?.id || '',
           force: true,
-        }),
+         }),
       })
 
       const data = await res.json()
@@ -292,6 +302,11 @@ export default function LandingPage() {
   }
 
   const handleFileSelect = async (e) => {
+    if (!isAuthenticated) {
+      router.push('/login')
+      e.target.value = ''
+      return
+    }
     const files = Array.from(e.target.files || [])
     if (!files.length) return
 
@@ -347,8 +362,7 @@ export default function LandingPage() {
       setResumes(addResumes([mappedResume], resumeUserId))
       setShowSavedResumes(true)
       setSelectedResume(mappedResume)
-
-      await runAiMatchingByResume(mappedResume)
+      startStatusPolling(mappedResume)
       
     } catch (error) {
       console.error(error)
@@ -418,6 +432,11 @@ export default function LandingPage() {
   }
 
   const handleToggleBookmark = (job) => {
+    if (!isAuthenticated) {
+      router.push('/login')
+      return
+    }
+
     const next = toggleBookmark(job, resumeUserId)
     setBookmarkIds(next.map((item) => getJobKey(item)))
   }
@@ -460,17 +479,37 @@ export default function LandingPage() {
         </section>
       )}
 
-      <section className="mt-8 md:mt-10">
-        <div className="bg-blue-50 rounded-2xl p-5 md:p-8 border border-blue-200">
+      {/* 전체 추천/매칭 블록: 비로그인 시 블러 처리되는 영역 */}
+      <section
+        className={`mt-8 md:mt-10 ${
+          !isAuthenticated ? 'blur-sm opacity-60 select-none pointer-events-none' : ''
+        }`}
+      >
+        <div className="bg-blue-50 rounded-2xl p-5 md:p-8 border border-blue-200 relative">
           <h2 className="text-2xl md:text-2xl font-bold mb-4 flex items-center gap-2">
             <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-primary" aria-hidden />
             AI 커리어 매칭 분석
           </h2>
+
           <p className="text-gray-500 text-base md:text-base mb-4">
             로그인 후 이력서를 업로드하면 AI가 분석하여 맞춤 채용공고를 추천해드립니다.
           </p>
 
-          <div className="border-2 border-dashed border-gray-200 rounded-xl md:rounded-2xl p-5 md:p-8 bg-white">
+          <div className="relative border-2 border-dashed border-gray-200 rounded-xl md:rounded-2xl p-5 md:p-8 bg-white">
+            {!isAuthenticated && (
+              <div className="absolute inset-0 z-20 flex items-center justify-center">
+                <button
+                  type="button"
+                  onClick={() => router.push('/login')}
+                  className="w-full h-full flex flex-col items-center justify-center gap-2 bg-black/30 text-white rounded-2xl"
+                  aria-label="로그인 안내"
+                >
+                  <span className="text-lg font-medium">로그인 후 이용 가능합니다</span>
+                  <span className="text-sm underline">로그인하러 가기</span>
+                </button>
+              </div>
+            )}
+
             <div className="flex flex-wrap gap-3 mb-4">
               <button
                 type="button"
@@ -507,29 +546,31 @@ export default function LandingPage() {
             {showSavedResumes && (
               <div className="flex flex-col gap-3">
                 {resumes.length === 0 ? (
-                  <p className="text-sm text-gray-500">등록된 이력서가 없습니다. 새 이력서를 등록해 주세요.</p>
+                  <p className="text-sm text-gray-500">
+                    등록된 이력서가 없습니다. 새 이력서를 등록해 주세요.
+                  </p>
                 ) : (
                   resumes.map((resume) => (
                     <div
                       key={resume.id}
                       className={`flex items-center justify-between gap-3 p-4 border rounded-lg bg-white ${
-                        getResumeDocId(selectedResume) === getResumeDocId(resume) ? 'border-primary' : 'border-gray-200'
+                        getResumeDocId(selectedResume) === getResumeDocId(resume)
+                          ? 'border-primary'
+                          : 'border-gray-200'
                       }`}
                     >
                       <button
                         type="button"
-                        onClick={() => handleResumeAnalyze(resume)}
+                        onClick={() => (isAuthenticated ? handleResumeAnalyze(resume) : router.push('/login'))}
                         className="flex items-center gap-4 text-left flex-1"
                       >
                         <FileText className="w-6 h-6 text-gray-500" aria-hidden />
-
                         <div className="flex flex-col">
                           <span className="font-medium">{resume.name}</span>
                           <span className="text-sm text-gray-500">
                             {resume.size} · {resume.date}
                           </span>
-
-                          <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600">
+                          <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 w-fit mt-1">
                             {resume.status === 'INIT' && '업로드 완료'}
                             {resume.status === 'PROCESSING' && '분석 중'}
                             {resume.status === 'DONE' && '분석 완료'}
@@ -540,8 +581,8 @@ export default function LandingPage() {
 
                       <button
                         type="button"
-                        onClick={() => handleDeleteResume(resume.id)}
-                        className="text-xs px-2 py-1 rounded bg-red-50 text-red-600"
+                        onClick={() => (isAuthenticated ? handleDeleteResume(resume.id) : router.push('/login'))}
+                        className="text-xs px-2 py-1 rounded bg-red-50 text-red-600 h-fit"
                       >
                         삭제
                       </button>
@@ -567,9 +608,7 @@ export default function LandingPage() {
 
               <div className="flex flex-col gap-4">
                 {recommendedJobs.length === 0 ? (
-                  <p className="text-sm md:text-base text-gray-500">
-                    표시할 추천 공고가 없습니다.
-                  </p>
+                  <p className="text-sm md:text-base text-gray-500">표시할 추천 공고가 없습니다.</p>
                 ) : (
                   recommendedJobs.map((job) => {
                     const jobKey = getJobKey(job)
@@ -583,30 +622,26 @@ export default function LandingPage() {
                           <p className="text-sm md:text-base text-gray-500 mb-1">{job.company}</p>
                           <button
                             onClick={() => handleGoJob(job)}
-                            className="font-semibold text-base md:text-lg text-left hover:text-primary transition-colors"
+                            className="font-semibold text-base md:text-lg text-left hover:text-primary transition-colors block"
                           >
                             {job.title}
                           </button>
-
                           <div className="flex gap-2 mt-2 flex-wrap">
                             {job.category && (
                               <span className="text-xs md:text-sm px-2 py-1 bg-blue-50 rounded text-blue-600">
                                 {job.category}
                               </span>
                             )}
-
                             {job.location && (
                               <span className="text-xs md:text-sm px-2 py-1 bg-slate-100 rounded text-gray-500">
                                 {job.location}
                               </span>
                             )}
-
                             {job.career && (
                               <span className="text-xs md:text-sm px-2 py-1 bg-slate-100 rounded text-gray-500">
                                 {job.career}
                               </span>
                             )}
-
                             {job.salary && (
                               <span className="text-xs md:text-sm px-2 py-1 bg-slate-100 rounded text-gray-500">
                                 {job.salary}
@@ -645,21 +680,10 @@ export default function LandingPage() {
               </div>
             </div>
           )}
-
-          {isAuthenticated && (
-            <div className="mt-4 flex justify-end">
-              <button
-                type="button"
-                onClick={() => router.push('/dashboard')}
-                className="px-6 py-2.5 md:py-3 md:text-base bg-primary text-white rounded-xl font-medium hover:bg-primary-dark transition-colors"
-              >
-                채용정보로 이동
-              </button>
-            </div>
-          )}
         </div>
       </section>
 
+      {/* 인기 커리어 영역 */}
       <section className="mt-10 md:mt-12">
         <h2 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">인기 커리어</h2>
 
@@ -719,7 +743,7 @@ export default function LandingPage() {
 
                       <button
                         onClick={() => handleGoPopularJob(job)}
-                        className="font-bold text-lg md:text-2xl mb-2 hover:text-primary transition-colors text-left pr-10"
+                        className="font-bold text-lg md:text-2xl mb-2 hover:text-primary transition-colors text-left pr-10 block"
                       >
                         {job.title}
                       </button>
@@ -732,19 +756,16 @@ export default function LandingPage() {
                             {job.category}
                           </span>
                         )}
-
                         {job.location && (
                           <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
                             {job.location}
                           </span>
                         )}
-
                         {job.career && (
                           <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
                             {job.career}
                           </span>
                         )}
-
                         {job.salary && (
                           <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
                             {job.salary}
