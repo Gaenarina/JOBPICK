@@ -114,7 +114,7 @@ function normalizeJobs(jobs) {
 
 export default function LandingPage() {
   const router = useRouter()
-  const { user, isAuthenticated, mounted } = useAuth()
+  const { user, isAuthenticated, mounted, logout } = useAuth()
   const resumeUserId = user?.uid || user?.id || ''
 
   const [jobs, setJobs] = useState([])
@@ -347,7 +347,6 @@ export default function LandingPage() {
       setSelectedResume(mappedResume)
 
       await runAiMatchingByResume(mappedResume)
-      
     } catch (error) {
       console.error(error)
       alert(error.message || '업로드 중 오류가 발생했습니다.')
@@ -356,6 +355,17 @@ export default function LandingPage() {
       e.target.value = ''
     }
   }
+
+  useEffect(() => {
+    if (!mounted) return
+
+    const alreadySignedOut = sessionStorage.getItem('jobpick_auto_signed_out')
+
+    if (isAuthenticated && !alreadySignedOut && typeof logout === 'function') {
+      sessionStorage.setItem('jobpick_auto_signed_out', 'true')
+      logout()
+    }
+  }, [mounted, isAuthenticated, logout])
 
   useEffect(() => {
     if (!mounted) return
@@ -404,6 +414,7 @@ export default function LandingPage() {
     pushRecentJob(job)
     router.push(`/jobs/${job.id || job.jobId}`)
   }
+
   const handleGoPopularJob = (job) => {
     pushRecentJob(job)
 
