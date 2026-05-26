@@ -13,6 +13,7 @@ import {
 } from '@/lib/userStorage'
 
 const MATCH_API_URL = process.env.NEXT_PUBLIC_MATCH_API_URL || 'http://localhost:8000/process-resume'
+const MATCHED_JOBS_STORAGE_PREFIX = 'jobpick_matched_jobs' 
 
 function getJobKey(job) {
   return String(job?.id || job?.jobId || '')
@@ -20,6 +21,10 @@ function getJobKey(job) {
 
 function getResumeDocId(resume) {
   return resume?.docId || resume?.resumeId || resume?.id
+}
+
+function getMatchedJobsStorageKey(userId, resumeId) {
+  return `${MATCHED_JOBS_STORAGE_PREFIX}_${userId || 'anonymous'}_${resumeId || 'unknown'}`
 }
 
 function toDisplayText(value, fallback = '') {
@@ -112,6 +117,12 @@ function normalizeJobs(jobs) {
   })
 }
 
+function getTopMatches(jobs, count = 5) {
+  return [...(jobs || [])]
+    .sort((a, b) => Number(b.matchRate || 0) - Number(a.matchRate || 0))
+    .slice(0, count)
+}
+
 export default function LandingPage() {
   const router = useRouter()
   const { user, isAuthenticated, mounted, logout } = useAuth()
@@ -164,7 +175,41 @@ export default function LandingPage() {
     }
   }
 
-  const runAiMatchingByResume = async (resume) => {
+  const restoreMatchedJobsFromStorage = (resume) => {
+    try {
+      const resumeId = getResumeDocId(resume)
+      const userId = user?.uid || user?.id || ''
+
+      if (!resumeId) {
+        return false
+      }
+
+      const storageKey = getMatchedJobsStorageKey(userId, resumeId)
+      const savedMatchedJobs = localStorage.getItem(storageKey)
+
+      if (!savedMatchedJobs) {
+        return false
+      }
+
+      const parsed = JSON.parse(savedMatchedJobs)
+      const savedJobs = Array.isArray(parsed) ? parsed : parsed.jobs || []
+      const normalized = getTopMatches(normalizeJobs(savedJobs), 5)
+
+      if (normalized.length > 0) {
+        setSelectedResume(resume)
+        setMatchedJobs(normalized)
+        setAnalysisDone(true)
+        return true
+      }
+
+      return false
+    } catch (error) {
+      console.error('저장된 매칭 결과 불러오기 실패:', error)
+      return false
+    }
+  }
+
+  const runAiMatchingByResume = async (resume, force = false) => {
     const resumeId = getResumeDocId(resume)
 
     if (!resumeId) {
@@ -186,7 +231,7 @@ export default function LandingPage() {
         body: JSON.stringify({
           docId: resumeId,
           userId: user?.uid || user?.id || '',
-          force: true,
+          force,
         }),
       })
 
@@ -199,12 +244,24 @@ export default function LandingPage() {
       }
 
       const matches = normalizeJobs(data.topFitMatches || data.matches || [])
+      const topMatches = getTopMatches(matches, 5)
 
-      setMatchedJobs(matches)
-      localStorage.setItem('jobpick_matched_jobs', JSON.stringify(matches))
+      setMatchedJobs(topMatches)
+
+      const storageKey = getMatchedJobsStorageKey(user?.uid || user?.id || '', resumeId) 
+
+      localStorage.setItem(
+        storageKey, 
+        JSON.stringify({
+          resumeId,
+          jobs: topMatches,
+          savedAt: new Date().toISOString(),
+        })
+      )
+
       setAnalysisDone(true)
 
-      if (!matches.length) {
+      if (!topMatches.length) {
         alert('매칭 결과가 비어 있습니다. 백엔드 matches 반환값을 확인해주세요.')
       }
     } catch (error) {
@@ -370,31 +427,39 @@ export default function LandingPage() {
   useEffect(() => {
     if (!mounted) return
 
-    setResumes(getResumes(resumeUserId))
+    const savedResumes = getResumes(resumeUserId) 
+
+    setResumes(savedResumes)
     setBookmarkIds(getBookmarks().map((item) => getJobKey(item)))
     fetchJobs()
 
-    try {
-      const savedMatchedJobs = localStorage.getItem('jobpick_matched_jobs')
+    if (savedResumes.length > 0) {
+      restoreMatchedJobsFromStorage(savedResumes[0]) 
+    }
 
-      if (savedMatchedJobs) {
-        const parsed = JSON.parse(savedMatchedJobs)
-        const normalized = normalizeJobs(parsed)
-
-        if (normalized.length > 0) {
-          setMatchedJobs(normalized)
-          setAnalysisDone(true)
-        }
+    const handlePageShow = () => {
+      if (savedResumes.length > 0) {
+        restoreMatchedJobsFromStorage(savedResumes[0]) 
       }
-    } catch (error) {
-      console.error('저장된 매칭 결과 불러오기 실패:', error)
+    }
+
+    window.addEventListener('pageshow', handlePageShow)
+
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow)
     }
   }, [mounted, resumeUserId])
 
   const name = user?.displayName || user?.name || '회원'
 
   const handleResumeAnalyze = (resume) => {
-    runAiMatchingByResume(resume)
+    const restored = restoreMatchedJobsFromStorage(resume)
+
+    if (restored) {
+      return
+    }
+
+    runAiMatchingByResume(resume, false)
   }
 
   const handleDeleteResume = (resumeId) => {
@@ -402,11 +467,13 @@ export default function LandingPage() {
 
     setResumes(next)
 
+    const storageKey = getMatchedJobsStorageKey(resumeUserId, resumeId) 
+    localStorage.removeItem(storageKey) 
+
     if (getResumeDocId(selectedResume) === resumeId) {
       setSelectedResume(null)
       setAnalysisDone(false)
       setMatchedJobs([])
-      localStorage.removeItem('jobpick_matched_jobs')
     }
   }
 
@@ -439,6 +506,15 @@ export default function LandingPage() {
       return job.category === selectedPopularCategory
     })
     .slice(0, 2)
+
+  const handleRematch = (resume) => {
+    if (!resume) {
+      alert('먼저 이력서를 선택해주세요.')
+      return
+    }
+
+    runAiMatchingByResume(resume, true)
+  }
 
   return (
     <main className="max-w-3xl mx-auto p-8">
@@ -543,6 +619,13 @@ export default function LandingPage() {
                         className="text-xs px-2 py-1 rounded bg-red-50 text-red-600"
                       >
                         삭제
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRematch(resume)} 
+                        className="px-3 py-2 rounded-lg text-xs font-medium bg-primary text-white hover:bg-primary-dark transition-colors"
+                      >
+                        재분석
                       </button>
                     </div>
                   ))
