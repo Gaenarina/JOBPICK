@@ -30,7 +30,7 @@ export default function InternPage() {
   useEffect(() => {
     if (!mounted) return
     setSavedResumes(getResumes(resumeUserId))
-    setBookmarkIds(getBookmarks().map((item) => item.id))
+    setBookmarkIds(getBookmarks(resumeUserId).map((item) => item.id))
   }, [mounted, resumeUserId])
 
   const attachSavedResume = (resume) => {
@@ -113,7 +113,7 @@ export default function InternPage() {
   }
 
   const handleToggleBookmark = (job) => {
-    const next = toggleBookmark(job)
+    const next = toggleBookmark(job, resumeUserId)
     setBookmarkIds(next.map((item) => item.id))
   }
 

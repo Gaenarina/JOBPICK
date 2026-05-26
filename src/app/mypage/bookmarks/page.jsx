@@ -1,19 +1,24 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { getBookmarks, toggleBookmark } from '@/lib/userStorage'
-import { useState } from 'react'
 
 export default function BookmarksPage() {
   const router = useRouter()
-  const { isAuthenticated, mounted } = useAuth()
-  const [jobs, setJobs] = useState(getBookmarks())
+  const { user, isAuthenticated, mounted } = useAuth()
+  const resumeUserId = user?.uid || user?.id || ''
+  const [jobs, setJobs] = useState([])
 
   useEffect(() => {
     if (mounted && !isAuthenticated) router.replace('/login')
   }, [mounted, isAuthenticated, router])
+
+  useEffect(() => {
+    if (!mounted || !isAuthenticated) return
+    setJobs(getBookmarks(resumeUserId))
+  }, [mounted, isAuthenticated, resumeUserId])
 
   if (!mounted || !isAuthenticated) return null
 
@@ -27,7 +32,7 @@ export default function BookmarksPage() {
           {jobs.map((job) => (
             <div key={job.id} className="bg-white border border-gray-200 rounded-xl p-4 relative">
               <button
-                onClick={() => setJobs(toggleBookmark(job))}
+                onClick={() => setJobs(toggleBookmark(job, resumeUserId))}
                 className="absolute top-4 right-4"
                 aria-label="북마크"
               >

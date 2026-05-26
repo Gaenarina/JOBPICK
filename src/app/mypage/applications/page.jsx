@@ -13,16 +13,23 @@ const STATUS_STYLE = {
 
 export default function ApplicationStatusPage() {
   const router = useRouter()
-  const { isAuthenticated, mounted } = useAuth()
-  const [bookmarkIds, setBookmarkIds] = useState(getBookmarks().map((item) => item.id))
+  const { user, isAuthenticated, mounted } = useAuth()
+  const resumeUserId = user?.uid || user?.id || ''
+  const [bookmarkIds, setBookmarkIds] = useState([])
 
   useEffect(() => {
     if (mounted && !isAuthenticated) router.replace('/login')
   }, [mounted, isAuthenticated, router])
 
+  useEffect(() => {
+    if (!mounted || !isAuthenticated) return
+    const bookmarks = getBookmarks(resumeUserId)
+    setBookmarkIds(bookmarks.map((item) => item.id))
+  }, [mounted, isAuthenticated, resumeUserId])
+
   if (!mounted || !isAuthenticated) return null
 
-  const applications = getApplications()
+  const applications = getApplications(resumeUserId)
 
   return (
     <main className="max-w-4xl mx-auto p-8">
@@ -36,7 +43,7 @@ export default function ApplicationStatusPage() {
               <button
                 onClick={() => {
                   const job = { id: application.jobId, title: application.title, company: application.company }
-                  const next = toggleBookmark(job)
+                  const next = toggleBookmark(job, resumeUserId)
                   setBookmarkIds(next.map((item) => item.id))
                 }}
                 className="absolute top-4 right-4"

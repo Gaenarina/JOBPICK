@@ -363,7 +363,7 @@ export default function LandingPage() {
     if (!mounted) return
 
     setResumes(getResumes(resumeUserId))
-    setBookmarkIds(getBookmarks().map((item) => getJobKey(item)))
+    setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
     fetchJobs()
 
     try {
@@ -418,7 +418,7 @@ export default function LandingPage() {
   }
 
   const handleToggleBookmark = (job) => {
-    const next = toggleBookmark(job)
+    const next = toggleBookmark(job, resumeUserId)
     setBookmarkIds(next.map((item) => getJobKey(item)))
   }
 

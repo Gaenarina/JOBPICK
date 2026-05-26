@@ -315,6 +315,13 @@ def process_resume():
                 "error": "docId가 필요합니다."
             }), 400
 
+        user_id = data.get("userId")
+        if not user_id:
+            return jsonify({
+                "error": "로그인이 필요합니다.",
+                "message": "로그인이 필요합니다."
+            }), 401
+
         if not force:
             print("[3] 기존 매칭 결과 조회 시도:", doc_id)
             cached_result = get_matching_result(db, doc_id)
@@ -431,6 +438,7 @@ def process_one_match():
 
         doc_id = data.get("docId")
         job_id = data.get("jobId")
+        user_id = data.get("userId")
 
         if not doc_id:
             return jsonify({
@@ -441,6 +449,12 @@ def process_one_match():
             return jsonify({
                 "error": "jobId가 필요합니다."
             }), 400
+
+        if not user_id:
+            return jsonify({
+                "error": "로그인이 필요합니다.",
+                "message": "로그인이 필요합니다."
+            }), 401
 
         result = process_matching_one_by_ids(doc_id, job_id)
         result = fill_missing_company_names(db, [result])[0]

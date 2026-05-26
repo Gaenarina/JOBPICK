@@ -91,18 +91,12 @@ export default function JobsPage() {
   const [resumes, setResumes] = useState([])
   const [matchedJobs, setMatchedJobs] = useState([])
 
-  useEffect(() => {
-    if (mounted && !isAuthenticated) {
-      router.replace('/login')
-    }
-  }, [mounted, isAuthenticated, router])
-
   const resumeUserId = user?.uid || user?.id || ''
 
   useEffect(() => {
     if (!mounted) return
 
-    const bookmarks = getBookmarks()
+    const bookmarks = getBookmarks(resumeUserId)
     const savedResumes = getResumes(resumeUserId)
 
     setBookmarkIds(bookmarks.map((item) => getJobKey(item)))
@@ -320,7 +314,7 @@ export default function JobsPage() {
   }
 
   const handleToggleBookmark = (job) => {
-    const next = toggleBookmark(job)
+    const next = toggleBookmark(job, resumeUserId)
     setBookmarkIds(next.map((item) => getJobKey(item)))
   }
 

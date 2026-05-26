@@ -14,7 +14,8 @@ function getJobKey(job) {
 export default function JobDetailPage() {
   const router = useRouter()
   const params = useParams()
-  const { isAuthenticated, mounted } = useAuth()
+  const { user, mounted } = useAuth()
+  const resumeUserId = user?.uid || user?.id || ''
 
   const [isBookmarked, setIsBookmarked] = useState(false)
   const [matchedJob, setMatchedJob] = useState(null)
@@ -23,12 +24,6 @@ export default function JobDetailPage() {
   const id = Array.isArray(params?.id) ? params.id[0] : params?.id
   const staticJob = getJobById(id)
   const job = matchedJob || staticJob
-
-  useEffect(() => {
-    if (mounted && !isAuthenticated) {
-      router.replace('/login')
-    }
-  }, [mounted, isAuthenticated, router])
 
   useEffect(() => {
     if (!mounted || !id) return
@@ -53,12 +48,12 @@ export default function JobDetailPage() {
     if (!mounted || !job) return
 
     const jobKey = getJobKey(job)
-    const bookmarked = getBookmarks().some((item) => getJobKey(item) === jobKey)
+    const bookmarked = getBookmarks(resumeUserId).some((item) => getJobKey(item) === jobKey)
 
     setIsBookmarked(bookmarked)
-  }, [mounted, job])
+  }, [mounted, job, resumeUserId])
 
-  if (!mounted || !isAuthenticated) return null
+  if (!mounted) return null
 
   if (!job) {
     return (
@@ -81,7 +76,7 @@ export default function JobDetailPage() {
           <button
             type="button"
             onClick={() => {
-              const next = toggleBookmark(job)
+              const next = toggleBookmark(job, resumeUserId)
               const jobKey = getJobKey(job)
               setIsBookmarked(next.some((item) => getJobKey(item) === jobKey))
             }}

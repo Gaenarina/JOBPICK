@@ -128,20 +128,14 @@ export default function DashboardPage() {
   const [scoreMap, setScoreMap] = useState({})
   const [scoringJobId, setScoringJobId] = useState(null)
 
-  const resumeUserId = user?.uid || user?.id || ''
-
-  useEffect(() => {
-    if (mounted && !isAuthenticated) {
-      router.replace('/login')
-    }
-  }, [mounted, isAuthenticated, router])
+  const resumeUserId = isAuthenticated ? user?.uid || user?.id : null
 
   useEffect(() => {
     if (!mounted) return
 
-    const bookmarks = getBookmarks()
-    const applications = getApplications()
-    const savedResumes = getResumes(resumeUserId)
+    const bookmarks = getBookmarks(resumeUserId)
+    const applications = getApplications(resumeUserId)
+    const savedResumes = isAuthenticated ? getResumes(resumeUserId) : []
 
     setBookmarkIds(bookmarks.map((item) => getJobKey(item)))
     setResumes(savedResumes)
@@ -153,26 +147,29 @@ export default function DashboardPage() {
       }, {})
     )
 
-    try {
-      const savedMatchedJobs = localStorage.getItem('jobpick_matched_jobs')
+    if (isAuthenticated) {
+      try {
+        const savedMatchedJobs = localStorage.getItem('jobpick_matched_jobs')
 
-      if (savedMatchedJobs) {
-        const parsed = JSON.parse(savedMatchedJobs)
-        const normalized = normalizeJobs(parsed)
+        if (savedMatchedJobs) {
+          const parsed = JSON.parse(savedMatchedJobs)
+          const normalized = normalizeJobs(parsed)
 
-        if (normalized.length > 0) {
-          setMatchedJobs(normalized)
-          setAiMatched(true)
+          if (normalized.length > 0) {
+            setMatchedJobs(normalized)
+            setAiMatched(true)
+          }
         }
+      } catch (error) {
+        console.error('저장된 매칭 결과 불러오기 실패:', error)
       }
-    } catch (error) {
-      console.error('저장된 매칭 결과 불러오기 실패:', error)
+    } else {
+      setMatchedJobs([])
+      setAiMatched(false)
     }
-  }, [mounted, resumeUserId])
+  }, [mounted, resumeUserId, isAuthenticated])
 
   useEffect(() => {
-    if (!mounted || !isAuthenticated) return
-
     const fetchJobs = async () => {
       setIsLoadingJobs(true)
 
@@ -197,7 +194,7 @@ export default function DashboardPage() {
     }
 
     fetchJobs()
-  }, [mounted, isAuthenticated])
+  }, [])
 
   useEffect(() => {
     if (!jobs.length || !matchedJobs.length) return
@@ -209,38 +206,40 @@ export default function DashboardPage() {
   }, [jobs, matchedJobs.length])
 
   const filteredJobs = useMemo(() => {
-    const keyword = searchQuery.trim().toLowerCase()
+  const keyword = searchQuery.trim().toLowerCase()
 
-    return jobs.filter((job) => {
-      const location = String(job.location || '')
-      const category = String(job.category || '')
-      const title = String(job.title || '').toLowerCase()
-      const company = String(job.company || '').toLowerCase()
+  return jobs.filter((job) => {
+    const location = String(job.location || '')
+    const category = String(job.category || '')
+    const title = String(job.title || '').toLowerCase()
+    const company = String(job.company || '').toLowerCase()
 
-      const regionMatched =
-        selectedRegion === '전체' ||
-        location.startsWith(selectedRegion)
+    const regionMatched =
+      selectedRegion === '전체' || location.startsWith(selectedRegion)
 
-      const categoryMatched =
-        selectedCategory === '전체' ||
-        category === selectedCategory
+    const categoryMatched =
+      selectedCategory === '전체' || category === selectedCategory
 
-      const searchMatched =
-        !keyword ||
-        title.includes(keyword) ||
-        company.includes(keyword) ||
-        category.toLowerCase().includes(keyword)
+    const searchMatched =
+      !keyword ||
+      title.includes(keyword) ||
+      company.includes(keyword) ||
+      category.toLowerCase().includes(keyword)
 
-      return regionMatched && categoryMatched && searchMatched
-    })
-  }, [jobs, selectedRegion, selectedCategory, searchQuery])
-
-  const shownJobs = useMemo(() => {
-    if (aiMatched) return matchedJobs
-    return filteredJobs
-  }, [aiMatched, matchedJobs, filteredJobs])
+    return regionMatched && categoryMatched && searchMatched
+  })
+}, [jobs, selectedRegion, selectedCategory, searchQuery])
+const shownJobs = aiMatched ? matchedJobs : filteredJobs
 
   const runAiMatching = async () => {
+    const userId = resumeUserId
+
+    if (!isAuthenticated || !userId) {
+      alert('로그인 후 이용 가능합니다.')
+      router.push('/login')
+      return
+    }
+
     if (!resumes.length) {
       alert('먼저 이력서를 첨부하거나 등록한 이력서를 선택해주세요.')
       return
@@ -263,32 +262,23 @@ export default function DashboardPage() {
         },
         body: JSON.stringify({
           docId: resumeId,
-          userId: user.uid || user.id,
+          userId,
         }),
       })
 
       const data = await res.json()
 
-      console.log('AI 매칭 응답:', data)
-
       if (!res.ok) {
         throw new Error(data.error || 'AI 매칭 실패')
       }
 
-      const jobUrlMap = jobs.reduce((acc, job) => {
-        acc[String(job.id || job.jobId)] = job.sourceUrl
-        return acc
-      }, {})
-
       const matches = normalizeJobs(data.topFitMatches || data.matches || [])
-      
-      console.log('AI 매칭 결과:', matches)
 
       if (!matches.length) {
         setMatchedJobs([])
         localStorage.removeItem('jobpick_matched_jobs')
         setAiMatched(true)
-        alert('매칭 결과가 비어 있습니다. Firestore job_postings 데이터나 백엔드 반환값을 확인해주세요.')
+        alert('매칭 결과가 비어 있습니다.')
         return
       }
 
@@ -313,6 +303,11 @@ export default function DashboardPage() {
   }
 
   const handleUploadResume = async (e) => {
+    if (!isAuthenticated) {
+      router.push('/login')
+      return
+    }
+
     const files = Array.from(e.target.files || [])
     if (!files.length) return
 
@@ -339,7 +334,10 @@ export default function DashboardPage() {
       for (const file of validFiles) {
         const formData = new FormData()
         formData.append('file', file)
-        formData.append('userId', user.uid || user.id)
+        const currentUserId = user?.uid || user?.id
+        if (currentUserId) {
+          formData.append('userId', currentUserId)
+        }
 
         const res = await fetch('/api/resume/upload', {
           method: 'POST',
@@ -389,11 +387,19 @@ export default function DashboardPage() {
   }
 
   const handleToggleBookmark = (job) => {
-    const next = toggleBookmark(job)
+    const next = toggleBookmark(job, resumeUserId)
     setBookmarkIds(next.map((item) => getJobKey(item)))
   }
 
   const handleCalculateScore = async (job) => {
+    const userId = resumeUserId
+
+    if (!isAuthenticated || !userId) {
+      alert('로그인 후 이용 가능합니다.')
+      router.push('/login')
+      return
+    }
+
     if (!resumes.length) {
       alert('먼저 이력서를 첨부해주세요.')
       return
@@ -417,7 +423,7 @@ export default function DashboardPage() {
         },
         body: JSON.stringify({
           docId: resumeId,
-          userId: user.uid || user.id,
+          userId,
           jobId: jobKey,
           force: true,
         }),
@@ -452,14 +458,6 @@ export default function DashboardPage() {
     localStorage.removeItem('jobpick_matched_jobs')
     setMatchedJobs([])
     setAiMatched(false)
-  }
-
-  if (!mounted || !isAuthenticated) {
-    return (
-      <main className="max-w-3xl mx-auto p-4 md:p-8 flex items-center justify-center min-h-[60vh]">
-        <div className="animate-spin w-10 h-10 border-2 border-primary border-t-transparent rounded-full" />
-      </main>
-    )
   }
 
   const name = user?.name || user?.displayName || '회원'
@@ -534,12 +532,19 @@ export default function DashboardPage() {
             <button
               type="button"
               onClick={runAiMatching}
-              disabled={isMatching}
-              className={aiMatched ? btnPrimary : btnInactive}
+              disabled={!isAuthenticated || isMatching}
+              className={
+                !isAuthenticated
+                  ? 'px-5 py-3 rounded-xl bg-gray-200 text-gray-400 cursor-not-allowed opacity-60'
+                  : 'px-5 py-3 rounded-xl bg-primary text-white hover:bg-primary-dark'
+              }
             >
-              {isMatching ? '매칭 중' : 'AI매칭'}
+              {!isAuthenticated
+                ? '로그인 필요'
+                : isMatching
+                ? '매칭 중'
+                : 'AI매칭'}
             </button>
-
             <button
               type="button"
               onClick={handleResetMatching}
@@ -548,13 +553,29 @@ export default function DashboardPage() {
               기본 공고 보기
             </button>
 
-            <label className="px-5 py-3 rounded-xl bg-slate-100 text-gray-700 cursor-pointer">
-              이력서 첨부
-              <input type="file" accept=".pdf,.doc,.docx" multiple className="hidden" onChange={handleUploadResume} />
-            </label>
+            {isAuthenticated ? (
+              <label className="px-5 py-3 rounded-xl bg-slate-100 text-gray-700 cursor-pointer">
+                이력서 첨부
+                <input type="file" accept=".pdf,.doc,.docx" multiple className="hidden" onChange={handleUploadResume} />
+              </label>
+            ) : (
+              <button
+                type="button"
+                onClick={() => router.push('/login')}
+                className="px-5 py-3 rounded-xl bg-slate-100 text-gray-700"
+              >
+                이력서 첨부
+              </button>
+            )}
           </div>
 
-          {resumes.length > 0 && (
+          {!isAuthenticated && (
+            <p className="mt-3 text-sm text-gray-500">
+              로그인 후 AI 커리어 매칭 분석을 이용할 수 있습니다.
+            </p>
+          )}
+
+          {isAuthenticated && resumes.length > 0 && (
             <p className="text-sm text-gray-500 mt-3">
               최근 첨부 파일: {resumes[0].name} 외 {resumes.length}개
             </p>
