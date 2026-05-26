@@ -97,11 +97,13 @@ export default function JobsPage() {
     }
   }, [mounted, isAuthenticated, router])
 
+  const resumeUserId = user?.uid || user?.id || ''
+
   useEffect(() => {
     if (!mounted) return
 
     const bookmarks = getBookmarks()
-    const savedResumes = getResumes()
+    const savedResumes = getResumes(resumeUserId)
 
     setBookmarkIds(bookmarks.map((item) => getJobKey(item)))
     setResumes(savedResumes)
@@ -121,7 +123,7 @@ export default function JobsPage() {
     } catch (error) {
       console.error('저장된 매칭 결과 불러오기 실패:', error)
     }
-  }, [mounted])
+  }, [mounted, resumeUserId])
 
   useEffect(() => {
     if (!mounted || !isAuthenticated) return
@@ -302,7 +304,7 @@ export default function JobsPage() {
         })
       }
 
-      setResumes(addResumes(uploadedResumes))
+      setResumes(addResumes(uploadedResumes, resumeUserId))
       alert('이력서 첨부가 완료되었습니다.')
     } catch (error) {
       console.error(error)
@@ -338,6 +340,11 @@ export default function JobsPage() {
 
   const name = user?.name || user?.displayName || '회원'
 
+  const btnPrimary = 'px-7 py-3 rounded-xl font-medium transition-colors disabled:opacity-60 bg-primary text-white hover:bg-primary-dark'
+  const btnInactive = 'px-7 py-3 rounded-xl font-medium transition-colors disabled:opacity-60 bg-slate-100 text-gray-700 hover:bg-slate-200'
+  const btnSecondaryActive = 'px-5 py-3 rounded-xl font-medium transition-colors bg-primary text-white hover:bg-primary-dark'
+  const btnSecondaryInactive = 'px-5 py-3 rounded-xl font-medium transition-colors bg-slate-100 text-gray-700 hover:bg-slate-200'
+
   return (
     <main className="max-w-5xl mx-auto p-4 md:p-8">
       <section className="mb-8">
@@ -366,7 +373,21 @@ export default function JobsPage() {
               <option value="전체">지역별</option>
               <option value="서울">서울</option>
               <option value="경기">경기</option>
+              <option value="인천">인천</option>
               <option value="부산">부산</option>
+              <option value="대구">대구</option>
+              <option value="광주">광주</option>
+              <option value="대전">대전</option>
+              <option value="울산">울산</option>
+              <option value="세종">세종</option>
+              <option value="강원">강원</option>
+              <option value="충북">충북</option>
+              <option value="충남">충남</option>
+              <option value="전북">전북</option>
+              <option value="전남">전남</option>
+              <option value="경북">경북</option>
+              <option value="경남">경남</option>
+              <option value="제주">제주</option>
             </select>
 
             <select
@@ -390,20 +411,18 @@ export default function JobsPage() {
               type="button"
               onClick={runAiMatching}
               disabled={isMatching}
-              className="px-7 py-3 rounded-xl bg-primary text-white font-medium hover:bg-primary-dark transition-colors disabled:opacity-60"
+              className={aiMatched ? btnPrimary : btnInactive}
             >
               {isMatching ? '매칭 중' : 'AI매칭'}
             </button>
 
-            {aiMatched && (
-              <button
-                type="button"
-                onClick={handleResetMatching}
-                className="px-5 py-3 rounded-xl bg-slate-100 text-gray-700"
-              >
-                기본 공고 보기
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleResetMatching}
+              className={!aiMatched ? btnSecondaryActive : btnSecondaryInactive}
+            >
+              기본 공고 보기
+            </button>
 
             <label className="px-5 py-3 rounded-xl bg-slate-100 text-gray-700 cursor-pointer">
               이력서 첨부

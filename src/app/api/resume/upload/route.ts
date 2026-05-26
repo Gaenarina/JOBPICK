@@ -15,7 +15,7 @@ export async function POST(req: Request) {
     const docId = randomUUID();
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    const storagePath = `resumes/anonymous/${docId}/${file.name}`;
+    const storagePath = `resumes/${userId || "anonymous"}/${docId}/${file.name}`;
     const fileRef = bucket.file(storagePath);
 
     await fileRef.save(buffer, {

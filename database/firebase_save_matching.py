@@ -32,6 +32,7 @@ def make_json_safe(value):
 def save_matching_result(
     db,
     resume_id,
+    user_id=None,
     matches=None,
     top_fit_matches=None,
     top_accessible_matches=None,
@@ -44,6 +45,7 @@ def save_matching_result(
 
     save_data = {
         "resumeId": str(resume_id),
+        "userId": str(user_id or ""),
         "matches": safe_matches,
         "topFitMatches": safe_top_fit,
         "topAccessibleMatches": safe_top_accessible,
@@ -77,6 +79,7 @@ def get_matching_result(db, resume_id):
 
     return {
         "resumeId": data.get("resumeId", str(resume_id)),
+        "userId": data.get("userId", ""),
         "matches": matches,
         "topFitMatches": top_fit_matches,
         "topAccessibleMatches": top_accessible_matches,

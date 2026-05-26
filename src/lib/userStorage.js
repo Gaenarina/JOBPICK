@@ -1,6 +1,13 @@
 'use client'
 
-const RESUME_KEY = 'jobpick_resumes'
+function getResumeStorageKey(userId) {
+  const id =
+    userId !== undefined && userId !== null && String(userId).trim() !== ''
+      ? String(userId).trim()
+      : '_guest'
+  return `jobpick_resumes__${id}`
+}
+
 const APPLICATION_KEY = 'jobpick_applications'
 const RECENT_KEY = 'jobpick_recent_jobs'
 const BOOKMARK_KEY = 'jobpick_bookmarks'
@@ -21,21 +28,23 @@ function writeJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value))
 }
 
-export function getResumes() {
-  return readJson(RESUME_KEY, [])
+export function getResumes(userId) {
+  return readJson(getResumeStorageKey(userId), [])
 }
 
-export function addResumes(files) {
-  const prev = getResumes()
+export function addResumes(files, userId) {
+  const key = getResumeStorageKey(userId)
+  const prev = readJson(key, [])
   const merged = [...files, ...prev].slice(0, 20)
-  writeJson(RESUME_KEY, merged)
+  writeJson(key, merged)
   return merged
 }
 
-export function removeResume(resumeId) {
-  const prev = getResumes()
+export function removeResume(resumeId, userId) {
+  const key = getResumeStorageKey(userId)
+  const prev = readJson(key, [])
   const next = prev.filter((item) => item.id !== resumeId)
-  writeJson(RESUME_KEY, next)
+  writeJson(key, next)
   return next
 }
 

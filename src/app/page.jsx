@@ -114,7 +114,8 @@ function normalizeJobs(jobs) {
 
 export default function LandingPage() {
   const router = useRouter()
-  const { user, isAuthenticated, mounted } = useAuth()
+  const { user, isAuthenticated, mounted, logout } = useAuth()
+  const resumeUserId = user?.uid || user?.id || ''
 
   const [jobs, setJobs] = useState([])
   const [matchedJobs, setMatchedJobs] = useState([])
@@ -123,7 +124,7 @@ export default function LandingPage() {
 
   const [resumes, setResumes] = useState([])
   const fileInputRef = useRef(null)
-  const [showSavedResumes, setShowSavedResumes] = useState(false)
+  const [showSavedResumes, setShowSavedResumes] = useState(true)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisDone, setAnalysisDone] = useState(false)
   const [selectedResume, setSelectedResume] = useState(null)
@@ -312,6 +313,7 @@ export default function LandingPage() {
 
       const formData = new FormData()
       formData.append('file', file)
+      formData.append('userId', user?.uid || user?.id || 'anonymous')
 
       const res = await fetch('/api/resume/upload', {
         method: 'POST',
@@ -340,12 +342,11 @@ export default function LandingPage() {
         status: data.status || 'INIT',
       }
 
-      setResumes(addResumes([mappedResume]))
+      setResumes(addResumes([mappedResume], resumeUserId))
       setShowSavedResumes(true)
       setSelectedResume(mappedResume)
 
       await runAiMatchingByResume(mappedResume)
-      
     } catch (error) {
       console.error(error)
       alert(error.message || '업로드 중 오류가 발생했습니다.')
@@ -358,7 +359,18 @@ export default function LandingPage() {
   useEffect(() => {
     if (!mounted) return
 
-    setResumes(getResumes())
+    const alreadySignedOut = sessionStorage.getItem('jobpick_auto_signed_out')
+
+    if (isAuthenticated && !alreadySignedOut && typeof logout === 'function') {
+      sessionStorage.setItem('jobpick_auto_signed_out', 'true')
+      logout()
+    }
+  }, [mounted, isAuthenticated, logout])
+
+  useEffect(() => {
+    if (!mounted) return
+
+    setResumes(getResumes(resumeUserId))
     setBookmarkIds(getBookmarks().map((item) => getJobKey(item)))
     fetchJobs()
 
@@ -377,7 +389,7 @@ export default function LandingPage() {
     } catch (error) {
       console.error('저장된 매칭 결과 불러오기 실패:', error)
     }
-  }, [mounted])
+  }, [mounted, resumeUserId])
 
   const name = user?.displayName || user?.name || '회원'
 
@@ -386,7 +398,7 @@ export default function LandingPage() {
   }
 
   const handleDeleteResume = (resumeId) => {
-    const next = removeResume(resumeId)
+    const next = removeResume(resumeId, resumeUserId)
 
     setResumes(next)
 
@@ -402,6 +414,7 @@ export default function LandingPage() {
     pushRecentJob(job)
     router.push(`/jobs/${job.id || job.jobId}`)
   }
+
   const handleGoPopularJob = (job) => {
     pushRecentJob(job)
 
