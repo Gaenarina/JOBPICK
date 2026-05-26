@@ -126,11 +126,13 @@ function getTopMatches(jobs, count = 5) {
 
 export default function LandingPage() {
   const router = useRouter()
-  const { user, isAuthenticated, mounted, logout } = useAuth()
+  const { user, isAuthenticated, mounted } = useAuth()
   const resumeUserId = user?.uid || user?.id || ''
-
   const [jobs, setJobs] = useState([])
+
   const [matchedJobs, setMatchedJobs] = useState([])
+  const [matchPage, setMatchPage] = useState(1)
+  const matchItemsPerPage = 10
   const [isLoadingJobs, setIsLoadingJobs] = useState(false)
   const [selectedPopularCategory, setSelectedPopularCategory] = useState('전체')
   const [currentPage, setCurrentPage] = useState(1)
@@ -153,7 +155,6 @@ export default function LandingPage() {
       router.push('/login')
       return
     }
-
     setShowSavedResumes((prev) => !prev)
   }
 
@@ -162,24 +163,19 @@ export default function LandingPage() {
       router.push('/login')
       return
     }
-
     fileInputRef.current?.click()
   }
 
   const fetchJobs = async () => {
     setIsLoadingJobs(true)
-
     try {
       const res = await fetch('/api/job-postings', {
         cache: 'no-store',
       })
-
       const data = await res.json()
-
       if (!res.ok) {
         throw new Error(data.error || '공고 목록 불러오기 실패')
       }
-
       setJobs(normalizeJobs(data.jobs || []))
     } catch (error) {
       console.error(error)
@@ -193,16 +189,12 @@ export default function LandingPage() {
       const resumeId = getResumeDocId(resume)
       const userId = user?.uid || user?.id || ''
 
-      if (!resumeId) {
-        return false
-      }
+      if (!resumeId) return false
 
       const storageKey = getMatchedJobsStorageKey(userId, resumeId)
       const savedMatchedJobs = localStorage.getItem(storageKey)
 
-      if (!savedMatchedJobs) {
-        return false
-      }
+      if (!savedMatchedJobs) return false
 
       const parsed = JSON.parse(savedMatchedJobs)
       const savedJobs = Array.isArray(parsed) ? parsed : parsed.jobs || []
@@ -214,7 +206,6 @@ export default function LandingPage() {
         setAnalysisDone(true)
         return true
       }
-
       return false
     } catch (error) {
       console.error('저장된 매칭 결과 불러오기 실패:', error)
@@ -234,35 +225,32 @@ export default function LandingPage() {
     setIsAnalyzing(true)
     setAnalysisDone(false)
     setMatchedJobs([])
+    setMatchPage(1)
 
     try {
       const res = await fetch(MATCH_API_URL, {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-  body: JSON.stringify({
-    docId: resumeId,
-    userId: user?.uid || user?.id || '',
-    force: force,
-  }),
-})
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          docId: resumeId,
+          userId: user?.uid || user?.id || '',
+          force: force,
+        }),
+      })
 
-const data = await res.json()
-
+      const data = await res.json()
       console.log('메인 AI 매칭 응답:', data)
 
       if (!res.ok) {
         throw new Error(data.error || 'AI 매칭 실패')
       }
 
-      const matches = normalizeJobs(data.topFitMatches || data.matches || [])
-      const topMatches = getTopMatches(matches, 5)
-
+      const topMatches = normalizeJobs(data.topFitMatches || data.matches || [])
       setMatchedJobs(topMatches)
 
       const storageKey = getMatchedJobsStorageKey(user?.uid || user?.id || '', resumeId) 
-
       localStorage.setItem(
         storageKey, 
         JSON.stringify({
@@ -288,10 +276,7 @@ const data = await res.json()
 
   const checkResumeStatus = async (resume, shouldRunMatching = false) => {
     const resumeId = getResumeDocId(resume)
-
-    if (!resumeId) {
-      return null
-    }
+    if (!resumeId) return null
 
     try {
       const res = await fetch(`/api/resume/${resumeId}`)
@@ -349,9 +334,7 @@ const data = await res.json()
 
     const timer = setInterval(async () => {
       count += 1
-
       const status = await checkResumeStatus(resume, true)
-
       if (status === 'DONE' || status === 'FAILED' || count >= maxCount) {
         clearInterval(timer)
       }
@@ -396,7 +379,6 @@ const data = await res.json()
       })
 
       const data = await res.json()
-
       if (!res.ok) {
         throw new Error(data.error || '업로드 실패')
       }
@@ -432,21 +414,11 @@ const data = await res.json()
   }
 
   useEffect(() => {
-  if (!mounted) return
+    if (!mounted) return
 
-  const alreadySignedOut = sessionStorage.getItem('jobpick_auto_signed_out')
-
-  if (isAuthenticated && !alreadySignedOut && typeof logout === 'function') {
-    sessionStorage.setItem('jobpick_auto_signed_out', 'true')
-    logout()
-  }
-}, [mounted, isAuthenticated, logout])
-
-  useEffect(() => {
     const savedResumes = getResumes(resumeUserId)
-
-setResumes(savedResumes)
-setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
+    setResumes(savedResumes)
+    setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
     fetchJobs()
 
     if (savedResumes.length > 0) {
@@ -460,7 +432,6 @@ setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
     }
 
     window.addEventListener('pageshow', handlePageShow)
-
     return () => {
       window.removeEventListener('pageshow', handlePageShow)
     }
@@ -470,17 +441,12 @@ setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
 
   const handleResumeAnalyze = (resume) => {
     const restored = restoreMatchedJobsFromStorage(resume)
-
-    if (restored) {
-      return
-    }
-
+    if (restored) return
     runAiMatchingByResume(resume, false)
   }
 
   const handleDeleteResume = (resumeId) => {
     const next = removeResume(resumeId, resumeUserId)
-
     setResumes(next)
 
     const storageKey = getMatchedJobsStorageKey(resumeUserId, resumeId) 
@@ -500,12 +466,10 @@ setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
 
   const handleGoPopularJob = (job) => {
     pushRecentJob(job)
-
     if (job.sourceUrl) {
       window.open(job.sourceUrl, '_blank', 'noopener,noreferrer')
       return
     }
-
     alert('원본 공고 링크를 찾을 수 없습니다.')
   }
 
@@ -514,18 +478,24 @@ setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
       router.push('/login')
       return
     }
-
     const next = toggleBookmark(job, resumeUserId)
     setBookmarkIds(next.map((item) => getJobKey(item)))
   }
 
-  const recommendedJobs = matchedJobs.slice(0, 3)
+  // AI 추천 매칭 리스트 페이징 데이터
+  const totalMatchPages = Math.ceil(matchedJobs.length / matchItemsPerPage)
+  const matchStartIndex = (matchPage - 1) * matchItemsPerPage
+  const matchEndIndex = matchStartIndex + matchItemsPerPage
+  const pagedMatchedJobs = matchedJobs.slice(matchStartIndex, matchEndIndex)
+  console.log('matchedJobs:', matchedJobs)
+console.log('matchedJobs length:', matchedJobs.length)
+console.log('totalMatchPages:', totalMatchPages)
 
+  // 인기 커리어 리스트 페이징 데이터
   const filteredJobs = jobs.filter((job) => {
     if (selectedPopularCategory === '전체') return true
     return job.category === selectedPopularCategory
   })
-
   const totalPages = Math.ceil(filteredJobs.length / itemsPerPage)
   const startIndex = (currentPage - 1) * itemsPerPage
   const endIndex = startIndex + itemsPerPage
@@ -540,7 +510,6 @@ setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
       alert('먼저 이력서를 선택해주세요.')
       return
     }
-
     runAiMatchingByResume(resume, true)
   }
 
@@ -566,7 +535,7 @@ setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
         </section>
       )}
 
-      {/* 전체 추천/매칭 블록: 비로그인 시 블러 처리되는 영역 */}
+      {/* AI 매칭 추천 블록 */}
       <section
         className={`mt-8 md:mt-10 ${
           !isAuthenticated ? 'blur-sm opacity-60 select-none pointer-events-none' : ''
@@ -666,20 +635,22 @@ setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
                         </div>
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={() => (isAuthenticated ? handleDeleteResume(resume.id) : router.push('/login'))}
-                        className="text-xs px-2 py-1 rounded bg-red-50 text-red-600 h-fit"
-                      >
-                        삭제
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleRematch(resume)} 
-                        className="px-3 py-2 rounded-lg text-xs font-medium bg-primary text-white hover:bg-primary-dark transition-colors"
-                      >
-                        재분석
-                      </button>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => (isAuthenticated ? handleDeleteResume(resume.id) : router.push('/login'))}
+                          className="text-xs px-2 py-1 rounded bg-red-50 text-red-600 h-fit"
+                        >
+                          삭제
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRematch(resume)} 
+                          className="px-3 py-1 rounded-lg text-xs font-medium bg-primary text-white hover:bg-primary-dark transition-colors"
+                        >
+                          재분석
+                        </button>
+                      </div>
                     </div>
                   ))
                 )}
@@ -694,6 +665,7 @@ setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
             )}
           </div>
 
+          {/* AI 추천 공고 목록 노출 영역 */}
           {analysisDone && (
             <div className="mt-6 bg-white rounded-xl md:rounded-2xl p-5 md:p-6 border border-blue-200">
               <p className="text-base md:text-base text-gray-600 mb-3">
@@ -701,10 +673,10 @@ setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
               </p>
 
               <div className="flex flex-col gap-4">
-                {recommendedJobs.length === 0 ? (
+                {pagedMatchedJobs.length === 0 ? (
                   <p className="text-sm md:text-base text-gray-500">표시할 추천 공고가 없습니다.</p>
                 ) : (
-                  recommendedJobs.map((job) => {
+                  pagedMatchedJobs.map((job) => {
                     const jobKey = getJobKey(job)
 
                     return (
@@ -772,6 +744,25 @@ setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
                   })
                 )}
               </div>
+
+              {/* AI 매칭결과 전용 페이지네이션 */}
+              {totalMatchPages > 1 && (
+                <div className="flex justify-center items-center gap-2 mt-6">
+                  {Array.from({ length: totalMatchPages }, (_, i) => i + 1).map((page) => (
+                    <button
+                      key={page}
+                      onClick={() => setMatchPage(page)}
+                      className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
+                        matchPage === page
+                          ? 'bg-primary text-white'
+                          : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -872,6 +863,7 @@ setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
               )}
             </div>
 
+            {/* 인기 커리어 전용 페이지네이션 */}
             {totalPages > 1 && (
               <div className="flex justify-center items-center gap-2 mt-6">
                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
