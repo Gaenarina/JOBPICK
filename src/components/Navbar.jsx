@@ -22,9 +22,13 @@ export default function Navbar() {
     <>
       <nav className="flex items-center justify-between px-4 sm:px-8 py-5 md:py-6 min-h-[72px] md:min-h-[76px] bg-white shadow-sm">
         <Link href="/" className="flex items-center gap-2 font-bold text-2xl md:text-3xl text-primary">
-          <ClipboardList className="w-9 h-9 md:w-10 md:h-10" aria-hidden />
-          <span>JOB PICK</span>
-        </Link>
+  <img
+    src="/jobpick-logo.png"
+    alt="JOB PICK"
+    className="w-9 h-9 md:w-10 md:h-10 object-contain"
+  />
+  <span>JOB PICK</span>
+</Link>
 
         <div className="flex items-center gap-4">
           {showMinimal ? (
