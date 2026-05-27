@@ -12,9 +12,16 @@ function initFirebaseAdmin() {
     return
   }
 
-  const keyPath = path.join(process.cwd(), 'config', 'firebase_key.json')
-  const serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'))
+  let serviceAccount;
 
+  // 1. 버셀(Vercel) 환경 변수가 있으면 그걸 사용합니다.
+  if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+  } else {
+    // 2. 환경 변수가 없으면 (내 컴퓨터 로컬일 때) 기존처럼 파일을 읽습니다.
+    const keyPath = path.join(process.cwd(), 'config', 'firebase_key.json')
+    serviceAccount = JSON.parse(fs.readFileSync(keyPath, 'utf8'))
+  }
   initializeApp({
     credential: cert(serviceAccount),
   })
