@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic"; // 👈 Next.js가 빌드 시점에 주소를 미리 static하게 구워버리는 오지랖을 막아주는 핵심 코드입니다!
+
 import { NextResponse } from "next/server";
 import { db } from "@/lib/firebaseAdmin";
 
