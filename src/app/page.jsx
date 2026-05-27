@@ -765,6 +765,18 @@ console.log('totalMatchPages:', totalMatchPages)
               )}
             </div>
           )}
+
+          {isAuthenticated && (
+            <div className="mt-4 flex justify-end">
+              <button
+                type="button"
+                onClick={() => router.push('/dashboard')}
+                className="px-6 py-2.5 md:py-3 md:text-base bg-primary text-white rounded-xl font-medium hover:bg-primary-dark transition-colors"
+              >
+                채용정보로 이동
+              </button>
+            </div>
+          )}
         </div>
       </section>
 
