@@ -631,11 +631,11 @@ const shownJobs = aiMatched ? matchedJobs : filteredJobs
                     </svg>
                   </button>
 
-                  <p className="text-base md:text-2xl text-gray-500 mb-2 pr-8">{job.company}</p>
+                  <p className="text-card-subtitle mb-2 pr-8">{job.company}</p>
 
                   <button
                     onClick={() => handleViewJob(job)}
-                    className="text-lg md:text-3xl font-semibold mb-4 text-left hover:text-primary transition-colors pr-8"
+                    className="text-card-title mb-4 text-left hover:text-primary transition-colors pr-8"
                   >
                     {job.title}
                   </button>
@@ -691,9 +691,9 @@ const shownJobs = aiMatched ? matchedJobs : filteredJobs
                   </div>
 
                   {aiMatched && (
-                    <span className="text-5xl font-bold text-primary absolute right-8 bottom-6">
+                    <span className="text-card-score absolute right-8 bottom-6">
                       {job.matchRate ?? Math.round(job.finalScore ?? 0)}점{' '}
-                      <span className="text-xl text-gray-500 font-medium">적합</span>
+                      <span className="text-card-score-label">적합</span>
                     </span>
                   )}
                 </div>

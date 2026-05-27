@@ -8,6 +8,36 @@ body {
   font-family: 'Noto Sans KR', sans-serif;
 }
 
+@layer components {
+  .text-page-title {
+    @apply text-3xl md:text-4xl font-bold;
+  }
+
+  .text-section-title {
+    @apply text-2xl md:text-3xl font-semibold;
+  }
+
+  .text-card-title {
+    @apply text-base md:text-2xl font-semibold leading-tight;
+  }
+
+  .text-card-subtitle {
+    @apply text-sm md:text-base text-gray-500;
+  }
+
+  .text-card-score {
+    @apply text-4xl md:text-5xl font-bold text-primary;
+  }
+
+  .text-card-score-label {
+    @apply text-lg md:text-xl text-gray-500 font-medium;
+  }
+
+  .text-badge-sm {
+    @apply text-xs md:text-sm font-medium;
+  }
+}
+
 @keyframes slide-in {
   from {
     transform: translateX(100%);
