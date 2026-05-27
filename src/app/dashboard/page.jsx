@@ -465,7 +465,7 @@ const shownJobs = aiMatched ? matchedJobs : filteredJobs
   const btnPrimary = 'px-7 py-3 rounded-xl font-medium transition-colors disabled:opacity-60 bg-primary text-white hover:bg-primary-dark'
   const btnInactive = 'px-7 py-3 rounded-xl font-medium transition-colors disabled:opacity-60 bg-slate-100 text-gray-700 hover:bg-slate-200'
   const btnSecondaryActive = 'px-5 py-3 rounded-xl font-medium transition-colors bg-primary text-white hover:bg-primary-dark'
-  const btnSecondaryInactive = 'px-5 py-3 rounded-xl font-medium transition-colors bg-slate-100 text-gray-700 hover:bg-slate-200'
+  const btnSecondaryInactive = 'px-5 py-3 rounded-xl font-medium transition-colors bg-white text-gray-700 border border-gray-200 hover:bg-slate-50'
 
   return (
     <main className="max-w-5xl mx-auto p-4 md:p-8">
@@ -534,9 +534,11 @@ const shownJobs = aiMatched ? matchedJobs : filteredJobs
               onClick={runAiMatching}
               disabled={!isAuthenticated || isMatching}
               className={
-                !isAuthenticated
+                !isAuthenticated || isMatching
                   ? 'px-5 py-3 rounded-xl bg-gray-200 text-gray-400 cursor-not-allowed opacity-60'
-                  : 'px-5 py-3 rounded-xl bg-primary text-white hover:bg-primary-dark'
+                  : aiMatched
+                  ? btnSecondaryActive
+                  : btnSecondaryInactive
               }
             >
               {!isAuthenticated
@@ -548,7 +550,7 @@ const shownJobs = aiMatched ? matchedJobs : filteredJobs
             <button
               type="button"
               onClick={handleResetMatching}
-              className={!aiMatched ? btnSecondaryActive : btnSecondaryInactive}
+              className={aiMatched ? btnSecondaryInactive : btnSecondaryActive}
             >
               기본 공고 보기
             </button>
@@ -666,29 +668,23 @@ const shownJobs = aiMatched ? matchedJobs : filteredJobs
                     )}
                   </div>
 
-                  <div className="mt-4 flex gap-2">
-                    <button onClick={() => handleViewJob(job)} className="px-3 py-2 rounded-lg bg-slate-100 text-sm">
-                      공고 보기
-                    </button>
+                  {!aiMatched && (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        onClick={() => handleCalculateScore(job)}
+                        disabled={scoringJobId === jobKey}
+                        className="px-3 py-2 rounded-lg text-sm bg-primary text-white disabled:opacity-60"
+                      >
+                        {scoringJobId === jobKey ? '계산 중' : '점수 계산하기'}
+                      </button>
 
-                    {!aiMatched && (
-                      <>
-                        <button
-                          onClick={() => handleCalculateScore(job)}
-                          disabled={scoringJobId === jobKey}
-                          className="px-3 py-2 rounded-lg text-sm bg-primary text-white disabled:opacity-60"
-                        >
-                          {scoringJobId === jobKey ? '계산 중' : '점수 계산하기'}
-                        </button>
-
-                        {scoreMap[jobKey] !== undefined && (
-                          <span className="px-3 py-2 rounded-lg bg-blue-50 text-primary text-sm font-bold">
-                            {scoreMap[jobKey]}점
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </div>
+                      {scoreMap[jobKey] !== undefined && (
+                        <span className="px-3 py-2 rounded-lg bg-blue-50 text-primary text-sm font-bold">
+                          {scoreMap[jobKey]}점
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {aiMatched && (
                     <span className="text-card-score absolute right-8 bottom-6">
