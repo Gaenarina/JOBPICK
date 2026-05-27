@@ -9,19 +9,21 @@ from matching.keyword_dictionary import (
     extract_dictionary_features,
     get_category_overlap,
 )
+from matching.ncs_matcher import calculate_ncs_score
 
 
 MODEL_NAME = "jhgan/ko-sroberta-multitask"
 _model = None
 
-RULE_WEIGHT = 50.0
+RULE_WEIGHT = 25.0
 SEMANTIC_WEIGHT = 50.0
+NCS_WEIGHT = 25.0
 
-RULE_SKILL_WEIGHT = 20.0
-RULE_EDU_WEIGHT = 5.0
-RULE_EXP_WEIGHT = 10.0
-RULE_CERT_WEIGHT = 5.0
-RULE_QUAL_WEIGHT = 10.0
+RULE_SKILL_WEIGHT = 10.0
+RULE_EDU_WEIGHT = 2.5
+RULE_EXP_WEIGHT = 5.0
+RULE_CERT_WEIGHT = 2.5
+RULE_QUAL_WEIGHT = 5.0
 
 FULL_SEMANTIC_WEIGHT = 25.0
 RESPONSIBILITY_SEMANTIC_WEIGHT = 15.0
@@ -437,7 +439,7 @@ def calculate_education_score(job_edu: Any, resume_edu: Any) -> Tuple[float, boo
     resume_normalized = normalize_education(resume_edu)
 
     if not job_normalized or job_normalized in ["무관", "학력무관"]:
-        return 10.0, True, "무관", resume_normalized or ""
+        return 10.0, False, "무관", resume_normalized or ""
 
     job_level = education_level(job_normalized)
     resume_level = education_level(resume_normalized)
@@ -790,6 +792,134 @@ def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def extract_job_category(firebase_job_doc: Dict[str, Any], job: Dict[str, Any], job_text: str) -> str:
+    values = []
+
+    for source in [
+        firebase_job_doc,
+        job,
+        firebase_job_doc.get("meta", {}) if isinstance(firebase_job_doc.get("meta", {}), dict) else {},
+        firebase_job_doc.get("legacyJobPosting", {}) if isinstance(firebase_job_doc.get("legacyJobPosting", {}), dict) else {},
+        job.get("job", {}) if isinstance(job.get("job", {}), dict) else {},
+    ]:
+        if not isinstance(source, dict):
+            continue
+
+        values.extend([
+            source.get("category", ""),
+            source.get("jobCategory", ""),
+            source.get("department", ""),
+            source.get("field", ""),
+        ])
+
+    category_text = clean_text(" ".join(values))
+
+    if category_text:
+        return category_text
+
+    features = extract_dictionary_features(job_text)
+    categories = features.get("categories", [])
+
+    return clean_text(" ".join(categories))
+
+
+def infer_ncs_category_from_job(category: str, job_text: str) -> str:
+    category_text = clean_text(category).lower()
+    full_text = clean_text(f"{category} {job_text}").lower()
+
+    exclude_keywords = [
+        "하드웨어",
+        "설치",
+        "설치as",
+        "a/s",
+        "as 담당",
+        "장비",
+        "점검",
+        "유지보수",
+        "키오스크",
+        "빔프로젝터",
+        "센서",
+        "전기",
+        "전자",
+        "통신",
+        "현장",
+        "운전",
+        "차량",
+        "납품",
+        "출장",
+        "고객 방문",
+        "방문 설치",
+    ]
+
+    if any(keyword in full_text for keyword in exclude_keywords):
+        return ""
+
+    direct_development_keywords = [
+        "웹개발",
+        "웹 개발",
+        "프론트엔드",
+        "프론트 개발",
+        "백엔드",
+        "서버개발",
+        "서버 개발",
+        "api 개발",
+        "소프트웨어 개발",
+        "sw 개발",
+        "응용sw",
+        "응용 sw",
+        "응용소프트웨어",
+        "응용 소프트웨어",
+        "프로그래머",
+        "개발자",
+        "개발 직무",
+        "개발 업무",
+        "프로그램 개발",
+        "애플리케이션 개발",
+        "어플리케이션 개발",
+    ]
+
+    if any(keyword in full_text for keyword in direct_development_keywords):
+        return "IT/개발"
+
+    tech_stack_keywords = [
+        "python",
+        "java",
+        "javascript",
+        "typescript",
+        "react",
+        "next.js",
+        "nextjs",
+        "node.js",
+        "nodejs",
+        "spring",
+        "spring boot",
+        "django",
+        "flask",
+        "sql",
+        "mysql",
+        "postgresql",
+        "oracle",
+        "firebase",
+        "프로그래밍",
+        "코딩",
+        "소스코드",
+        "소스 코드",
+        "github",
+        "git",
+    ]
+
+    if any(keyword in full_text for keyword in tech_stack_keywords):
+        return "IT/개발"
+
+    if "서버/인프라" in category_text:
+        return ""
+
+    if "하드웨어/설치as" in category_text:
+        return ""
+
+    return ""
+
+
 def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
     job = firebase_job_doc.get("jobPosting", firebase_job_doc) or {}
     requirements = job.get("requirements", {}) or {}
@@ -834,6 +964,9 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
         *dictionary_features.get("certifications", []),
     ])
 
+    job_category = extract_job_category(firebase_job_doc, job, job_text_for_dictionary)
+    ncs_category = infer_ncs_category_from_job(job_category, job_text_for_dictionary)
+
     return {
         "skills": {
             "required": required_skills,
@@ -851,6 +984,8 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
         },
         "certifications": unique_preserve_order(certifications),
         "dictionaryFeatures": dictionary_features,
+        "category": job_category,
+        "ncsCategory": ncs_category,
     }
 
 
@@ -1005,16 +1140,21 @@ def get_match_badges(
 ) -> List[str]:
     badges = []
 
-    if fit_score >= 70 and confidence_score >= 45 and not has_blocking_unmet:
-        badges.append("AI 적합")
-
-    if accessibility_score >= 75 and not has_blocking_unmet:
-        badges.append("지원 가능")
-
     if confidence_score < 40:
         badges.append("정보 부족")
+        return badges
 
-    if fit_score < 40 and (accessibility_score < 60 or has_blocking_unmet):
+    if has_blocking_unmet:
+        badges.append("부적합")
+        return badges
+
+    if fit_score >= 70 and confidence_score >= 45:
+        badges.append("AI 적합")
+
+    if accessibility_score >= 75:
+        badges.append("지원 가능")
+
+    if fit_score < 40 or accessibility_score < 60:
         badges.append("부적합")
 
     if not badges:
@@ -1029,6 +1169,12 @@ def get_recommend_type(
     confidence_score: float,
     has_blocking_unmet: bool = False,
 ) -> str:
+    if confidence_score < 40:
+        return "정보 부족"
+
+    if has_blocking_unmet:
+        return "부적합"
+
     badges = get_match_badges(
         fit_score,
         accessibility_score,
@@ -1041,9 +1187,6 @@ def get_recommend_type(
 
     if "지원 가능" in badges:
         return "지원 가능"
-
-    if "정보 부족" in badges:
-        return "정보 부족"
 
     if "부적합" in badges:
         return "부적합"
@@ -1113,6 +1256,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     ]))
 
     raw_job_full_text = clean_text(" / ".join([
+        safe_str(job.get("category", "")),
         safe_str(job.get("education", "")),
         safe_str(job.get("experience", {})),
         safe_str(job.get("skills", {})),
@@ -1158,14 +1302,11 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         qual_total_count=qual_total_count,
     )
 
-    if has_blocking_unmet:
-        semantic_adjust_ratio = 0.0
-    else:
-        semantic_adjust_ratio = required_condition_ratio
+    semantic_adjust_ratio = 1.0
 
-    full_score = raw_full_score * semantic_adjust_ratio
-    resp_score = raw_resp_score * semantic_adjust_ratio
-    qual_score = raw_qual_score * semantic_adjust_ratio
+    full_score = raw_full_score
+    resp_score = raw_resp_score
+    qual_score = raw_qual_score
 
     full_sim = raw_full_sim
     resp_sim = raw_resp_sim
@@ -1174,7 +1315,17 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     semantic_before_adjust = raw_full_score + raw_resp_score + raw_qual_score
     semantic_total = full_score + resp_score + qual_score
 
-    fit_score = round(min(rule_total + semantic_total, 100.0), 2)
+    ncs_result = calculate_ncs_score(
+        resume_text=resume_full_text,
+        job_text=job_full_text,
+        category=job.get("ncsCategory", ""),
+        model=get_model(),
+        util_module=util,
+    )
+
+    ncs_score = ncs_result.get("ncs_score", 0.0)
+
+    fit_score = round(min(rule_total + semantic_total + ncs_score, 100.0), 2)
 
     accessibility_score = calculate_accessibility_score(
         skill_used=skill_used,
@@ -1215,25 +1366,37 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     print(f"- 일치 직무 카테고리: {category_info.get('matchedCategories', [])}")
 
     print("[룰 기반]")
-    print(f"- 기술 스택 일치도: {skill_score:.2f}/{RULE_SKILL_WEIGHT:.0f} (일치 {skill_match_count}/{skill_total_count}, 매칭: {matched_skills})")
-    print(f"- 학력 조건: {edu_score:.2f}/{RULE_EDU_WEIGHT:.0f} (공고: {job_edu_level or '무관'}, 이력서: {resume_edu_level or '미확인'})")
+    print(f"- 기술 스택 일치도: {skill_score:.2f}/{RULE_SKILL_WEIGHT:.1f} (일치 {skill_match_count}/{skill_total_count}, 매칭: {matched_skills})")
+
+    if edu_used:
+        print(f"- 학력 조건: {edu_score:.2f}/{RULE_EDU_WEIGHT:.1f} (공고: {job_edu_level or '무관'}, 이력서: {resume_edu_level or '미확인'})")
+    else:
+        print(f"- 학력 조건: 0.00/{RULE_EDU_WEIGHT:.1f} (학력 무관, 적합도 가산 제외)")
 
     if exp_detail.get("exp_condition_used", False):
-        print(f"- 경력 조건: {exp_score:.2f}/{RULE_EXP_WEIGHT:.0f} (지원자 {exp_detail.get('resume_exp', 0)}년 / 요구 {exp_detail.get('min_exp', 0)}년)")
+        print(f"- 경력 조건: {exp_score:.2f}/{RULE_EXP_WEIGHT:.1f} (지원자 {exp_detail.get('resume_exp', 0)}년 / 요구 {exp_detail.get('min_exp', 0)}년)")
     else:
-        print(f"- 경력 조건: 0.00/{RULE_EXP_WEIGHT:.0f} (경력 무관, 적합도 가산 제외)")
+        print(f"- 경력 조건: 0.00/{RULE_EXP_WEIGHT:.1f} (경력 무관, 적합도 가산 제외)")
 
-    print(f"- 자격증: {cert_score:.2f}/{RULE_CERT_WEIGHT:.0f} (일치 {cert_match_count}/{cert_total_count})")
-    print(f"- 필수 자격요건: {qual_rule_score:.2f}/{RULE_QUAL_WEIGHT:.0f} (일치 {len(matched_quals)}/{qual_total_count})")
+    print(f"- 자격증: {cert_score:.2f}/{RULE_CERT_WEIGHT:.1f} (일치 {cert_match_count}/{cert_total_count})")
+    print(f"- 필수 자격요건: {qual_rule_score:.2f}/{RULE_QUAL_WEIGHT:.1f} (일치 {len(matched_quals)}/{qual_total_count})")
     print(f"룰 기반 점수 합계: {rule_total:.2f}/{RULE_WEIGHT:.0f}")
 
     print("[의미 기반]")
     print(f"- 필수조건 충족률: {required_condition_ratio:.4f}")
-    print(f"- 보정 전 의미 기반 점수: {semantic_before_adjust:.2f}/{SEMANTIC_WEIGHT:.0f}")
-    print(f"- 이력서 전체와 공고 전체 유사도: {full_score:.2f}/{FULL_SEMANTIC_WEIGHT:.0f} (원점수 {raw_full_score:.2f}, 유사도 {full_sim:.4f})")
-    print(f"- 자기소개서·경험과 담당업무 유사도: {resp_score:.2f}/{RESPONSIBILITY_SEMANTIC_WEIGHT:.0f} (원점수 {raw_resp_score:.2f}, 유사도 {resp_sim:.4f})")
-    print(f"- 자기소개서·경험과 자격요건 유사도: {qual_score:.2f}/{QUALIFICATION_SEMANTIC_WEIGHT:.0f} (원점수 {raw_qual_score:.2f}, 유사도 {qual_sim:.4f})")
+    print(f"- 의미 기반 보정 비율: {semantic_adjust_ratio:.4f}")
+    print(f"- 이력서 전체와 공고 전체 유사도: {full_score:.2f}/{FULL_SEMANTIC_WEIGHT:.0f} (유사도 {full_sim:.4f})")
+    print(f"- 자기소개서·경험과 담당업무 유사도: {resp_score:.2f}/{RESPONSIBILITY_SEMANTIC_WEIGHT:.0f} (유사도 {resp_sim:.4f})")
+    print(f"- 자기소개서·경험과 자격요건 유사도: {qual_score:.2f}/{QUALIFICATION_SEMANTIC_WEIGHT:.0f} (유사도 {qual_sim:.4f})")
     print(f"의미 기반 점수 합계: {semantic_total:.2f}/{SEMANTIC_WEIGHT:.0f}")
+
+    print("[NCS 직무역량]")
+    print(f"- NCS 적용 여부: {ncs_result.get('ncs_used', False)}")
+    print(f"- NCS 분야: {ncs_result.get('ncs_category', '') or '미적용'}")
+    print(f"- 매칭 직무: {ncs_result.get('matched_duty_name', '') or '없음'}")
+    print(f"- 매칭 능력단위: {ncs_result.get('matched_unit_name', '') or '없음'}")
+    print(f"- NCS 유사도: {ncs_result.get('ncs_similarity', 0):.4f}")
+    print(f"- NCS 점수: {ncs_score:.2f}/{NCS_WEIGHT:.0f}")
 
     print("[최종 점수]")
     print(f"- 적합도 점수: {fit_score:.2f}/100")
@@ -1259,6 +1422,8 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         "match_badges": match_badges,
         "rule_total": round(rule_total, 2),
         "semantic_total": round(semantic_total, 2),
+        "ncs_total": round(ncs_score, 2),
+        "ncs_details": ncs_result,
         "unmet_conditions": unmet_conditions,
         "rule_details": {
             "skill_score": round(skill_score, 2),
@@ -1339,6 +1504,8 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "accessibility_score_max": 100,
             "confidence_score": confidence_score,
             "confidence_score_max": 100,
+            "ncs_score": round(ncs_score, 2),
+            "ncs_score_max": NCS_WEIGHT,
             "recommend_type": recommend_type,
             "match_badges": match_badges,
         },

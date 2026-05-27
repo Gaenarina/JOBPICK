@@ -25,3 +25,6 @@ config/
 firebase_key.json
 vision_key.json
 sunlit-plasma-488515-g8-8704e17d4636.json
+
+#data
+data/ncs_excels/

@@ -447,10 +447,12 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score):
     rule_details = result.get("rule_details", {})
     semantic_details = result.get("semantic_details", {})
     score_details = result.get("score_details", {})
+    ncs_details = result.get("ncs_details", {})
 
     fit_score = round(result.get("fit_score", result.get("final_score", 0)), 2)
     accessibility_score = round(result.get("accessibility_score", 0), 2)
     confidence_score = round(result.get("confidence_score", 0), 2)
+    ncs_total = round(result.get("ncs_total", 0), 2)
 
     company_name = get_company_name(job_raw, job_posting)
 
@@ -481,6 +483,8 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score):
 
         "ruleTotal": round(result.get("rule_total", 0), 2),
         "semanticTotal": round(result.get("semantic_total", 0), 2),
+        "ncsTotal": ncs_total,
+        "ncsDetails": ncs_details,
 
         "embeddingSimilarity": round(full_sim, 4),
         "embeddingScore": round(full_score, 2),
@@ -490,7 +494,7 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score):
         "matchDetail": {
             "skills": {
                 "score": round(rule_details.get("skill_score", 0), 2),
-                "maxScore": rule_details.get("skill_score_max", 20),
+                "maxScore": rule_details.get("skill_score_max", 10),
                 "rawScore": round(rule_details.get("skill_raw_score", 0), 2),
                 "rawMaxScore": rule_details.get("skill_raw_score_max", 30),
                 "matchCount": rule_details.get("skill_match_count", 0),
@@ -500,7 +504,7 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score):
             },
             "education": {
                 "score": round(rule_details.get("edu_score", 0), 2),
-                "maxScore": rule_details.get("edu_score_max", 5),
+                "maxScore": rule_details.get("edu_score_max", 2.5),
                 "rawScore": round(rule_details.get("edu_raw_score", 0), 2),
                 "rawMaxScore": rule_details.get("edu_raw_score_max", 10),
                 "jobLevel": rule_details.get("job_edu_level", ""),
@@ -509,7 +513,7 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score):
             },
             "experience": {
                 "score": round(rule_details.get("exp_score", 0), 2),
-                "maxScore": rule_details.get("exp_score_max", 10),
+                "maxScore": rule_details.get("exp_score_max", 5),
                 "rawScore": round(rule_details.get("exp_raw_score", 0), 2),
                 "minExp": rule_details.get("min_exp", 0),
                 "resumeExp": rule_details.get("resume_exp", 0),
@@ -523,7 +527,7 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score):
             },
             "certifications": {
                 "score": round(rule_details.get("cert_score", 0), 2),
-                "maxScore": rule_details.get("cert_score_max", 5),
+                "maxScore": rule_details.get("cert_score_max", 2.5),
                 "rawScore": round(rule_details.get("cert_raw_score", 0), 2),
                 "rawMaxScore": rule_details.get("cert_raw_score_max", 10),
                 "matchCount": rule_details.get("cert_match_count", 0),
@@ -533,7 +537,7 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score):
             },
             "qualifications": {
                 "score": round(rule_details.get("qual_rule_score", 0), 2),
-                "maxScore": rule_details.get("qual_rule_score_max", 10),
+                "maxScore": rule_details.get("qual_rule_score_max", 5),
                 "rawScore": round(rule_details.get("qual_raw_score", 0), 2),
                 "rawMaxScore": rule_details.get("qual_raw_score_max", 10),
                 "matchedQuals": rule_details.get("matched_quals", []),
@@ -553,6 +557,18 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score):
                 "beforeAdjustTotal": round(semantic_details.get("semantic_before_adjust", result.get("semantic_total", 0)), 2),
                 "adjustRatio": round(semantic_details.get("semantic_adjust_ratio", 1), 4),
                 "requiredConditionRatio": round(semantic_details.get("required_condition_ratio", 1), 4),
+            },
+            "ncs": {
+                "score": ncs_total,
+                "maxScore": ncs_details.get("ncs_score_max", 25),
+                "used": ncs_details.get("ncs_used", False),
+                "category": ncs_details.get("ncs_category", ""),
+                "similarity": ncs_details.get("ncs_similarity", 0),
+                "matchedDutyCd": ncs_details.get("matched_duty_cd", ""),
+                "matchedDutyName": ncs_details.get("matched_duty_name", ""),
+                "matchedUnitCd": ncs_details.get("matched_unit_cd", ""),
+                "matchedUnitName": ncs_details.get("matched_unit_name", ""),
+                "reason": ncs_details.get("reason", ""),
             },
             "score": score_details,
         },
