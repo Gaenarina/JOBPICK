@@ -2,11 +2,51 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { bucket, db } from "@/lib/firebaseAdmin";
 
+function parseMatchPreferences(value: FormDataEntryValue | null) {
+  if (!value || typeof value !== "string") {
+    return {
+      desiredRoles: [],
+      desiredLocations: [],
+      employmentTypes: [],
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+
+    return {
+      desiredRoles: Array.isArray(parsed.desiredRoles)
+        ? parsed.desiredRoles
+        : [],
+      desiredLocations: Array.isArray(parsed.desiredLocations)
+        ? parsed.desiredLocations
+        : [],
+      employmentTypes: Array.isArray(parsed.employmentTypes)
+        ? parsed.employmentTypes
+        : [],
+    };
+  } catch (error) {
+    console.error("matchPreferences 파싱 실패:", error);
+
+    return {
+      desiredRoles: [],
+      desiredLocations: [],
+      employmentTypes: [],
+    };
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const formData = await req.formData();
+
     const file = formData.get("file") as File;
     const userId = formData.get("userId") as string;
+
+    // 프론트에서 FormData에 JSON 문자열로 보내는 값
+    const matchPreferences = parseMatchPreferences(
+      formData.get("matchPreferences")
+    );
 
     if (!file) {
       return NextResponse.json({ error: "파일 없음" }, { status: 400 });
@@ -29,6 +69,10 @@ export async function POST(req: Request) {
       filename: file.name,
       storagePath,
       status: "INIT",
+
+      // 사용자 희망 직무/조건
+      matchPreferences,
+
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -37,6 +81,7 @@ export async function POST(req: Request) {
       message: "업로드 완료",
       docId,
       status: "INIT",
+      matchPreferences,
     });
   } catch (error) {
     console.error(error);
