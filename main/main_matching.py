@@ -709,7 +709,131 @@ def build_matching_groups(results, limit=5):
     }
 
 
-def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score):
+
+# ============================================================
+# 이력서 최신 분석 결과 선택 관련 함수
+# ============================================================
+
+def has_meaningful_value(value):
+    """
+    None, 빈 dict, 빈 list, 빈 문자열은 사용 가능한 값이 아니라고 판단한다.
+    """
+    if value is None:
+        return False
+
+    if isinstance(value, dict):
+        return len(value) > 0
+
+    if isinstance(value, list):
+        return len(value) > 0
+
+    if isinstance(value, str):
+        return bool(value.strip())
+
+    return True
+
+
+def normalize_resume_analysis_payload(analysis):
+    """
+    Firestore에 저장된 분석 결과 구조를 매칭 함수가 이해할 수 있는 형태로 맞춘다.
+
+    현재 저장 구조:
+    effectiveAnalysis: {
+        resumeData: {...}
+    }
+
+    혹시 사용자가 수정하면서 resumeData 없이 바로 basicInfo, skills 등을 둔 경우도
+    기존 flatten_resume 호환을 위해 resumeData로 감싸준다.
+    """
+    if not isinstance(analysis, dict):
+        return {}
+
+    if "resumeData" in analysis:
+        return analysis
+
+    resume_data_like_keys = {
+        "basicInfo",
+        "education",
+        "experience",
+        "certifications",
+        "skills",
+        "mentionedSkills",
+        "projects",
+        "activities",
+        "languageTests",
+        "selfIntroduction",
+        "jobCategory",
+        "experienceSummary",
+        "coreCompetencies",
+        "embeddingText",
+        "rawText",
+    }
+
+    if any(key in analysis for key in resume_data_like_keys):
+        return {
+            "resumeData": analysis
+        }
+
+    return analysis
+
+
+def get_latest_resume_analysis(resume_raw):
+    """
+    항상 최신 이력서 분석 결과를 선택한다.
+
+    우선순위:
+    1. effectiveAnalysis: 사용자가 수정했으면 수정본, 아니면 원본
+    2. editedAnalysis
+    3. originalAnalysis
+    4. resume
+
+    반환:
+    - selected_analysis: 매칭에 사용할 분석 데이터
+    - analysis_meta: 저장/로그/프론트 표시용 메타데이터
+    """
+    if not isinstance(resume_raw, dict):
+        resume_raw = {}
+
+    candidates = [
+        ("effectiveAnalysis", resume_raw.get("effectiveAnalysis")),
+        ("editedAnalysis", resume_raw.get("editedAnalysis")),
+        ("originalAnalysis", resume_raw.get("originalAnalysis")),
+        ("resume", resume_raw.get("resume")),
+    ]
+
+    selected_source = "none"
+    selected_analysis = {}
+
+    for source, analysis in candidates:
+        if has_meaningful_value(analysis):
+            selected_source = source
+            selected_analysis = normalize_resume_analysis_payload(analysis)
+            break
+
+    is_analysis_edited = bool(resume_raw.get("isAnalysisEdited", False))
+    analysis_version = resume_raw.get("analysisVersion", 1)
+
+    # 사용자에게 보여줄 기준값
+    if is_analysis_edited and selected_source in ["effectiveAnalysis", "editedAnalysis"]:
+        analysis_source_label = "edited"
+    elif selected_source in ["effectiveAnalysis", "originalAnalysis", "resume"]:
+        analysis_source_label = "original"
+    else:
+        analysis_source_label = selected_source
+
+    analysis_meta = {
+        "selectedAnalysisField": selected_source,
+        "analysisSource": analysis_source_label,
+        "resumeAnalysisVersion": analysis_version,
+        "isAnalysisEdited": is_analysis_edited,
+    }
+
+    return selected_analysis, analysis_meta
+
+
+def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score, analysis_meta=None):
+    analysis_meta = analysis_meta or {}
+
     job_posting = job_raw.get("jobPosting", {}) or {}
     requirements = job_posting.get("requirements", {}) or {}
 
@@ -747,6 +871,12 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score):
     return {
         "id": job_doc_id,
         "jobId": job_doc_id,
+
+        # 어떤 이력서 분석 버전으로 계산했는지 결과에 남긴다.
+        "resumeAnalysisSource": analysis_meta.get("analysisSource", "original"),
+        "resumeAnalysisVersion": analysis_meta.get("resumeAnalysisVersion", 1),
+        "isAnalysisEdited": analysis_meta.get("isAnalysisEdited", False),
+        "selectedAnalysisField": analysis_meta.get("selectedAnalysisField", ""),
 
         "title": get_job_title(job_raw, job_posting),
         "company": company_name,
@@ -873,8 +1003,23 @@ def process_matching_groups_by_resume_id(resume_doc_id, limit=5):
     if not resume_snapshot.exists:
         raise Exception(f"이력서 문서가 없습니다: {resume_doc_id}")
 
-    resume_raw = resume_snapshot.to_dict()
-    resume_for_score = flatten_resume(resume_raw)
+    resume_raw = resume_snapshot.to_dict() or {}
+
+    # 핵심:
+    # 항상 effectiveAnalysis를 최우선으로 사용한다.
+    # 사용자가 분석 결과를 수정한 경우 effectiveAnalysis에는 수정본이 들어있다.
+    # 수정하지 않은 경우 effectiveAnalysis에는 원본 분석 결과가 들어있다.
+    resume_analysis, analysis_meta = get_latest_resume_analysis(resume_raw)
+
+    # 기존 flatten_resume / get_resume_embedding_text 함수가 resumes 문서 전체 구조를
+    # 기준으로 동작할 수 있으므로, 최신 분석 결과를 resume과 effectiveAnalysis에 모두 넣는다.
+    resume_raw_for_matching = {
+        **resume_raw,
+        "resume": resume_analysis,
+        "effectiveAnalysis": resume_analysis,
+    }
+
+    resume_for_score = flatten_resume(resume_raw_for_matching)
 
     match_preferences = resume_raw.get("matchPreferences", {}) or {}
 
@@ -884,13 +1029,18 @@ def process_matching_groups_by_resume_id(resume_doc_id, limit=5):
     total_job_count = 0
     filtered_job_count = 0
 
+    print(f"[matching] 이력서 문서 ID: {resume_doc_id}")
+    print(f"[matching] 사용 분석 필드: {analysis_meta.get('selectedAnalysisField')}")
+    print(f"[matching] 분석 출처: {analysis_meta.get('analysisSource')}")
+    print(f"[matching] 분석 버전: {analysis_meta.get('resumeAnalysisVersion')}")
+    print(f"[matching] 수정 여부: {analysis_meta.get('isAnalysisEdited')}")
+
     for job_snapshot in job_snapshots:
         total_job_count += 1
 
         job_doc_id = job_snapshot.id
-        job_raw = job_snapshot.to_dict()
+        job_raw = job_snapshot.to_dict() or {}
 
-        # 핵심 수정:
         # 이력서에 저장된 희망 직무/지역/근무형태 조건에 맞지 않는 공고는 점수계산 전에 제외
         if not is_job_matched_with_preferences(job_raw, match_preferences):
             continue
@@ -900,8 +1050,9 @@ def process_matching_groups_by_resume_id(resume_doc_id, limit=5):
         final_result = build_match_result(
             job_doc_id=job_doc_id,
             job_raw=job_raw,
-            resume_raw=resume_raw,
+            resume_raw=resume_raw_for_matching,
             resume_for_score=resume_for_score,
+            analysis_meta=analysis_meta,
         )
 
         results.append(final_result)
@@ -918,12 +1069,17 @@ def process_matching_groups_by_resume_id(resume_doc_id, limit=5):
     groups["totalJobCount"] = total_job_count
     groups["filteredJobCount"] = filtered_job_count
 
+    # 어떤 이력서 분석 결과로 계산했는지 groups에도 남긴다.
+    groups["selectedAnalysisField"] = analysis_meta.get("selectedAnalysisField")
+    groups["analysisSource"] = analysis_meta.get("analysisSource")
+    groups["resumeAnalysisVersion"] = analysis_meta.get("resumeAnalysisVersion")
+    groups["isAnalysisEdited"] = analysis_meta.get("isAnalysisEdited")
+
     print(f"[matching] 전체 공고 수: {total_job_count}")
     print(f"[matching] 조건 필터링 후 공고 수: {filtered_job_count}")
     print(f"[matching] 적용된 조건: {match_preferences}")
 
     return groups
-
 
 def main():
     if len(sys.argv) < 2:

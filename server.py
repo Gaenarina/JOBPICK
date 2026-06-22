@@ -302,92 +302,96 @@ def home():
 @app.route("/process-resume", methods=["POST"])
 def process_resume():
     try:
-        print("\n========== /process-resume 요청 시작 ==========")
+        data = request.get_json() or {}
 
-        data = request.get_json(silent=True) or {}
-        doc_id = data.get("docId")
-        force = data.get("force", False)
-        user_id = data.get("userId", "")
-
-        print("[1] 받은 docId:", doc_id)
-        print("[2] force:", force)
-        print("[2-1] 받은 userId:", user_id)
+        doc_id = data.get("docId") or data.get("resumeId")
+        force_refresh = bool(data.get("forceRefresh", False))
 
         if not doc_id:
-            return jsonify({
-                "error": "docId가 필요합니다."
-            }), 400
+            return jsonify({"error": "docId가 없습니다."}), 400
 
-        user_id = data.get("userId")
-        if not user_id:
-            return jsonify({
-                "error": "로그인이 필요합니다.",
-                "message": "로그인이 필요합니다."
-            }), 401
+        print("[process-resume] 요청 doc_id:", doc_id)
+        print("[process-resume] force_refresh:", force_refresh)
 
-        if not force:
-            print("[3] 기존 매칭 결과 조회 시도:", doc_id)
+        # forceRefresh가 아닐 때만 기존 결과 반환
+        if not force_refresh:
             cached_result = get_matching_result(db, doc_id)
 
             if cached_result:
-                print("[4] 기존 매칭 결과 있음. 재계산 안 함.")
-                return return_cached_result(cached_result, user_id)
+                print("[process-resume] 기존 매칭 결과 반환")
+                return jsonify({
+                    "message": "기존 매칭 결과 반환",
+                    "resumeId": doc_id,
+                    "groups": cached_result,
+                    "fromCache": True,
+                })
 
-        print("[5] 이력서 처리 시작")
-        resume_id = process_resume_by_doc_id(doc_id)
-        print("[6] 이력서 처리 완료 resume_id:", resume_id)
+        # 이력서 문서 확인
+        resume_ref = db.collection("resumes").document(doc_id)
+        resume_snap = resume_ref.get()
 
-        if not force:
-            print("[7] resume_id 기준 기존 매칭 결과 조회:", resume_id)
-            cached_result = get_matching_result(db, resume_id)
+        if not resume_snap.exists:
+            return jsonify({"error": "이력서를 찾을 수 없습니다."}), 404
 
-            if cached_result:
-                print("[8] resume_id 기준 기존 매칭 결과 있음. 재계산 안 함.")
-                return return_cached_result(cached_result)
+        resume_data = resume_snap.to_dict() or {}
 
-        print("[9] 매칭 점수 계산 시작")
+        # 아직 이력서 분석이 안 된 경우에만 OCR/구조화 실행
+        has_analysis = bool(
+            resume_data.get("effectiveAnalysis")
+            or resume_data.get("originalAnalysis")
+            or resume_data.get("resume")
+        )
+
+        if not has_analysis:
+            print("[process-resume] 이력서 분석 결과 없음 → OCR/구조화 실행")
+            resume_id = process_resume_by_doc_id(doc_id)
+        else:
+            print("[process-resume] 기존 이력서 분석 결과 사용")
+            resume_id = doc_id
+
+        # 항상 최신 공고 DB + 최신 이력서 분석 기준으로 재매칭
+        print("[process-resume] 최신 기준 매칭 시작")
         groups = process_matching_groups_by_resume_id(resume_id, limit=5)
         groups = normalize_matching_groups(groups)
 
-        print("[10] 매칭 점수 계산 완료")
-        print("[11] matches 개수:", len(groups["matches"] or []))
-        print("[11-1] topFitMatches 개수:", len(groups["topFitMatches"] or []))
-        print("[11-2] topAccessibleMatches 개수:", len(groups["topAccessibleMatches"] or []))
-        print("[11-3] topConfidenceMatches 개수:", len(groups["topConfidenceMatches"] or []))
+        # 이력서 최신 상태 다시 읽기
+        latest_resume_snap = db.collection("resumes").document(resume_id).get()
+        latest_resume_data = latest_resume_snap.to_dict() or {}
 
-        print("[12] Firestore matching_results 저장 시작")
+        analysis_source = "edited" if latest_resume_data.get("isAnalysisEdited") else "original"
+        resume_analysis_version = latest_resume_data.get("analysisVersion", 1)
+        is_analysis_edited = latest_resume_data.get("isAnalysisEdited", False)
+
+        print("[process-resume] Firestore matching_results 저장 시작")
+
         save_matching_result(
             db=db,
             resume_id=resume_id,
-            user_id=user_id,
-            matches=groups["matches"],
-            top_fit_matches=groups["topFitMatches"],
-            top_accessible_matches=groups["topAccessibleMatches"],
-            top_confidence_matches=groups["topConfidenceMatches"],
+            user_id=latest_resume_data.get("userId", ""),
+            matches=groups.get("matches", []),
+            top_fit_matches=groups.get("topFitMatches", []),
+            top_accessible_matches=groups.get("topAccessibleMatches", []),
+            top_confidence_matches=groups.get("topConfidenceMatches", []),
+            analysis_source=analysis_source,
+            resume_analysis_version=resume_analysis_version,
+            is_analysis_edited=is_analysis_edited,
         )
-        print("[13] Firestore matching_results 저장 완료")
 
-        print("========== /process-resume 요청 완료 ==========\n")
+        print("[process-resume] Firestore matching_results 저장 완료")
 
         return jsonify({
-            "message": "처리 완료",
+            "message": "최신 정보로 매칭 완료",
             "resumeId": resume_id,
-            "userId": user_id,
-            "matches": groups["topFitMatches"],
-            "topFitMatches": groups["topFitMatches"],
-            "topAccessibleMatches": groups["topAccessibleMatches"],
-            "topConfidenceMatches": groups["topConfidenceMatches"],
-            "matchCount": len(groups["matches"] or []),
-            "cached": False,
+            "fromCache": False,
+            "analysisSource": analysis_source,
+            "resumeAnalysisVersion": resume_analysis_version,
+            "isAnalysisEdited": is_analysis_edited,
+            "groups": groups,
         })
 
     except Exception as e:
-        print("\n[Python 서버 처리 실패]")
-        print(traceback.format_exc())
-
-        return jsonify({
-            "error": str(e)
-        }), 500
+        print("[process-resume] 오류:", e)
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/matching-results/<resume_id>", methods=["GET"])

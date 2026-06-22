@@ -13,8 +13,7 @@ import {
 } from '@/lib/userStorage'
 import { FileText, Sparkles } from 'lucide-react'
 
-const MATCH_API_URL = process.env.NEXT_PUBLIC_MATCH_API_URL || 'http://localhost:8000/process-resume'
-const MATCHED_JOBS_STORAGE_PREFIX = 'jobpick_matched_jobs' 
+const MATCHED_JOBS_STORAGE_PREFIX = 'jobpick_matched_jobs'
 
 function getJobKey(job) {
   return String(job?.id || job?.jobId || '')
@@ -124,6 +123,23 @@ function getTopMatches(jobs, count = 5) {
     .slice(0, count)
 }
 
+function extractMatchedJobsFromResponse(data) {
+  const root = data?.result || data || {}
+  const groups = root?.groups || root?.matchingResults || root || {}
+
+  return (
+    groups.topFitMatches ||
+    groups.top_fit_matches ||
+    groups.matches ||
+    root.topFitMatches ||
+    root.top_fit_matches ||
+    root.matches ||
+    data?.topFitMatches ||
+    data?.matches ||
+    []
+  )
+}
+
 export default function LandingPage() {
   const router = useRouter()
   const { user, isAuthenticated, mounted } = useAuth()
@@ -213,13 +229,15 @@ export default function LandingPage() {
     }
   }
 
-  const runAiMatchingByResume = async (resume, force = false) => {
+  const runAiMatchingByResume = async (resume, forceRefresh = false) => {
     const resumeId = getResumeDocId(resume)
 
     if (!resumeId) {
       alert('이력서 문서 ID를 찾을 수 없습니다.')
       return
     }
+
+    const userId = user?.uid || user?.id || ''
 
     setSelectedResume(resume)
     setIsAnalyzing(true)
@@ -228,36 +246,72 @@ export default function LandingPage() {
     setMatchPage(1)
 
     try {
-      const res = await fetch(MATCH_API_URL, {
+      if (forceRefresh) {
+        const storageKey = getMatchedJobsStorageKey(userId, resumeId)
+        localStorage.removeItem(storageKey)
+      }
+
+      const res = await fetch(`/api/resume/${resumeId}/process`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           docId: resumeId,
-          userId: user?.uid || user?.id || '',
-          force: force,
+          resumeId,
+          userId,
+          forceRefresh,
+          force: forceRefresh,
         }),
       })
 
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       console.log('메인 AI 매칭 응답:', data)
 
       if (!res.ok) {
         throw new Error(data.error || 'AI 매칭 실패')
       }
 
-      const topMatches = normalizeJobs(data.topFitMatches || data.matches || [])
+      const rawMatches = extractMatchedJobsFromResponse(data)
+      const topMatches = normalizeJobs(rawMatches)
+
       setMatchedJobs(topMatches)
 
-      const storageKey = getMatchedJobsStorageKey(user?.uid || user?.id || '', resumeId) 
+      const storageKey = getMatchedJobsStorageKey(userId, resumeId)
       localStorage.setItem(
-        storageKey, 
+        storageKey,
         JSON.stringify({
           resumeId,
           jobs: topMatches,
           savedAt: new Date().toISOString(),
+          forceRefresh,
+          analysisSource:
+            data?.result?.analysisSource ||
+            data?.analysisSource ||
+            '',
+          resumeAnalysisVersion:
+            data?.result?.resumeAnalysisVersion ||
+            data?.resumeAnalysisVersion ||
+            null,
+          isAnalysisEdited:
+            data?.result?.isAnalysisEdited ??
+            data?.isAnalysisEdited ??
+            false,
         })
+      )
+
+      setResumes((prev) =>
+        prev.map((item) =>
+          getResumeDocId(item) === resumeId
+            ? { ...item, status: 'DONE' }
+            : item
+        )
+      )
+
+      setSelectedResume((prev) =>
+        getResumeDocId(prev) === resumeId
+          ? { ...prev, status: 'DONE' }
+          : prev
       )
 
       setAnalysisDone(true)
@@ -267,6 +321,15 @@ export default function LandingPage() {
       }
     } catch (error) {
       console.error(error)
+
+      setResumes((prev) =>
+        prev.map((item) =>
+          getResumeDocId(item) === resumeId
+            ? { ...item, status: 'FAILED' }
+            : item
+        )
+      )
+
       alert(error.message || 'AI 매칭 중 오류가 발생했습니다.')
       setAnalysisDone(false)
     } finally {
@@ -309,7 +372,7 @@ export default function LandingPage() {
 
       if (latestStatus === 'DONE') {
         if (shouldRunMatching) {
-          await runAiMatchingByResume({ ...resume, status: latestStatus })
+          await runAiMatchingByResume({ ...resume, status: latestStatus }, false)
         } else {
           setIsAnalyzing(false)
           setAnalysisDone(false)
@@ -347,6 +410,7 @@ export default function LandingPage() {
       e.target.value = ''
       return
     }
+
     const files = Array.from(e.target.files || [])
     if (!files.length) return
 
@@ -384,7 +448,11 @@ export default function LandingPage() {
       }
 
       const dateStr = new Date()
-        .toLocaleDateString('ko-KR', { year: 'numeric', month: '2-digit', day: '2-digit' })
+        .toLocaleDateString('ko-KR', {
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+        })
         .replace(/\. /g, '.')
         .replace(/\.$/, '')
 
@@ -402,8 +470,8 @@ export default function LandingPage() {
       setResumes(addResumes([mappedResume], resumeUserId))
       setShowSavedResumes(true)
       setSelectedResume(mappedResume)
-      startStatusPolling(mappedResume)
 
+      await runAiMatchingByResume(mappedResume, true)
     } catch (error) {
       console.error(error)
       alert(error.message || '업로드 중 오류가 발생했습니다.')
@@ -422,12 +490,12 @@ export default function LandingPage() {
     fetchJobs()
 
     if (savedResumes.length > 0) {
-      restoreMatchedJobsFromStorage(savedResumes[0]) 
+      restoreMatchedJobsFromStorage(savedResumes[0])
     }
 
     const handlePageShow = () => {
       if (savedResumes.length > 0) {
-        restoreMatchedJobsFromStorage(savedResumes[0]) 
+        restoreMatchedJobsFromStorage(savedResumes[0])
       }
     }
 
@@ -449,8 +517,8 @@ export default function LandingPage() {
     const next = removeResume(resumeId, resumeUserId)
     setResumes(next)
 
-    const storageKey = getMatchedJobsStorageKey(resumeUserId, resumeId) 
-    localStorage.removeItem(storageKey) 
+    const storageKey = getMatchedJobsStorageKey(resumeUserId, resumeId)
+    localStorage.removeItem(storageKey)
 
     if (getResumeDocId(selectedResume) === resumeId) {
       setSelectedResume(null)
@@ -482,14 +550,24 @@ export default function LandingPage() {
     setBookmarkIds(next.map((item) => getJobKey(item)))
   }
 
+  const handleRematch = (resume) => {
+    if (!resume) {
+      alert('먼저 이력서를 선택해주세요.')
+      return
+    }
+
+    runAiMatchingByResume(resume, true)
+  }
+
   // AI 추천 매칭 리스트 페이징 데이터
   const totalMatchPages = Math.ceil(matchedJobs.length / matchItemsPerPage)
   const matchStartIndex = (matchPage - 1) * matchItemsPerPage
   const matchEndIndex = matchStartIndex + matchItemsPerPage
   const pagedMatchedJobs = matchedJobs.slice(matchStartIndex, matchEndIndex)
+
   console.log('matchedJobs:', matchedJobs)
-console.log('matchedJobs length:', matchedJobs.length)
-console.log('totalMatchPages:', totalMatchPages)
+  console.log('matchedJobs length:', matchedJobs.length)
+  console.log('totalMatchPages:', totalMatchPages)
 
   // 인기 커리어 리스트 페이징 데이터
   const filteredJobs = jobs.filter((job) => {
@@ -505,14 +583,6 @@ console.log('totalMatchPages:', totalMatchPages)
     setCurrentPage(1)
   }, [selectedPopularCategory])
 
-  const handleRematch = (resume) => {
-    if (!resume) {
-      alert('먼저 이력서를 선택해주세요.')
-      return
-    }
-    runAiMatchingByResume(resume, true)
-  }
-
   return (
     <main className="max-w-5xl mx-auto p-4 md:p-8">
       {isAuthenticated ? (
@@ -520,12 +590,18 @@ console.log('totalMatchPages:', totalMatchPages)
           <h1 className="text-2xl md:text-4xl font-bold mb-1">
             안녕하세요, <span className="text-primary">{name}</span> 님!
           </h1>
-          <p className="text-gray-500 text-base md:text-lg">AI 기반 이력서/채용공고 매칭 서비스예요.</p>
+          <p className="text-gray-500 text-base md:text-lg">
+            AI 기반 이력서/채용공고 매칭 서비스예요.
+          </p>
         </section>
       ) : (
         <section className="text-center py-10 md:py-12">
-          <h1 className="text-3xl md:text-5xl font-bold text-primary mb-2">로그인을 해주세요!</h1>
-          <p className="text-gray-500 mb-6 text-base md:text-lg">AI 기반 이력서/채용공고 매칭 서비스예요.</p>
+          <h1 className="text-3xl md:text-5xl font-bold text-primary mb-2">
+            로그인을 해주세요!
+          </h1>
+          <p className="text-gray-500 mb-6 text-base md:text-lg">
+            AI 기반 이력서/채용공고 매칭 서비스예요.
+          </p>
           <button
             onClick={handleGetStarted}
             className="px-8 py-3 md:py-4 md:text-lg bg-primary text-white rounded-xl font-medium hover:bg-primary-dark transition-colors"
@@ -617,7 +693,9 @@ console.log('totalMatchPages:', totalMatchPages)
                     >
                       <button
                         type="button"
-                        onClick={() => (isAuthenticated ? handleResumeAnalyze(resume) : router.push('/login'))}
+                        onClick={() =>
+                          isAuthenticated ? handleResumeAnalyze(resume) : router.push('/login')
+                        }
                         className="flex items-center gap-4 text-left flex-1"
                       >
                         <FileText className="w-6 h-6 text-gray-500" aria-hidden />
@@ -638,14 +716,17 @@ console.log('totalMatchPages:', totalMatchPages)
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          onClick={() => (isAuthenticated ? handleDeleteResume(resume.id) : router.push('/login'))}
+                          onClick={() =>
+                            isAuthenticated ? handleDeleteResume(resume.id) : router.push('/login')
+                          }
                           className="text-xs px-2 py-1 rounded bg-red-50 text-red-600 h-fit"
                         >
                           삭제
                         </button>
+
                         <button
                           type="button"
-                          onClick={() => handleRematch(resume)} 
+                          onClick={() => handleRematch(resume)}
                           className="px-3 py-1 rounded-lg text-xs font-medium bg-primary text-white hover:bg-primary-dark transition-colors"
                         >
                           재분석
@@ -660,7 +741,7 @@ console.log('totalMatchPages:', totalMatchPages)
             {isAnalyzing && (
               <div className="mt-4 p-4 bg-white/80 rounded-lg flex items-center gap-3 text-sm text-gray-700">
                 <div className="w-5 h-5 border-2 border-gray-200 border-t-primary rounded-full animate-spin" />
-                <span>AI가 이력서를 분석하고 있어요...</span>
+                <span>AI가 이력서와 채용공고를 최신 정보로 다시 분석하고 있어요...</span>
               </div>
             )}
           </div>
@@ -674,7 +755,9 @@ console.log('totalMatchPages:', totalMatchPages)
 
               <div className="flex flex-col gap-4">
                 {pagedMatchedJobs.length === 0 ? (
-                  <p className="text-sm md:text-base text-gray-500">표시할 추천 공고가 없습니다.</p>
+                  <p className="text-sm md:text-base text-gray-500">
+                    표시할 추천 공고가 없습니다.
+                  </p>
                 ) : (
                   pagedMatchedJobs.map((job) => {
                     const jobKey = getJobKey(job)
@@ -685,7 +768,9 @@ console.log('totalMatchPages:', totalMatchPages)
                         className="flex items-center justify-between gap-3 border border-gray-200 rounded-xl p-5 md:p-6"
                       >
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm md:text-base text-gray-500 mb-1">{job.company}</p>
+                          <p className="text-sm md:text-base text-gray-500 mb-1">
+                            {job.company}
+                          </p>
                           <button
                             onClick={() => handleGoJob(job)}
                             className="font-semibold text-base md:text-lg text-left hover:text-primary transition-colors block"
@@ -782,7 +867,9 @@ console.log('totalMatchPages:', totalMatchPages)
 
       {/* 인기 커리어 영역 */}
       <section className="mt-10 md:mt-12">
-        <h2 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">인기 커리어</h2>
+        <h2 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">
+          인기 커리어
+        </h2>
 
         <div className="mb-4">
           <select
@@ -806,7 +893,9 @@ console.log('totalMatchPages:', totalMatchPages)
         {isLoadingJobs ? (
           <div className="p-8 md:p-10 bg-white rounded-2xl border border-gray-200 text-center">
             <div className="w-10 h-10 border-2 border-gray-200 border-t-primary rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-sm md:text-base text-gray-500">DB 공고를 불러오는 중입니다...</p>
+            <p className="text-sm md:text-base text-gray-500">
+              DB 공고를 불러오는 중입니다...
+            </p>
           </div>
         ) : (
           <>
@@ -820,8 +909,15 @@ console.log('totalMatchPages:', totalMatchPages)
                   const jobKey = getJobKey(job)
 
                   return (
-                    <div key={jobKey} className="relative bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-gray-200">
-                      <button onClick={() => handleToggleBookmark(job)} className="absolute top-5 right-5 md:top-6 md:right-6" aria-label="북마크">
+                    <div
+                      key={jobKey}
+                      className="relative bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-gray-200"
+                    >
+                      <button
+                        onClick={() => handleToggleBookmark(job)}
+                        className="absolute top-5 right-5 md:top-6 md:right-6"
+                        aria-label="북마크"
+                      >
                         <svg
                           width="22"
                           height="22"
@@ -845,7 +941,9 @@ console.log('totalMatchPages:', totalMatchPages)
                         {job.title}
                       </button>
 
-                      <p className="text-base md:text-lg text-gray-500 mb-3">{job.company}</p>
+                      <p className="text-base md:text-lg text-gray-500 mb-3">
+                        {job.company}
+                      </p>
 
                       <div className="flex gap-2 flex-wrap">
                         {job.category && (
