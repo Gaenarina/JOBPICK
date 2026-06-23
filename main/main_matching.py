@@ -897,9 +897,14 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score, analys
         "matchBadges": match_badges,
 
         "ruleTotal": round(result.get("rule_total", 0), 2),
+        "ruleTotalMax": result.get("rule_total_max", 25),
         "semanticTotal": round(result.get("semantic_total", 0), 2),
+        "semanticTotalMax": result.get("semantic_total_max", 50),
         "ncsTotal": ncs_total,
+        "ncsTotalMax": result.get("ncs_total_max", 25),
         "ncsDetails": ncs_details,
+        "scoringMode": result.get("scoring_mode", ""),
+        "ruleEvidenceCount": result.get("rule_evidence_count", 0),
 
         "embeddingSimilarity": round(full_sim, 4),
         "embeddingScore": round(full_score, 2),
@@ -975,7 +980,7 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score, analys
             },
             "ncs": {
                 "score": ncs_total,
-                "maxScore": ncs_details.get("ncs_score_max", 25),
+                "maxScore": result.get("ncs_total_max", ncs_details.get("ncs_score_max", 25)),
                 "used": ncs_details.get("ncs_used", False),
                 "category": ncs_details.get("ncs_category", ""),
                 "similarity": ncs_details.get("ncs_similarity", 0),

@@ -15,19 +15,27 @@ from matching.ncs_matcher import calculate_ncs_score
 MODEL_NAME = "jhgan/ko-sroberta-multitask"
 _model = None
 
-RULE_WEIGHT = 25.0
-SEMANTIC_WEIGHT = 50.0
-NCS_WEIGHT = 25.0
+NO_NCS_RULE_WEIGHT = 30.0
+NO_NCS_SEMANTIC_WEIGHT = 70.0
+NCS_WITH_RULE_RULE_WEIGHT = 15.0
+NCS_WITH_RULE_SEMANTIC_WEIGHT = 70.0
+NCS_WITH_RULE_NCS_WEIGHT = 15.0
+NCS_NO_RULE_SEMANTIC_WEIGHT = 70.0
+NCS_NO_RULE_NCS_WEIGHT = 30.0
 
-RULE_SKILL_WEIGHT = 10.0
-RULE_EDU_WEIGHT = 2.5
-RULE_EXP_WEIGHT = 5.0
-RULE_CERT_WEIGHT = 2.5
-RULE_QUAL_WEIGHT = 5.0
+RULE_SKILL_RATIO = 0.40
+RULE_EDU_RATIO = 0.10
+RULE_EXP_RATIO = 0.20
+RULE_CERT_RATIO = 0.10
+RULE_QUAL_RATIO = 0.20
 
-FULL_SEMANTIC_WEIGHT = 25.0
-RESPONSIBILITY_SEMANTIC_WEIGHT = 15.0
-QUALIFICATION_SEMANTIC_WEIGHT = 10.0
+FULL_SEMANTIC_RATIO = 0.50
+RESPONSIBILITY_SEMANTIC_RATIO = 0.30
+QUALIFICATION_SEMANTIC_RATIO = 0.20
+
+FULL_SEMANTIC_WEIGHT = NO_NCS_SEMANTIC_WEIGHT * FULL_SEMANTIC_RATIO
+RESPONSIBILITY_SEMANTIC_WEIGHT = NO_NCS_SEMANTIC_WEIGHT * RESPONSIBILITY_SEMANTIC_RATIO
+QUALIFICATION_SEMANTIC_WEIGHT = NO_NCS_SEMANTIC_WEIGHT * QUALIFICATION_SEMANTIC_RATIO
 
 
 def get_model():
@@ -1132,6 +1140,65 @@ def calculate_confidence_score(job: Dict[str, Any]) -> float:
     return round(min(score, 100.0), 2)
 
 
+def count_rule_evidence_groups(
+    skill_used: bool,
+    skill_total_count: int,
+    edu_used: bool,
+    exp_detail: Dict[str, Any],
+    cert_used: bool,
+    cert_total_count: int,
+    qual_used: bool,
+    qual_total_count: int,
+) -> int:
+    count = 0
+
+    if skill_used and skill_total_count > 0:
+        count += 1
+
+    if edu_used:
+        count += 1
+
+    if exp_detail.get("exp_condition_used", False):
+        count += 1
+
+    if cert_used and cert_total_count > 0:
+        count += 1
+
+    if qual_used and qual_total_count > 0:
+        count += 1
+
+    return count
+
+
+def should_try_ncs_score(rule_evidence_count: int) -> bool:
+    return rule_evidence_count < 2
+
+
+def build_ncs_not_applied_result(reason: str) -> Dict[str, Any]:
+    return {
+        "ncs_used": False,
+        "ncs_category": "",
+        "ncs_score": 0.0,
+        "ncs_score_max": 0.0,
+        "ncs_similarity": 0.0,
+        "matched_duty_cd": "",
+        "matched_duty_name": "",
+        "matched_unit_cd": "",
+        "matched_unit_name": "",
+        "reason": reason,
+    }
+
+
+def get_rule_component_weights(rule_total_max: float) -> Dict[str, float]:
+    return {
+        "skill": rule_total_max * RULE_SKILL_RATIO,
+        "edu": rule_total_max * RULE_EDU_RATIO,
+        "exp": rule_total_max * RULE_EXP_RATIO,
+        "cert": rule_total_max * RULE_CERT_RATIO,
+        "qual": rule_total_max * RULE_QUAL_RATIO,
+    }
+
+
 def get_match_badges(
     fit_score: float,
     accessibility_score: float,
@@ -1140,12 +1207,12 @@ def get_match_badges(
 ) -> List[str]:
     badges = []
 
-    if confidence_score < 40:
-        badges.append("정보 부족")
-        return badges
-
     if has_blocking_unmet:
         badges.append("부적합")
+        return badges
+
+    if confidence_score < 40:
+        badges.append("정보 부족")
         return badges
 
     if fit_score >= 70 and confidence_score >= 45:
@@ -1169,11 +1236,11 @@ def get_recommend_type(
     confidence_score: float,
     has_blocking_unmet: bool = False,
 ) -> str:
-    if confidence_score < 40:
-        return "정보 부족"
-
     if has_blocking_unmet:
         return "부적합"
+
+    if confidence_score < 40:
+        return "정보 부족"
 
     badges = get_match_badges(
         fit_score,
@@ -1216,22 +1283,6 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     qual_rule_score_raw, matched_quals, qual_total_count, qual_used = calculate_qualification_rule_score(
         required_quals, resume
     )
-
-    skill_score = get_score_ratio(skill_score_raw, 30) * RULE_SKILL_WEIGHT if skill_used else 0.0
-    edu_score = get_score_ratio(edu_score_raw, 10) * RULE_EDU_WEIGHT if edu_used else 0.0
-
-    if exp_used:
-        exp_score = get_score_ratio(
-            exp_detail.get("exp_year_score", 0),
-            exp_detail.get("exp_year_max", 10)
-        ) * RULE_EXP_WEIGHT
-    else:
-        exp_score = 0.0
-
-    cert_score = get_score_ratio(cert_score_raw, 10) * RULE_CERT_WEIGHT if cert_used else 0.0
-    qual_rule_score = get_score_ratio(qual_rule_score_raw, 10) * RULE_QUAL_WEIGHT if qual_used else 0.0
-
-    rule_total = skill_score + edu_score + exp_score + cert_score + qual_rule_score
 
     unmet_conditions = []
 
@@ -1304,26 +1355,74 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
 
     semantic_adjust_ratio = 1.0
 
-    full_score = raw_full_score
-    resp_score = raw_resp_score
-    qual_score = raw_qual_score
-
     full_sim = raw_full_sim
     resp_sim = raw_resp_sim
     qual_sim = raw_qual_sim
 
-    semantic_before_adjust = raw_full_score + raw_resp_score + raw_qual_score
-    semantic_total = full_score + resp_score + qual_score
+    full_score = raw_full_score
+    resp_score = raw_resp_score
+    qual_score = raw_qual_score
+    semantic_before_adjust = full_score + resp_score + qual_score
+    semantic_total = semantic_before_adjust
 
-    ncs_result = calculate_ncs_score(
-        resume_text=resume_full_text,
-        job_text=job_full_text,
-        category=job.get("ncsCategory", ""),
-        model=get_model(),
-        util_module=util,
+    rule_evidence_count = count_rule_evidence_groups(
+        skill_used=skill_used,
+        skill_total_count=skill_total_count,
+        edu_used=edu_used,
+        exp_detail=exp_detail,
+        cert_used=cert_used,
+        cert_total_count=cert_total_count,
+        qual_used=qual_used,
+        qual_total_count=qual_total_count,
     )
 
-    ncs_score = ncs_result.get("ncs_score", 0.0)
+    if should_try_ncs_score(rule_evidence_count):
+        ncs_result = calculate_ncs_score(
+            resume_text=resume_full_text,
+            job_text=job_full_text,
+            category=job.get("ncsCategory", ""),
+            model=get_model(),
+            util_module=util,
+        )
+    else:
+        ncs_result = build_ncs_not_applied_result(
+            "공고에 명시된 룰 기반 판단 지표가 충분하여 NCS 보완 점수를 적용하지 않았습니다."
+        )
+
+    ncs_used = bool(ncs_result.get("ncs_used", False))
+
+    if ncs_used and rule_evidence_count == 0:
+        rule_total_max = 0.0
+        semantic_total_max = NCS_NO_RULE_SEMANTIC_WEIGHT
+        ncs_total_max = NCS_NO_RULE_NCS_WEIGHT
+        scoring_mode = "SEMANTIC_70_NCS_30"
+    elif ncs_used:
+        rule_total_max = NCS_WITH_RULE_RULE_WEIGHT
+        semantic_total_max = NCS_WITH_RULE_SEMANTIC_WEIGHT
+        ncs_total_max = NCS_WITH_RULE_NCS_WEIGHT
+        scoring_mode = "RULE_15_SEMANTIC_70_NCS_15"
+    else:
+        rule_total_max = NO_NCS_RULE_WEIGHT
+        semantic_total_max = NO_NCS_SEMANTIC_WEIGHT
+        ncs_total_max = 0.0
+        scoring_mode = "RULE_30_SEMANTIC_70"
+
+    rule_weights = get_rule_component_weights(rule_total_max)
+    skill_score = get_score_ratio(skill_score_raw, 30) * rule_weights["skill"] if skill_used else 0.0
+    edu_score = get_score_ratio(edu_score_raw, 10) * rule_weights["edu"] if edu_used else 0.0
+
+    if exp_used:
+        exp_score = get_score_ratio(
+            exp_detail.get("exp_year_score", 0),
+            exp_detail.get("exp_year_max", 10)
+        ) * rule_weights["exp"]
+    else:
+        exp_score = 0.0
+
+    cert_score = get_score_ratio(cert_score_raw, 10) * rule_weights["cert"] if cert_used else 0.0
+    qual_rule_score = get_score_ratio(qual_rule_score_raw, 10) * rule_weights["qual"] if qual_used else 0.0
+    rule_total = skill_score + edu_score + exp_score + cert_score + qual_rule_score
+    ncs_score = (ncs_result.get("ncs_similarity", 0.0) or 0.0) * ncs_total_max if ncs_used else 0.0
 
     fit_score = round(min(rule_total + semantic_total + ncs_score, 100.0), 2)
 
@@ -1366,21 +1465,21 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     print(f"- 일치 직무 카테고리: {category_info.get('matchedCategories', [])}")
 
     print("[룰 기반]")
-    print(f"- 기술 스택 일치도: {skill_score:.2f}/{RULE_SKILL_WEIGHT:.1f} (일치 {skill_match_count}/{skill_total_count}, 매칭: {matched_skills})")
+    print(f"- 기술 스택 일치도: {skill_score:.2f}/{rule_weights['skill']:.1f} (일치 {skill_match_count}/{skill_total_count}, 매칭: {matched_skills})")
 
     if edu_used:
-        print(f"- 학력 조건: {edu_score:.2f}/{RULE_EDU_WEIGHT:.1f} (공고: {job_edu_level or '무관'}, 이력서: {resume_edu_level or '미확인'})")
+        print(f"- 학력 조건: {edu_score:.2f}/{rule_weights['edu']:.1f} (공고: {job_edu_level or '무관'}, 이력서: {resume_edu_level or '미확인'})")
     else:
-        print(f"- 학력 조건: 0.00/{RULE_EDU_WEIGHT:.1f} (학력 무관, 적합도 가산 제외)")
+        print(f"- 학력 조건: 0.00/{rule_weights['edu']:.1f} (학력 무관, 적합도 가산 제외)")
 
     if exp_detail.get("exp_condition_used", False):
-        print(f"- 경력 조건: {exp_score:.2f}/{RULE_EXP_WEIGHT:.1f} (지원자 {exp_detail.get('resume_exp', 0)}년 / 요구 {exp_detail.get('min_exp', 0)}년)")
+        print(f"- 경력 조건: {exp_score:.2f}/{rule_weights['exp']:.1f} (지원자 {exp_detail.get('resume_exp', 0)}년 / 요구 {exp_detail.get('min_exp', 0)}년)")
     else:
-        print(f"- 경력 조건: 0.00/{RULE_EXP_WEIGHT:.1f} (경력 무관, 적합도 가산 제외)")
+        print(f"- 경력 조건: 0.00/{rule_weights['exp']:.1f} (경력 무관, 적합도 가산 제외)")
 
-    print(f"- 자격증: {cert_score:.2f}/{RULE_CERT_WEIGHT:.1f} (일치 {cert_match_count}/{cert_total_count})")
-    print(f"- 필수 자격요건: {qual_rule_score:.2f}/{RULE_QUAL_WEIGHT:.1f} (일치 {len(matched_quals)}/{qual_total_count})")
-    print(f"룰 기반 점수 합계: {rule_total:.2f}/{RULE_WEIGHT:.0f}")
+    print(f"- 자격증: {cert_score:.2f}/{rule_weights['cert']:.1f} (일치 {cert_match_count}/{cert_total_count})")
+    print(f"- 필수 자격요건: {qual_rule_score:.2f}/{rule_weights['qual']:.1f} (일치 {len(matched_quals)}/{qual_total_count})")
+    print(f"룰 기반 점수 합계: {rule_total:.2f}/{rule_total_max:.0f}")
 
     print("[의미 기반]")
     print(f"- 필수조건 충족률: {required_condition_ratio:.4f}")
@@ -1388,7 +1487,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     print(f"- 이력서 전체와 공고 전체 유사도: {full_score:.2f}/{FULL_SEMANTIC_WEIGHT:.0f} (유사도 {full_sim:.4f})")
     print(f"- 자기소개서·경험과 담당업무 유사도: {resp_score:.2f}/{RESPONSIBILITY_SEMANTIC_WEIGHT:.0f} (유사도 {resp_sim:.4f})")
     print(f"- 자기소개서·경험과 자격요건 유사도: {qual_score:.2f}/{QUALIFICATION_SEMANTIC_WEIGHT:.0f} (유사도 {qual_sim:.4f})")
-    print(f"의미 기반 점수 합계: {semantic_total:.2f}/{SEMANTIC_WEIGHT:.0f}")
+    print(f"의미 기반 점수 합계: {semantic_total:.2f}/{semantic_total_max:.0f}")
 
     print("[NCS 직무역량]")
     print(f"- NCS 적용 여부: {ncs_result.get('ncs_used', False)}")
@@ -1396,12 +1495,13 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     print(f"- 매칭 직무: {ncs_result.get('matched_duty_name', '') or '없음'}")
     print(f"- 매칭 능력단위: {ncs_result.get('matched_unit_name', '') or '없음'}")
     print(f"- NCS 유사도: {ncs_result.get('ncs_similarity', 0):.4f}")
-    print(f"- NCS 점수: {ncs_score:.2f}/{NCS_WEIGHT:.0f}")
+    print(f"- NCS 점수: {ncs_score:.2f}/{ncs_total_max:.0f}")
+    print(f"- 점수 계산 방식: {scoring_mode}")
 
     print("[최종 점수]")
     print(f"- 적합도 점수: {fit_score:.2f}/100")
-    print(f"- 지원 가능성 점수: {accessibility_score:.2f}/100")
-    print(f"- 매칭 신뢰도 점수: {confidence_score:.2f}/100")
+    print(f"- 자격 통과 가능성 점수: {accessibility_score:.2f}/100")
+    print(f"- 판단 근거 충분도 점수: {confidence_score:.2f}/100")
     print(f"- 추천 유형: {recommend_type}")
     print(f"- 배지: {match_badges}")
 
@@ -1421,13 +1521,18 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         "recommend_type": recommend_type,
         "match_badges": match_badges,
         "rule_total": round(rule_total, 2),
+        "rule_total_max": rule_total_max,
         "semantic_total": round(semantic_total, 2),
+        "semantic_total_max": semantic_total_max,
         "ncs_total": round(ncs_score, 2),
+        "ncs_total_max": ncs_total_max,
         "ncs_details": ncs_result,
+        "scoring_mode": scoring_mode,
+        "rule_evidence_count": rule_evidence_count,
         "unmet_conditions": unmet_conditions,
         "rule_details": {
             "skill_score": round(skill_score, 2),
-            "skill_score_max": RULE_SKILL_WEIGHT,
+            "skill_score_max": rule_weights["skill"],
             "skill_raw_score": round(skill_score_raw, 2),
             "skill_raw_score_max": 30,
             "skill_match_count": skill_match_count,
@@ -1436,7 +1541,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "matched_skills": matched_skills,
 
             "edu_score": round(edu_score, 2),
-            "edu_score_max": RULE_EDU_WEIGHT,
+            "edu_score_max": rule_weights["edu"],
             "edu_raw_score": edu_score_raw,
             "edu_raw_score_max": 10,
             "job_edu_level": job_edu_level,
@@ -1445,7 +1550,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
 
             **exp_detail,
             "exp_score": round(exp_score, 2),
-            "exp_score_max": RULE_EXP_WEIGHT,
+            "exp_score_max": rule_weights["exp"],
             "exp_raw_score": round(exp_detail.get("exp_raw_score", 0), 2),
             "exp_raw_score_max": exp_detail.get("exp_raw_score_max", 0),
             "min_exp": exp_detail.get("min_exp", 0),
@@ -1453,7 +1558,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "exp_used": exp_used,
 
             "cert_score": round(cert_score, 2),
-            "cert_score_max": RULE_CERT_WEIGHT,
+            "cert_score_max": rule_weights["cert"],
             "cert_raw_score": round(cert_score_raw, 2),
             "cert_raw_score_max": 10,
             "cert_match_count": cert_match_count,
@@ -1462,7 +1567,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "matched_certs": matched_certs,
 
             "qual_rule_score": round(qual_rule_score, 2),
-            "qual_rule_score_max": RULE_QUAL_WEIGHT,
+            "qual_rule_score_max": rule_weights["qual"],
             "qual_raw_score": round(qual_rule_score_raw, 2),
             "qual_raw_score_max": 10,
             "matched_quals": matched_quals,
@@ -1485,7 +1590,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "qual_score_max": QUALIFICATION_SEMANTIC_WEIGHT,
             "qual_score_raw": round(raw_qual_score, 2),
 
-            "semantic_total_max": SEMANTIC_WEIGHT,
+            "semantic_total_max": semantic_total_max,
             "semantic_before_adjust": round(semantic_before_adjust, 2),
             "semantic_adjust_ratio": semantic_adjust_ratio,
             "required_condition_ratio": required_condition_ratio,
@@ -1505,7 +1610,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "confidence_score": confidence_score,
             "confidence_score_max": 100,
             "ncs_score": round(ncs_score, 2),
-            "ncs_score_max": NCS_WEIGHT,
+            "ncs_score_max": ncs_total_max,
             "recommend_type": recommend_type,
             "match_badges": match_badges,
         },
