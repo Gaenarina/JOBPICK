@@ -20,7 +20,7 @@ export async function POST(
     const forceRefresh = body.forceRefresh === true;
 
     const aiServerUrl =
-      process.env.AI_SERVER_URL || "http://localhost:5000";
+      process.env.AI_SERVER_URL || "http://localhost:8000";
 
     const aiRes = await fetch(`${aiServerUrl}/process-resume`, {
       method: "POST",
