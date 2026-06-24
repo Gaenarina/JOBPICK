@@ -121,6 +121,7 @@ export default function DashboardPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [aiMatched, setAiMatched] = useState(false)
   const [isMatching, setIsMatching] = useState(false)
+  const [isUploadingResume, setIsUploadingResume] = useState(false)
   const [bookmarkIds, setBookmarkIds] = useState([])
   const [appliedMap, setAppliedMap] = useState({})
   const [resumes, setResumes] = useState([])
@@ -328,6 +329,8 @@ const shownJobs = aiMatched ? matchedJobs : filteredJobs
       .replace(/\. /g, '.')
       .replace(/\.$/, '')
 
+    setIsUploadingResume(true)
+
     try {
       const uploadedResumes = []
 
@@ -372,6 +375,7 @@ const shownJobs = aiMatched ? matchedJobs : filteredJobs
       alert(error.message || '이력서 첨부 중 오류가 발생했습니다.')
     } finally {
       e.target.value = ''
+      setIsUploadingResume(false)
     }
   }
 
@@ -556,9 +560,13 @@ const shownJobs = aiMatched ? matchedJobs : filteredJobs
             </button>
 
             {isAuthenticated ? (
-              <label className="px-5 py-3 rounded-xl bg-slate-100 text-gray-700 cursor-pointer">
-                이력서 첨부
-                <input type="file" accept=".pdf,.doc,.docx" multiple className="hidden" onChange={handleUploadResume} />
+              <label className={`px-5 py-3 rounded-xl text-gray-700 ${
+                isUploadingResume
+                  ? 'bg-gray-200 text-gray-500 cursor-not-allowed opacity-60'
+                  : 'bg-slate-100 cursor-pointer'
+              }`}>
+                {isUploadingResume ? '업로드 중...' : '이력서 첨부'}
+                <input type="file" accept=".pdf,.doc,.docx" multiple className="hidden" onChange={handleUploadResume} disabled={isUploadingResume} />
               </label>
             ) : (
               <button
@@ -687,7 +695,7 @@ const shownJobs = aiMatched ? matchedJobs : filteredJobs
                   )}
 
                   {aiMatched && (
-                    <span className="text-card-score absolute right-8 bottom-6">
+                    <span className="text-2xl md:text-3xl font-bold absolute right-8 bottom-6 text-blue-600 inline-flex items-baseline">
                       {job.matchRate ?? Math.round(job.finalScore ?? 0)}점{' '}
                       <span className="text-card-score-label">적합</span>
                     </span>
