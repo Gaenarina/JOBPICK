@@ -13,6 +13,12 @@ import {
 } from '@/lib/userStorage'
 import { FileText, Sparkles, X } from 'lucide-react'
 
+import {
+  ROLE_OPTIONS,
+  LOCATION_OPTIONS,
+  EMPLOYMENT_TYPE_OPTIONS,
+} from '@/lib/matchingPreferenceOptions'
+
 const MATCHED_JOBS_STORAGE_PREFIX = 'jobpick_matched_jobs'
 
 function getJobKey(job) {
@@ -567,6 +573,51 @@ function ScoreDetailModal({ job, onClose }) {
   )
 }
 
+function toggleSelectedValue(setter, value) {
+  setter((prev) =>
+    prev.includes(value)
+      ? prev.filter((item) => item !== value)
+      : [...prev, value]
+  )
+}
+
+function PreferenceOptionGroup({
+  title,
+  options,
+  selectedValues,
+  onToggle,
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-semibold text-gray-800">
+        {title}
+      </p>
+
+      <div className="flex flex-wrap gap-2">
+        {options.map((option) => {
+          const isSelected = selectedValues.includes(option.value)
+
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={isSelected}
+              onClick={() => onToggle(option.value)}
+              className={`rounded-full border px-3 py-2 text-sm font-medium transition-colors ${
+                isSelected
+                  ? 'border-primary bg-primary text-white'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-primary hover:text-primary'
+              }`}
+            >
+              {isSelected ? `✓ ${option.label}` : option.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export default function LandingPage() {
   const router = useRouter()
   const { user, isAuthenticated, mounted } = useAuth()
@@ -589,6 +640,18 @@ export default function LandingPage() {
   const [selectedResume, setSelectedResume] = useState(null)
   const [bookmarkIds, setBookmarkIds] = useState([])
   const [scoreDetailJob, setScoreDetailJob] = useState(null)
+  const [desiredRoles, setDesiredRoles] = useState([])
+  const [desiredLocations, setDesiredLocations] = useState([])
+  const [employmentTypes, setEmploymentTypes] = useState([])
+  const [pendingFile, setPendingFile] = useState(null)
+  const [showPreferenceModal, setShowPreferenceModal] = useState(false)
+
+  // 등록된 이력서의 희망 채용 조건 수정
+  const [editingResume, setEditingResume] = useState(null)
+  const [editDesiredRoles, setEditDesiredRoles] = useState([])
+  const [editDesiredLocations, setEditDesiredLocations] = useState([])
+  const [editEmploymentTypes, setEditEmploymentTypes] = useState([])
+  const [isUpdatingPreferences, setIsUpdatingPreferences] = useState(false)
 
   const handleGetStarted = () => {
     router.push('/login')
@@ -607,7 +670,16 @@ export default function LandingPage() {
       router.push('/login')
       return
     }
-    fileInputRef.current?.click()
+
+    setPendingFile(null)
+    setDesiredRoles([])
+    setDesiredLocations([])
+    setEmploymentTypes([])
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+      fileInputRef.current.click()
+    }
   }
 
   const fetchJobs = async () => {
@@ -832,7 +904,7 @@ export default function LandingPage() {
     }, 2000)
   }
 
-  const handleFileSelect = async (e) => {
+  const handleFileSelect = (e) => {
     if (!isAuthenticated) {
       router.push('/login')
       e.target.value = ''
@@ -854,7 +926,33 @@ export default function LandingPage() {
       return
     }
 
-    const file = validFiles[0]
+    setPendingFile(validFiles[0])
+    setShowPreferenceModal(true)
+    e.target.value = ''
+  }
+
+  const handleCancelUpload = () => {
+    if (isAnalyzing) return
+
+    setShowPreferenceModal(false)
+    setPendingFile(null)
+    setDesiredRoles([])
+    setDesiredLocations([])
+    setEmploymentTypes([])
+  }
+
+  const handleConfirmUpload = async () => {
+    if (!pendingFile) {
+      alert('업로드할 이력서 파일을 찾을 수 없습니다.')
+      return
+    }
+
+    const file = pendingFile
+    const matchPreferences = {
+      desiredRoles,
+      desiredLocations,
+      employmentTypes,
+    }
 
     try {
       setIsAnalyzing(true)
@@ -864,6 +962,7 @@ export default function LandingPage() {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('userId', user?.uid || user?.id || 'anonymous')
+      formData.append('matchPreferences', JSON.stringify(matchPreferences))
 
       const res = await fetch('/api/resume/upload', {
         method: 'POST',
@@ -893,19 +992,24 @@ export default function LandingPage() {
         size: Math.round(file.size / 1024) + ' KB',
         date: dateStr,
         status: data.status || 'INIT',
+        matchPreferences: data.matchPreferences || matchPreferences,
       }
 
       setResumes(addResumes([mappedResume], resumeUserId))
       setShowSavedResumes(true)
       setSelectedResume(mappedResume)
+      setShowPreferenceModal(false)
+      setPendingFile(null)
 
       await runAiMatchingByResume(mappedResume, true)
+
+      setDesiredRoles([])
+      setDesiredLocations([])
+      setEmploymentTypes([])
     } catch (error) {
       console.error(error)
       alert(error.message || '업로드 중 오류가 발생했습니다.')
       setIsAnalyzing(false)
-    } finally {
-      e.target.value = ''
     }
   }
 
@@ -976,6 +1080,131 @@ export default function LandingPage() {
     }
     const next = toggleBookmark(job, resumeUserId)
     setBookmarkIds(next.map((item) => getJobKey(item)))
+  }
+
+  const handleOpenPreferenceEdit = async (resume) => {
+    const resumeId = getResumeDocId(resume)
+
+    if (!resumeId) {
+      alert('이력서 문서 ID를 찾을 수 없습니다.')
+      return
+    }
+
+    try {
+      const res = await fetch(`/api/resume/${resumeId}/preferences`, {
+        cache: 'no-store',
+      })
+
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        throw new Error(data.error || '기존 조건을 불러오지 못했습니다.')
+      }
+
+      const matchPreferences = data.matchPreferences || {}
+
+      setEditDesiredRoles(
+        Array.isArray(matchPreferences.desiredRoles)
+          ? matchPreferences.desiredRoles
+          : []
+      )
+      setEditDesiredLocations(
+        Array.isArray(matchPreferences.desiredLocations)
+          ? matchPreferences.desiredLocations
+          : []
+      )
+      setEditEmploymentTypes(
+        Array.isArray(matchPreferences.employmentTypes)
+          ? matchPreferences.employmentTypes
+          : []
+      )
+      setEditingResume(resume)
+    } catch (error) {
+      console.error(error)
+      alert(error.message || '이력서 조건을 불러오는 중 오류가 발생했습니다.')
+    }
+  }
+
+  const handleClosePreferenceEdit = () => {
+    if (isUpdatingPreferences) return
+
+    setEditingResume(null)
+    setEditDesiredRoles([])
+    setEditDesiredLocations([])
+    setEditEmploymentTypes([])
+  }
+
+  const handleSavePreferenceEdit = async () => {
+    const resumeId = getResumeDocId(editingResume)
+
+    if (!resumeId) {
+      alert('이력서 문서 ID를 찾을 수 없습니다.')
+      return
+    }
+
+    const matchPreferences = {
+      desiredRoles: editDesiredRoles,
+      desiredLocations: editDesiredLocations,
+      employmentTypes: editEmploymentTypes,
+    }
+
+    try {
+      setIsUpdatingPreferences(true)
+
+      const res = await fetch(`/api/resume/${resumeId}/preferences`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchPreferences,
+        }),
+      })
+
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        throw new Error(data.error || '조건 수정에 실패했습니다.')
+      }
+
+      const savedPreferences = data.matchPreferences || matchPreferences
+      const updatedResume = {
+        ...editingResume,
+        matchPreferences: savedPreferences,
+      }
+
+      setResumes((prev) =>
+        prev.map((resume) =>
+          getResumeDocId(resume) === resumeId
+            ? {
+                ...resume,
+                matchPreferences: savedPreferences,
+              }
+            : resume
+        )
+      )
+
+      setSelectedResume((prev) =>
+        getResumeDocId(prev) === resumeId
+          ? {
+              ...prev,
+              matchPreferences: savedPreferences,
+            }
+          : prev
+      )
+
+      setEditingResume(null)
+      setEditDesiredRoles([])
+      setEditDesiredLocations([])
+      setEditEmploymentTypes([])
+
+      await runAiMatchingByResume(updatedResume, true)
+    } catch (error) {
+      console.error(error)
+      alert(error.message || '이력서 조건 수정 중 오류가 발생했습니다.')
+    } finally {
+      setIsUpdatingPreferences(false)
+    }
   }
 
   const handleRematch = (resume) => {
@@ -1093,7 +1322,6 @@ export default function LandingPage() {
                 ref={fileInputRef}
                 type="file"
                 accept=".pdf,.doc,.docx"
-                multiple
                 className="hidden"
                 onChange={handleFileSelect}
               />
@@ -1141,21 +1369,33 @@ export default function LandingPage() {
                         </div>
                       </button>
 
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
                         <button
                           type="button"
                           onClick={() =>
-                            isAuthenticated ? handleDeleteResume(resume.id) : router.push('/login')
+                            isAuthenticated
+                              ? handleDeleteResume(getResumeDocId(resume))
+                              : router.push('/login')
                           }
-                          className="text-xs px-2 py-1 rounded bg-red-50 text-red-600 h-fit"
+                          className="h-fit rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100"
                         >
                           삭제
                         </button>
 
                         <button
                           type="button"
+                          onClick={() => handleOpenPreferenceEdit(resume)}
+                          disabled={isAnalyzing || isUpdatingPreferences}
+                          className="h-fit rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          조건 수정
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => handleRematch(resume)}
-                          className="px-3 py-1 rounded-lg text-xs font-medium bg-primary text-white hover:bg-primary-dark transition-colors"
+                          disabled={isAnalyzing || isUpdatingPreferences}
+                          className="h-fit rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           재분석
                         </button>
@@ -1440,6 +1680,224 @@ export default function LandingPage() {
           </>
         )}
       </section>
+      {editingResume && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl md:p-7">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <h3 className="text-xl font-bold text-gray-900">
+                  채용 조건 수정
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  수정된 조건은 이력서와 함께 저장되며, 저장 후 채용공고를 다시 추천합니다.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleClosePreferenceEdit}
+                disabled={isUpdatingPreferences}
+                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="조건 수정 닫기"
+              >
+                <X className="h-5 w-5" aria-hidden />
+              </button>
+            </div>
+
+            <div className="mb-5 rounded-xl border border-blue-100 bg-blue-50 p-4">
+              <p className="text-xs text-gray-500">수정할 이력서</p>
+              <div className="mt-2 flex items-center gap-3">
+                <FileText
+                  className="h-6 w-6 flex-shrink-0 text-primary"
+                  aria-hidden
+                />
+                <p className="min-w-0 truncate font-medium text-gray-900">
+                  {editingResume.name ||
+                    editingResume.filename ||
+                    '제목 없는 이력서'}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <PreferenceOptionGroup
+                title="희망 직무"
+                options={ROLE_OPTIONS}
+                selectedValues={editDesiredRoles}
+                onToggle={(value) =>
+                  toggleSelectedValue(setEditDesiredRoles, value)
+                }
+              />
+
+              <PreferenceOptionGroup
+                title="희망 지역"
+                options={LOCATION_OPTIONS}
+                selectedValues={editDesiredLocations}
+                onToggle={(value) =>
+                  toggleSelectedValue(setEditDesiredLocations, value)
+                }
+              />
+
+              <PreferenceOptionGroup
+                title="고용 형태"
+                options={EMPLOYMENT_TYPE_OPTIONS}
+                selectedValues={editEmploymentTypes}
+                onToggle={(value) =>
+                  toggleSelectedValue(setEditEmploymentTypes, value)
+                }
+              />
+            </div>
+
+            <p className="mt-5 text-xs text-gray-400">
+              선택하지 않은 항목은 제한 없이 전체 공고를 대상으로 합니다.
+            </p>
+
+            {(editDesiredRoles.length > 0 ||
+              editDesiredLocations.length > 0 ||
+              editEmploymentTypes.length > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditDesiredRoles([])
+                  setEditDesiredLocations([])
+                  setEditEmploymentTypes([])
+                }}
+                disabled={isUpdatingPreferences}
+                className="mt-3 text-sm font-medium text-gray-500 underline hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                조건 전체 초기화
+              </button>
+            )}
+
+            <div className="mt-7 flex justify-end gap-3 border-t border-gray-100 pt-5">
+              <button
+                type="button"
+                onClick={handleClosePreferenceEdit}
+                disabled={isUpdatingPreferences}
+                className="rounded-xl border border-gray-200 px-5 py-2.5 font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                취소
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSavePreferenceEdit}
+                disabled={isUpdatingPreferences}
+                className="rounded-xl bg-primary px-5 py-2.5 font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isUpdatingPreferences ? '조건 저장 중...' : '저장 후 재분석'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPreferenceModal && pendingFile && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl md:p-7">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">
+                  이력서 등록 조건 설정
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  이력서와 함께 저장할 희망 채용 조건을 선택해주세요.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleCancelUpload}
+                disabled={isAnalyzing}
+                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="조건 설정 닫기"
+              >
+                <X className="h-5 w-5" aria-hidden />
+              </button>
+            </div>
+
+            <div className="mb-5 rounded-xl border border-blue-100 bg-blue-50 p-4">
+              <p className="text-xs text-gray-500">선택한 이력서</p>
+              <div className="mt-2 flex items-center gap-3">
+                <FileText className="h-6 w-6 text-primary" aria-hidden />
+                <div className="min-w-0">
+                  <p className="truncate font-medium text-gray-900">
+                    {pendingFile.name}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    {Math.round(pendingFile.size / 1024)} KB
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <PreferenceOptionGroup
+                title="희망 직무"
+                options={ROLE_OPTIONS}
+                selectedValues={desiredRoles}
+                onToggle={(value) => toggleSelectedValue(setDesiredRoles, value)}
+              />
+
+              <PreferenceOptionGroup
+                title="희망 지역"
+                options={LOCATION_OPTIONS}
+                selectedValues={desiredLocations}
+                onToggle={(value) => toggleSelectedValue(setDesiredLocations, value)}
+              />
+
+              <PreferenceOptionGroup
+                title="고용 형태"
+                options={EMPLOYMENT_TYPE_OPTIONS}
+                selectedValues={employmentTypes}
+                onToggle={(value) => toggleSelectedValue(setEmploymentTypes, value)}
+              />
+            </div>
+
+            <p className="mt-5 text-xs text-gray-400">
+              선택하지 않은 항목은 제한 없이 전체 공고를 대상으로 합니다.
+            </p>
+
+            {(desiredRoles.length > 0 ||
+              desiredLocations.length > 0 ||
+              employmentTypes.length > 0) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDesiredRoles([])
+                  setDesiredLocations([])
+                  setEmploymentTypes([])
+                }}
+                disabled={isAnalyzing}
+                className="mt-3 text-sm font-medium text-gray-500 underline hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                조건 전체 초기화
+              </button>
+            )}
+
+            <div className="mt-7 flex justify-end gap-3 border-t border-gray-100 pt-5">
+              <button
+                type="button"
+                onClick={handleCancelUpload}
+                disabled={isAnalyzing}
+                className="rounded-xl border border-gray-200 px-5 py-2.5 font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                취소
+              </button>
+
+              <button
+                type="button"
+                onClick={handleConfirmUpload}
+                disabled={isAnalyzing}
+                className="rounded-xl bg-primary px-5 py-2.5 font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isAnalyzing ? '등록 및 분석 중...' : '등록 및 분석'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ScoreDetailModal job={scoreDetailJob} onClose={() => setScoreDetailJob(null)} />
     </main>
   )

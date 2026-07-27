@@ -5,6 +5,232 @@ import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import { addResumes, getResumes, removeResume } from '@/lib/userStorage'
 
+
+function deepClone(value) {
+  if (value === undefined) return undefined
+  return JSON.parse(JSON.stringify(value))
+}
+
+function getAnalysisRoot(data) {
+  return (
+    data?.effectiveAnalysis ||
+    data?.editedAnalysis ||
+    data?.originalAnalysis ||
+    data?.resume ||
+    null
+  )
+}
+
+function toStringArray(value) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => String(item ?? '').trim())
+    .filter(Boolean)
+}
+
+function normalizeObjectList(value, emptyItem, textField = 'description') {
+  if (!Array.isArray(value)) return []
+
+  return value.map((item) => {
+    if (item && typeof item === 'object' && !Array.isArray(item)) {
+      return {
+        ...deepClone(emptyItem),
+        ...deepClone(item),
+      }
+    }
+
+    return {
+      ...deepClone(emptyItem),
+      [textField]: String(item ?? ''),
+    }
+  })
+}
+
+function createResumeEditForm(resumeData = {}) {
+  const source = resumeData && typeof resumeData === 'object' ? resumeData : {}
+  const sourceSkills =
+    source.skills && typeof source.skills === 'object' && !Array.isArray(source.skills)
+      ? source.skills
+      : source.mentionedSkills &&
+          typeof source.mentionedSkills === 'object' &&
+          !Array.isArray(source.mentionedSkills)
+        ? source.mentionedSkills
+        : {}
+
+  return {
+    ...deepClone(source),
+    basicInfo: {
+      name: '',
+      address: '',
+      birthDate: '',
+      phone: '',
+      age: '',
+      email: '',
+      ...(deepClone(source.basicInfo) || {}),
+    },
+    jobCategory: source.jobCategory || '',
+    skills: {
+      ...(deepClone(sourceSkills) || {}),
+      languages: toStringArray(sourceSkills.languages),
+      frameworks: toStringArray(sourceSkills.frameworks),
+      tools: toStringArray(sourceSkills.tools),
+      etc: toStringArray(sourceSkills.etc),
+    },
+    coreCompetencies: toStringArray(source.coreCompetencies),
+    education: normalizeObjectList(
+      source.education,
+      {
+        school: '',
+        major: '',
+        minor: '',
+        degree: '',
+        status: '',
+        startDate: '',
+        endDate: '',
+        gpa: '',
+      },
+      'school'
+    ),
+    experience: normalizeObjectList(
+      source.experience,
+      {
+        organization: '',
+        department: '',
+        position: '',
+        role: '',
+        startDate: '',
+        endDate: '',
+        description: '',
+      }
+    ),
+    certifications: normalizeObjectList(
+      source.certifications,
+      {
+        name: '',
+        grade: '',
+        date: '',
+      },
+      'name'
+    ),
+    languageTests: normalizeObjectList(
+      source.languageTests || source.languages,
+      {
+        language: '',
+        testName: '',
+        score: '',
+        date: '',
+      },
+      'testName'
+    ),
+    projects: normalizeObjectList(
+      source.projects,
+      {
+        name: '',
+        role: '',
+        startDate: '',
+        endDate: '',
+        description: '',
+        technologies: [],
+      }
+    ).map((item) => ({
+      ...item,
+      technologies: toStringArray(item.technologies || item.skills),
+    })),
+    activities: normalizeObjectList(
+      source.activities,
+      {
+        name: '',
+        organization: '',
+        role: '',
+        startDate: '',
+        endDate: '',
+        description: '',
+      }
+    ),
+    selfIntroduction: source.selfIntroduction || '',
+  }
+}
+
+function hasMeaningfulValue(value) {
+  if (value === null || value === undefined) return false
+  if (typeof value === 'string') return Boolean(value.trim())
+  if (typeof value === 'number' || typeof value === 'boolean') return true
+  if (Array.isArray(value)) return value.some(hasMeaningfulValue)
+  if (typeof value === 'object') return Object.values(value).some(hasMeaningfulValue)
+  return false
+}
+
+function cleanTagList(value) {
+  return [...new Set(toStringArray(value))]
+}
+
+function prepareResumeDataForSave(editForm) {
+  const form = createResumeEditForm(editForm || {})
+  const ageText = String(form.basicInfo?.age ?? '').trim()
+  const parsedAge = ageText === '' ? '' : Number(ageText)
+
+  return {
+    ...form,
+    basicInfo: {
+      ...form.basicInfo,
+      age: ageText === '' || !Number.isFinite(parsedAge) ? ageText : parsedAge,
+    },
+    skills: {
+      ...form.skills,
+      languages: cleanTagList(form.skills?.languages),
+      frameworks: cleanTagList(form.skills?.frameworks),
+      tools: cleanTagList(form.skills?.tools),
+      etc: cleanTagList(form.skills?.etc),
+    },
+    coreCompetencies: cleanTagList(form.coreCompetencies),
+    education: (form.education || []).filter(hasMeaningfulValue),
+    experience: (form.experience || []).filter(hasMeaningfulValue),
+    certifications: (form.certifications || []).filter(hasMeaningfulValue),
+    languageTests: (form.languageTests || []).filter(hasMeaningfulValue),
+    projects: (form.projects || [])
+      .map((item) => ({
+        ...item,
+        technologies: cleanTagList(item.technologies),
+      }))
+      .filter(hasMeaningfulValue),
+    activities: (form.activities || []).filter(hasMeaningfulValue),
+  }
+}
+
+function mergeResumeData(originalResumeData, editedResumeData) {
+  const original =
+    originalResumeData && typeof originalResumeData === 'object'
+      ? originalResumeData
+      : {}
+
+  return {
+    ...deepClone(original),
+    ...deepClone(editedResumeData),
+    basicInfo: {
+      ...(deepClone(original.basicInfo) || {}),
+      ...(deepClone(editedResumeData.basicInfo) || {}),
+    },
+    skills: {
+      ...(deepClone(original.skills) || {}),
+      ...(deepClone(editedResumeData.skills) || {}),
+    },
+  }
+}
+
+function buildEditedAnalysis(analysisRoot, editForm) {
+  const root = analysisRoot && typeof analysisRoot === 'object' ? analysisRoot : {}
+  const preparedResumeData = prepareResumeDataForSave(editForm)
+
+  if (root.resumeData && typeof root.resumeData === 'object') {
+    return {
+      ...deepClone(root),
+      resumeData: mergeResumeData(root.resumeData, preparedResumeData),
+    }
+  }
+
+  return mergeResumeData(root, preparedResumeData)
+}
+
 export default function ResumeManagePage() {
   const router = useRouter()
   const { user, isAuthenticated, mounted } = useAuth()
@@ -19,7 +245,7 @@ export default function ResumeManagePage() {
   const [analysisLoading, setAnalysisLoading] = useState(false)
   const [analysisSaving, setAnalysisSaving] = useState(false)
   const [editMode, setEditMode] = useState(false)
-  const [editedText, setEditedText] = useState('')
+  const [editForm, setEditForm] = useState(null)
 
   useEffect(() => {
     if (mounted && !isAuthenticated) router.replace('/login')
@@ -130,7 +356,7 @@ export default function ResumeManagePage() {
     setAnalysisLoading(true)
     setAnalysisData(null)
     setEditMode(false)
-    setEditedText('')
+    setEditForm(null)
 
     try {
       const res = await fetch(`/api/resume/${docId}/analysis`)
@@ -149,7 +375,8 @@ export default function ResumeManagePage() {
         data.resume ||
         {}
 
-      setEditedText(JSON.stringify(editableAnalysis, null, 2))
+      const editableResumeData = editableAnalysis?.resumeData || editableAnalysis || {}
+      setEditForm(createResumeEditForm(editableResumeData))
     } catch (error) {
       console.error(error)
       alert('이력서 분석 내용을 불러오지 못했습니다.')
@@ -163,7 +390,7 @@ export default function ResumeManagePage() {
     setSelectedResume(null)
     setAnalysisData(null)
     setEditMode(false)
-    setEditedText('')
+    setEditForm(null)
   }
 
   const handleSaveAnalysis = async () => {
@@ -174,14 +401,13 @@ export default function ResumeManagePage() {
       return
     }
 
-    let parsedAnalysis
-
-    try {
-      parsedAnalysis = JSON.parse(editedText)
-    } catch (error) {
-      alert('JSON 형식이 올바르지 않습니다.')
+    if (!editForm) {
+      alert('수정할 분석 내용이 없습니다.')
       return
     }
+
+    const analysisRoot = getAnalysisRoot(analysisData) || {}
+    const editedAnalysis = buildEditedAnalysis(analysisRoot, editForm)
 
     try {
       setAnalysisSaving(true)
@@ -192,7 +418,7 @@ export default function ResumeManagePage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          editedAnalysis: parsedAnalysis,
+          editedAnalysis,
         }),
       })
 
@@ -211,12 +437,16 @@ export default function ResumeManagePage() {
         analysisUpdatedAt: data.analysisUpdatedAt || prev?.analysisUpdatedAt,
       }))
 
-      setEditedText(JSON.stringify(data.effectiveAnalysis || parsedAnalysis, null, 2))
+      const savedAnalysis =
+        data.effectiveAnalysis || data.editedAnalysis || editedAnalysis
+      const savedResumeData = savedAnalysis?.resumeData || savedAnalysis || {}
+
+      setEditForm(createResumeEditForm(savedResumeData))
       setEditMode(false)
       alert('이력서 분석 내용이 저장되었습니다.')
     } catch (error) {
       console.error(error)
-      alert('이력서 분석 내용을 저장하지 못했습니다.')
+      alert(error.message || '이력서 분석 내용을 저장하지 못했습니다.')
     } finally {
       setAnalysisSaving(false)
     }
@@ -293,9 +523,9 @@ export default function ResumeManagePage() {
           analysisLoading={analysisLoading}
           analysisSaving={analysisSaving}
           editMode={editMode}
-          editedText={editedText}
+          editForm={editForm}
           setEditMode={setEditMode}
-          setEditedText={setEditedText}
+          setEditForm={setEditForm}
           onClose={handleCloseAnalysis}
           onSave={handleSaveAnalysis}
         />
@@ -310,18 +540,13 @@ function ResumeAnalysisModal({
   analysisLoading,
   analysisSaving,
   editMode,
-  editedText,
+  editForm,
   setEditMode,
-  setEditedText,
+  setEditForm,
   onClose,
   onSave,
 }) {
-  const analysisRoot =
-    analysisData?.effectiveAnalysis ||
-    analysisData?.editedAnalysis ||
-    analysisData?.originalAnalysis ||
-    analysisData?.resume ||
-    null
+  const analysisRoot = getAnalysisRoot(analysisData)
 
   // Firestore 구조가 effectiveAnalysis.resumeData 형태라서 resumeData를 우선 사용
   const analysis = analysisRoot?.resumeData || analysisRoot
@@ -337,7 +562,7 @@ function ResumeAnalysisModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-3xl max-h-[85vh] overflow-y-auto bg-white rounded-2xl shadow-xl p-6">
+      <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-xl p-6">
         <div className="flex items-start justify-between gap-4 mb-5">
           <div>
             <h2 className="text-2xl font-bold">이력서 분석 내용</h2>
@@ -397,25 +622,19 @@ function ResumeAnalysisModal({
                 아직 분석 결과가 없습니다. 이력서 분석이 완료된 뒤 다시 확인해주세요.
               </div>
             ) : editMode ? (
-              <div>
-                <p className="mb-2 text-sm text-gray-500">
-                  아래 JSON 내용을 수정한 뒤 저장하면, 수정된 내용이 effectiveAnalysis에 반영됩니다.
-                </p>
-                <textarea
-                  value={editedText}
-                  onChange={(e) => setEditedText(e.target.value)}
-                  className="w-full h-96 border border-gray-300 rounded-xl p-4 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
-                />
-              </div>
+              <ResumeAnalysisEditForm
+                value={editForm}
+                onChange={setEditForm}
+              />
             ) : (
               <div className="space-y-4">
-                <AnalysisSection title="기본 정보" value={analysis.basicInfo} />
+                <BasicInfoSection value={analysis.basicInfo} />
                 <AnalysisSection title="희망/분석 직무" value={analysis.jobCategory} />
                 <AnalysisSection title="기술 스택" value={skillList} />
                 <AnalysisSection title="핵심 역량" value={coreCompetencies} />
                 <AnalysisSection title="학력" value={educationList} />
                 <AnalysisSection title="경력" value={experienceList} />
-                <AnalysisSection title="총 경력" value={analysis.experienceSummary} />
+                <ExperienceSummarySection value={analysis.experienceSummary} />
                 <AnalysisSection title="자격증" value={certificationList} />
                 <AnalysisSection title="어학" value={languageList} />
                 <AnalysisSection title="프로젝트" value={projectList} />
@@ -440,7 +659,7 @@ function ResumeAnalysisModal({
                     type="button"
                     onClick={() => {
                       setEditMode(false)
-                      setEditedText(JSON.stringify(analysisRoot || {}, null, 2))
+                      setEditForm(createResumeEditForm(analysis || {}))
                     }}
                     className="px-4 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-50"
                   >
@@ -459,7 +678,10 @@ function ResumeAnalysisModal({
               ) : (
                 <button
                   type="button"
-                  onClick={() => setEditMode(true)}
+                  onClick={() => {
+                    setEditForm(createResumeEditForm(analysis || {}))
+                    setEditMode(true)
+                  }}
                   disabled={!analysis}
                   className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:bg-gray-400"
                 >
@@ -472,6 +694,887 @@ function ResumeAnalysisModal({
       </div>
     </div>
   )
+}
+
+
+function ResumeAnalysisEditForm({ value, onChange }) {
+  if (!value) {
+    return (
+      <div className="py-10 text-center text-sm text-gray-500">
+        수정할 분석 내용이 없습니다.
+      </div>
+    )
+  }
+
+  const updateRootField = (field, nextValue) => {
+    onChange((prev) => ({
+      ...prev,
+      [field]: nextValue,
+    }))
+  }
+
+  const updateBasicInfo = (field, nextValue) => {
+    onChange((prev) => ({
+      ...prev,
+      basicInfo: {
+        ...(prev?.basicInfo || {}),
+        [field]: nextValue,
+      },
+    }))
+  }
+
+  const updateSkillList = (field, nextValue) => {
+    onChange((prev) => ({
+      ...prev,
+      skills: {
+        ...(prev?.skills || {}),
+        [field]: nextValue,
+      },
+    }))
+  }
+
+  const updateArrayItem = (section, index, field, nextValue) => {
+    onChange((prev) => ({
+      ...prev,
+      [section]: (prev?.[section] || []).map((item, itemIndex) => {
+        if (itemIndex !== index) return item
+
+        const updatedItem = {
+          ...item,
+          [field]: nextValue,
+        }
+
+        if (section === 'experience' && field === 'organization') {
+          if (Object.prototype.hasOwnProperty.call(item, 'company')) {
+            updatedItem.company = nextValue
+          }
+          if (Object.prototype.hasOwnProperty.call(item, 'companyName')) {
+            updatedItem.companyName = nextValue
+          }
+        }
+
+        if (section === 'experience' && field === 'position') {
+          if (Object.prototype.hasOwnProperty.call(item, 'jobTitle')) {
+            updatedItem.jobTitle = nextValue
+          }
+        }
+
+        if (section === 'experience' && field === 'description') {
+          if (Object.prototype.hasOwnProperty.call(item, 'responsibilities')) {
+            updatedItem.responsibilities = nextValue
+          }
+          if (Object.prototype.hasOwnProperty.call(item, 'tasks')) {
+            updatedItem.tasks = nextValue
+          }
+        }
+
+        if ((section === 'projects' || section === 'activities') && field === 'name') {
+          if (Object.prototype.hasOwnProperty.call(item, 'title')) {
+            updatedItem.title = nextValue
+          }
+        }
+
+        if (section === 'activities' && field === 'role') {
+          if (Object.prototype.hasOwnProperty.call(item, 'position')) {
+            updatedItem.position = nextValue
+          }
+        }
+
+        return updatedItem
+      }),
+    }))
+  }
+
+  const addArrayItem = (section, emptyItem) => {
+    onChange((prev) => ({
+      ...prev,
+      [section]: [...(prev?.[section] || []), deepClone(emptyItem)],
+    }))
+  }
+
+  const removeArrayItem = (section, index) => {
+    onChange((prev) => ({
+      ...prev,
+      [section]: (prev?.[section] || []).filter(
+        (_, itemIndex) => itemIndex !== index
+      ),
+    }))
+  }
+
+  const updateProjectTechnologies = (index, nextValue) => {
+    updateArrayItem('projects', index, 'technologies', nextValue)
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700">
+        JSON을 직접 수정하지 않고 항목별 입력창에서 내용을 변경할 수 있습니다.
+        저장하면 기존 분석 데이터의 내부 정보는 유지되고, 수정한 항목만 최종 분석에 반영됩니다.
+      </div>
+
+      <EditSection title="기본 정보">
+        <div className="grid gap-4 md:grid-cols-2">
+          <FormField
+            label="이름"
+            value={value.basicInfo?.name}
+            onChange={(nextValue) => updateBasicInfo('name', nextValue)}
+          />
+          <FormField
+            label="생년월일"
+            value={value.basicInfo?.birthDate}
+            onChange={(nextValue) => updateBasicInfo('birthDate', nextValue)}
+            placeholder="예: 2003-05-19"
+          />
+          <FormField
+            label="나이"
+            type="number"
+            value={value.basicInfo?.age}
+            onChange={(nextValue) => updateBasicInfo('age', nextValue)}
+          />
+          <FormField
+            label="전화번호"
+            value={value.basicInfo?.phone}
+            onChange={(nextValue) => updateBasicInfo('phone', nextValue)}
+          />
+          <FormField
+            label="이메일"
+            type="email"
+            value={value.basicInfo?.email}
+            onChange={(nextValue) => updateBasicInfo('email', nextValue)}
+          />
+          <FormField
+            label="주소"
+            value={value.basicInfo?.address}
+            onChange={(nextValue) => updateBasicInfo('address', nextValue)}
+          />
+        </div>
+      </EditSection>
+
+      <EditSection title="희망/분석 직무">
+        <FormField
+          label="직무 분야"
+          value={value.jobCategory}
+          onChange={(nextValue) => updateRootField('jobCategory', nextValue)}
+          placeholder="예: 백엔드 개발, 디자인, 마케팅"
+        />
+      </EditSection>
+
+      <EditSection
+        title="기술 스택"
+        description="기술을 입력하고 Enter 또는 추가 버튼을 눌러 등록하세요."
+      >
+        <div className="grid gap-5 md:grid-cols-2">
+          <TagEditor
+            label="프로그래밍 언어"
+            values={value.skills?.languages || []}
+            onChange={(nextValue) => updateSkillList('languages', nextValue)}
+            placeholder="예: Java, Python"
+          />
+          <TagEditor
+            label="프레임워크·라이브러리"
+            values={value.skills?.frameworks || []}
+            onChange={(nextValue) => updateSkillList('frameworks', nextValue)}
+            placeholder="예: Spring, React"
+          />
+          <TagEditor
+            label="도구·소프트웨어"
+            values={value.skills?.tools || []}
+            onChange={(nextValue) => updateSkillList('tools', nextValue)}
+            placeholder="예: Figma, Git"
+          />
+          <TagEditor
+            label="기타 기술"
+            values={value.skills?.etc || []}
+            onChange={(nextValue) => updateSkillList('etc', nextValue)}
+            placeholder="그 밖의 기술"
+          />
+        </div>
+      </EditSection>
+
+      <EditSection title="핵심 역량">
+        <TagEditor
+          label="핵심 역량"
+          values={value.coreCompetencies || []}
+          onChange={(nextValue) => updateRootField('coreCompetencies', nextValue)}
+          placeholder="예: 문제 해결, 협업"
+        />
+      </EditSection>
+
+      <EditSection
+        title="학력"
+        actionLabel="학력 추가"
+        onAction={() =>
+          addArrayItem('education', {
+            school: '',
+            major: '',
+            minor: '',
+            degree: '',
+            status: '',
+            startDate: '',
+            endDate: '',
+            gpa: '',
+          })
+        }
+      >
+        <EditableItemList
+          items={value.education || []}
+          emptyText="등록된 학력 정보가 없습니다."
+          renderItem={(item, index) => (
+            <EditableItemCard
+              key={index}
+              title={`학력 ${index + 1}`}
+              onRemove={() => removeArrayItem('education', index)}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  label="학교명"
+                  value={item.school}
+                  onChange={(nextValue) =>
+                    updateArrayItem('education', index, 'school', nextValue)
+                  }
+                />
+                <FormField
+                  label="전공"
+                  value={item.major}
+                  onChange={(nextValue) =>
+                    updateArrayItem('education', index, 'major', nextValue)
+                  }
+                />
+                <FormField
+                  label="부전공·복수전공"
+                  value={item.minor}
+                  onChange={(nextValue) =>
+                    updateArrayItem('education', index, 'minor', nextValue)
+                  }
+                />
+                <FormField
+                  label="학위·학력"
+                  value={item.degree}
+                  onChange={(nextValue) =>
+                    updateArrayItem('education', index, 'degree', nextValue)
+                  }
+                  placeholder="예: 학사, 고졸"
+                />
+                <FormField
+                  label="상태"
+                  value={item.status}
+                  onChange={(nextValue) =>
+                    updateArrayItem('education', index, 'status', nextValue)
+                  }
+                  placeholder="예: 재학, 졸업"
+                />
+                <FormField
+                  label="학점"
+                  value={item.gpa}
+                  onChange={(nextValue) =>
+                    updateArrayItem('education', index, 'gpa', nextValue)
+                  }
+                />
+                <FormField
+                  label="입학일"
+                  value={item.startDate}
+                  onChange={(nextValue) =>
+                    updateArrayItem('education', index, 'startDate', nextValue)
+                  }
+                  placeholder="예: 2022-03"
+                />
+                <FormField
+                  label="졸업일·종료일"
+                  value={item.endDate}
+                  onChange={(nextValue) =>
+                    updateArrayItem('education', index, 'endDate', nextValue)
+                  }
+                  placeholder="예: 재학중 또는 2026-02"
+                />
+              </div>
+            </EditableItemCard>
+          )}
+        />
+      </EditSection>
+
+      <EditSection
+        title="경력"
+        actionLabel="경력 추가"
+        onAction={() =>
+          addArrayItem('experience', {
+            organization: '',
+            department: '',
+            position: '',
+            role: '',
+            startDate: '',
+            endDate: '',
+            description: '',
+          })
+        }
+      >
+        <EditableItemList
+          items={value.experience || []}
+          emptyText="등록된 경력 정보가 없습니다."
+          renderItem={(item, index) => (
+            <EditableItemCard
+              key={index}
+              title={`경력 ${index + 1}`}
+              onRemove={() => removeArrayItem('experience', index)}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  label="회사·기관명"
+                  value={item.organization || item.company || item.companyName}
+                  onChange={(nextValue) =>
+                    updateArrayItem('experience', index, 'organization', nextValue)
+                  }
+                />
+                <FormField
+                  label="부서"
+                  value={item.department}
+                  onChange={(nextValue) =>
+                    updateArrayItem('experience', index, 'department', nextValue)
+                  }
+                />
+                <FormField
+                  label="직위"
+                  value={item.position || item.jobTitle}
+                  onChange={(nextValue) =>
+                    updateArrayItem('experience', index, 'position', nextValue)
+                  }
+                />
+                <FormField
+                  label="역할"
+                  value={item.role}
+                  onChange={(nextValue) =>
+                    updateArrayItem('experience', index, 'role', nextValue)
+                  }
+                />
+                <FormField
+                  label="근무 시작일"
+                  value={item.startDate}
+                  onChange={(nextValue) =>
+                    updateArrayItem('experience', index, 'startDate', nextValue)
+                  }
+                />
+                <FormField
+                  label="근무 종료일"
+                  value={item.endDate}
+                  onChange={(nextValue) =>
+                    updateArrayItem('experience', index, 'endDate', nextValue)
+                  }
+                  placeholder="예: 재직중"
+                />
+              </div>
+              <div className="mt-4">
+                <TextareaField
+                  label="담당 업무·경력 내용"
+                  value={
+                    item.description ||
+                    item.responsibilities ||
+                    item.tasks ||
+                    ''
+                  }
+                  onChange={(nextValue) =>
+                    updateArrayItem('experience', index, 'description', nextValue)
+                  }
+                  rows={4}
+                />
+              </div>
+            </EditableItemCard>
+          )}
+        />
+      </EditSection>
+
+      <EditSection
+        title="자격증"
+        actionLabel="자격증 추가"
+        onAction={() =>
+          addArrayItem('certifications', {
+            name: '',
+            grade: '',
+            date: '',
+          })
+        }
+      >
+        <EditableItemList
+          items={value.certifications || []}
+          emptyText="등록된 자격증 정보가 없습니다."
+          renderItem={(item, index) => (
+            <EditableItemCard
+              key={index}
+              title={`자격증 ${index + 1}`}
+              onRemove={() => removeArrayItem('certifications', index)}
+            >
+              <div className="grid gap-4 md:grid-cols-3">
+                <FormField
+                  label="자격증명"
+                  value={item.name}
+                  onChange={(nextValue) =>
+                    updateArrayItem('certifications', index, 'name', nextValue)
+                  }
+                />
+                <FormField
+                  label="등급·점수"
+                  value={item.grade}
+                  onChange={(nextValue) =>
+                    updateArrayItem('certifications', index, 'grade', nextValue)
+                  }
+                />
+                <FormField
+                  label="취득일"
+                  value={item.date}
+                  onChange={(nextValue) =>
+                    updateArrayItem('certifications', index, 'date', nextValue)
+                  }
+                  placeholder="예: 2022-05"
+                />
+              </div>
+            </EditableItemCard>
+          )}
+        />
+      </EditSection>
+
+      <EditSection
+        title="어학"
+        actionLabel="어학성적 추가"
+        onAction={() =>
+          addArrayItem('languageTests', {
+            language: '',
+            testName: '',
+            score: '',
+            date: '',
+          })
+        }
+      >
+        <EditableItemList
+          items={value.languageTests || []}
+          emptyText="등록된 어학 정보가 없습니다."
+          renderItem={(item, index) => (
+            <EditableItemCard
+              key={index}
+              title={`어학 ${index + 1}`}
+              onRemove={() => removeArrayItem('languageTests', index)}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  label="언어"
+                  value={item.language}
+                  onChange={(nextValue) =>
+                    updateArrayItem('languageTests', index, 'language', nextValue)
+                  }
+                  placeholder="예: 영어"
+                />
+                <FormField
+                  label="시험명"
+                  value={item.testName}
+                  onChange={(nextValue) =>
+                    updateArrayItem('languageTests', index, 'testName', nextValue)
+                  }
+                  placeholder="예: TOEIC"
+                />
+                <FormField
+                  label="점수·등급"
+                  value={item.score}
+                  onChange={(nextValue) =>
+                    updateArrayItem('languageTests', index, 'score', nextValue)
+                  }
+                />
+                <FormField
+                  label="응시일"
+                  value={item.date}
+                  onChange={(nextValue) =>
+                    updateArrayItem('languageTests', index, 'date', nextValue)
+                  }
+                  placeholder="예: 2023-10"
+                />
+              </div>
+            </EditableItemCard>
+          )}
+        />
+      </EditSection>
+
+      <EditSection
+        title="프로젝트"
+        actionLabel="프로젝트 추가"
+        onAction={() =>
+          addArrayItem('projects', {
+            name: '',
+            role: '',
+            startDate: '',
+            endDate: '',
+            description: '',
+            technologies: [],
+          })
+        }
+      >
+        <EditableItemList
+          items={value.projects || []}
+          emptyText="등록된 프로젝트 정보가 없습니다."
+          renderItem={(item, index) => (
+            <EditableItemCard
+              key={index}
+              title={`프로젝트 ${index + 1}`}
+              onRemove={() => removeArrayItem('projects', index)}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  label="프로젝트명"
+                  value={item.name || item.title}
+                  onChange={(nextValue) =>
+                    updateArrayItem('projects', index, 'name', nextValue)
+                  }
+                />
+                <FormField
+                  label="담당 역할"
+                  value={item.role}
+                  onChange={(nextValue) =>
+                    updateArrayItem('projects', index, 'role', nextValue)
+                  }
+                />
+                <FormField
+                  label="시작일"
+                  value={item.startDate}
+                  onChange={(nextValue) =>
+                    updateArrayItem('projects', index, 'startDate', nextValue)
+                  }
+                />
+                <FormField
+                  label="종료일"
+                  value={item.endDate}
+                  onChange={(nextValue) =>
+                    updateArrayItem('projects', index, 'endDate', nextValue)
+                  }
+                />
+              </div>
+              <div className="mt-4">
+                <TagEditor
+                  label="사용 기술"
+                  values={item.technologies || []}
+                  onChange={(nextValue) =>
+                    updateProjectTechnologies(index, nextValue)
+                  }
+                  placeholder="예: React, Firebase"
+                />
+              </div>
+              <div className="mt-4">
+                <TextareaField
+                  label="프로젝트 설명"
+                  value={item.description}
+                  onChange={(nextValue) =>
+                    updateArrayItem('projects', index, 'description', nextValue)
+                  }
+                  rows={4}
+                />
+              </div>
+            </EditableItemCard>
+          )}
+        />
+      </EditSection>
+
+      <EditSection
+        title="활동"
+        actionLabel="활동 추가"
+        onAction={() =>
+          addArrayItem('activities', {
+            name: '',
+            organization: '',
+            role: '',
+            startDate: '',
+            endDate: '',
+            description: '',
+          })
+        }
+      >
+        <EditableItemList
+          items={value.activities || []}
+          emptyText="등록된 활동 정보가 없습니다."
+          renderItem={(item, index) => (
+            <EditableItemCard
+              key={index}
+              title={`활동 ${index + 1}`}
+              onRemove={() => removeArrayItem('activities', index)}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  label="활동명"
+                  value={item.name || item.title}
+                  onChange={(nextValue) =>
+                    updateArrayItem('activities', index, 'name', nextValue)
+                  }
+                />
+                <FormField
+                  label="기관·단체명"
+                  value={item.organization}
+                  onChange={(nextValue) =>
+                    updateArrayItem('activities', index, 'organization', nextValue)
+                  }
+                />
+                <FormField
+                  label="역할"
+                  value={item.role || item.position}
+                  onChange={(nextValue) =>
+                    updateArrayItem('activities', index, 'role', nextValue)
+                  }
+                />
+                <FormField
+                  label="시작일"
+                  value={item.startDate}
+                  onChange={(nextValue) =>
+                    updateArrayItem('activities', index, 'startDate', nextValue)
+                  }
+                />
+                <FormField
+                  label="종료일"
+                  value={item.endDate}
+                  onChange={(nextValue) =>
+                    updateArrayItem('activities', index, 'endDate', nextValue)
+                  }
+                />
+              </div>
+              <div className="mt-4">
+                <TextareaField
+                  label="활동 내용"
+                  value={item.description}
+                  onChange={(nextValue) =>
+                    updateArrayItem('activities', index, 'description', nextValue)
+                  }
+                  rows={4}
+                />
+              </div>
+            </EditableItemCard>
+          )}
+        />
+      </EditSection>
+
+      <EditSection title="자기소개">
+        <TextareaField
+          label="자기소개 내용"
+          value={value.selfIntroduction}
+          onChange={(nextValue) =>
+            updateRootField('selfIntroduction', nextValue)
+          }
+          rows={10}
+          placeholder="자기소개 내용을 입력하세요."
+        />
+      </EditSection>
+    </div>
+  )
+}
+
+function EditSection({
+  title,
+  description,
+  actionLabel,
+  onAction,
+  children,
+}) {
+  return (
+    <section className="rounded-xl border border-gray-200 p-4 md:p-5">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="font-semibold text-gray-900">{title}</h3>
+          {description && (
+            <p className="mt-1 text-xs text-gray-500">{description}</p>
+          )}
+        </div>
+
+        {actionLabel && onAction && (
+          <button
+            type="button"
+            onClick={onAction}
+            className="rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
+          >
+            + {actionLabel}
+          </button>
+        )}
+      </div>
+
+      {children}
+    </section>
+  )
+}
+
+function FormField({
+  label,
+  value,
+  onChange,
+  type = 'text',
+  placeholder = '',
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-gray-700">
+        {label}
+      </span>
+      <input
+        type={type}
+        value={value ?? ''}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+      />
+    </label>
+  )
+}
+
+function TextareaField({
+  label,
+  value,
+  onChange,
+  rows = 5,
+  placeholder = '',
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-gray-700">
+        {label}
+      </span>
+      <textarea
+        value={value ?? ''}
+        onChange={(event) => onChange(event.target.value)}
+        rows={rows}
+        placeholder={placeholder}
+        className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+      />
+    </label>
+  )
+}
+
+function TagEditor({ label, values, onChange, placeholder }) {
+  const [draft, setDraft] = useState('')
+  const normalizedValues = toStringArray(values)
+
+  const addTag = () => {
+    const nextTags = draft
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)
+
+    if (!nextTags.length) return
+
+    onChange([...new Set([...normalizedValues, ...nextTags])])
+    setDraft('')
+  }
+
+  const removeTag = (tagIndex) => {
+    onChange(normalizedValues.filter((_, index) => index !== tagIndex))
+  }
+
+  return (
+    <div>
+      <p className="mb-1.5 text-sm font-medium text-gray-700">{label}</p>
+
+      <div className="mb-2 flex min-h-[34px] flex-wrap gap-2">
+        {normalizedValues.length > 0 ? (
+          normalizedValues.map((tag, index) => (
+            <span
+              key={`${tag}-${index}`}
+              className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-3 py-1 text-sm text-blue-700"
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={() => removeTag(index)}
+                className="ml-1 text-blue-400 hover:text-red-500"
+                aria-label={`${tag} 삭제`}
+              >
+                ×
+              </button>
+            </span>
+          ))
+        ) : (
+          <span className="text-sm text-gray-400">등록된 내용 없음</span>
+        )}
+      </div>
+
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              addTag()
+            }
+          }}
+          placeholder={placeholder}
+          className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        />
+        <button
+          type="button"
+          onClick={addTag}
+          className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+        >
+          추가
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function EditableItemList({ items, emptyText, renderItem }) {
+  if (!items.length) {
+    return (
+      <div className="rounded-lg bg-gray-50 px-4 py-5 text-center text-sm text-gray-400">
+        {emptyText}
+      </div>
+    )
+  }
+
+  return <div className="space-y-4">{items.map(renderItem)}</div>
+}
+
+function EditableItemCard({ title, onRemove, children }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h4 className="text-sm font-semibold text-gray-800">{title}</h4>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="rounded-md bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100"
+        >
+          삭제
+        </button>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+function BasicInfoSection({ value }) {
+  const basicInfo = value && typeof value === 'object' ? value : {}
+  const items = [
+    ['이름', basicInfo.name],
+    ['주소', basicInfo.address],
+    ['생년월일', basicInfo.birthDate],
+    ['나이', basicInfo.age !== undefined && basicInfo.age !== '' ? `${basicInfo.age}세` : ''],
+    ['이메일', basicInfo.email],
+    ['전화번호', basicInfo.phone],
+  ]
+
+  return (
+    <div className="rounded-xl border border-gray-200 p-4">
+      <h3 className="mb-3 font-semibold">기본 정보</h3>
+      <dl className="grid gap-x-6 gap-y-3 text-sm md:grid-cols-2">
+        {items.map(([label, itemValue]) => (
+          <div key={label} className="grid grid-cols-[88px_1fr] gap-2">
+            <dt className="text-gray-500">{label}</dt>
+            <dd className="break-words text-gray-800">
+              {itemValue || '분석된 내용 없음'}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
+}
+
+function ExperienceSummarySection({ value }) {
+  const displayValue =
+    value && typeof value === 'object'
+      ? value.display ||
+        (value.totalMonths !== undefined ? `${value.totalMonths}개월` : '')
+      : value
+
+  return <AnalysisSection title="총 경력" value={displayValue} />
 }
 
 function AnalysisSection({ title, value }) {
@@ -545,8 +1648,14 @@ function formatObjectOneLine(value) {
   }
 
   if (value.name) parts.push(value.name)
+  if (value.title) parts.push(value.title)
+  if (value.language) parts.push(value.language)
+  if (value.testName) parts.push(value.testName)
+  if (value.score) parts.push(value.score)
   if (value.date) parts.push(value.date)
   if (value.grade) parts.push(value.grade)
+  if (value.role) parts.push(value.role)
+  if (value.description && parts.length === 0) parts.push(value.description)
 
   if (parts.length > 0) {
     return parts.join(' / ')
