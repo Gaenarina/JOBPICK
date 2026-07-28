@@ -10,6 +10,7 @@ export default function ServiceWorkerRegistration() {
     const register = async () => {
       try {
         const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' })
+        await reg.update()
         if (process.env.NODE_ENV !== 'production') {
           console.info('[PWA] service worker registered', { scope: reg.scope })
         }

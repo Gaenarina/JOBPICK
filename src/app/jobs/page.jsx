@@ -13,6 +13,25 @@ import {
 
 const MATCH_API_URL = process.env.NEXT_PUBLIC_MATCH_API_URL || 'http://localhost:8000/process-resume'
 
+const LAST_AI_ANALYSIS_AT_KEY = 'jobpick_last_ai_analysis_at'
+
+const AI_LOADING_STEPS = [
+  '이력서 분석 중...',
+  '채용공고 비교 중...',
+  '매칭 점수 계산 중...',
+  '추천 공고 생성 중...',
+]
+
+function formatAiAnalysisTime(date = new Date()) {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+
+  return `${year}.${month}.${day} ${hours}:${minutes}`
+}
+
 function getJobKey(job) {
   return String(job?.id || job?.jobId || '')
 }
@@ -74,6 +93,131 @@ function normalizeJobs(jobs) {
   })
 }
 
+function getJobMatchScore(job) {
+  const rawScore =
+    job.matchRate ??
+    job.finalScore ??
+    job.final_score ??
+    job.score ??
+    0
+
+  const numberScore = Number(rawScore)
+
+  if (!Number.isFinite(numberScore)) {
+    return 0
+  }
+
+  if (numberScore > 0 && numberScore <= 1) {
+    return Math.round(numberScore * 100)
+  }
+
+  return Math.round(numberScore)
+}
+
+function passesMatchScoreFilter(job, scoreFilter) {
+  if (scoreFilter === 'all') return true
+  return getJobMatchScore(job) >= Number(scoreFilter)
+}
+
+function passesMatchHiringFilter(job, hiringFilter) {
+  if (hiringFilter === 'all') return true
+
+  const career = String(job.career || '')
+  const title = String(job.title || '')
+
+  if (hiringFilter === 'entry') {
+    return (
+      career.includes('신입') ||
+      career.includes('무관') ||
+      career.includes('주니어')
+    )
+  }
+
+  if (hiringFilter === 'intern') {
+    return (
+      career.includes('인턴') ||
+      title.includes('인턴') ||
+      title.toLowerCase().includes('intern')
+    )
+  }
+
+  return true
+}
+
+function getMatchBadges(job) {
+  const badges = job?.matchBadges || job?.match_badges || []
+
+  if (Array.isArray(badges) && badges.length > 0) {
+    return badges.map((badge) => String(badge))
+  }
+
+  if (typeof badges === 'string' && badges.trim()) {
+    return [badges.trim()]
+  }
+
+  const recommendType = job?.recommendType || job?.recommend_type
+  return recommendType ? [String(recommendType)] : []
+}
+
+function getMatchResultGroup(job) {
+  const badges = getMatchBadges(job)
+  const recommendType = String(job?.recommendType || job?.recommend_type || '')
+  const text = `${recommendType} ${badges.join(' ')}`
+  const unmetConditions = job?.unmetConditions || job?.unmet_conditions || []
+
+  if (unmetConditions.length > 0 || text.includes('부적합') || text.includes('미충족')) {
+    return 'unsuitable'
+  }
+
+  if (text.includes('정보') && text.includes('부족')) {
+    return 'infoLacking'
+  }
+
+  if (text.includes('지원') && text.includes('가능')) {
+    return 'accessible'
+  }
+
+  if (text.includes('보통')) {
+    return 'normal'
+  }
+
+  if (text.includes('AI') && text.includes('적합')) {
+    return 'aiSuitable'
+  }
+
+  return 'infoLacking'
+}
+
+function getMatchResultStats(jobs) {
+  const stats = {
+    total: 0,
+    aiSuitable: 0,
+    normal: 0,
+    accessible: 0,
+    infoLacking: 0,
+    unsuitable: 0,
+  }
+
+  ;(jobs || []).forEach((job) => {
+    stats.total += 1
+    const group = getMatchResultGroup(job)
+
+    if (group === 'unsuitable') {
+      stats.unsuitable += 1
+    } else if (group === 'infoLacking') {
+      stats.infoLacking += 1
+    } else if (group === 'accessible') {
+      stats.accessible += 1
+    } else if (group === 'normal') {
+      stats.normal += 1
+    } else if (group === 'aiSuitable') {
+      stats.aiSuitable += 1
+    }
+  })
+
+  return stats
+}
+
 export default function JobsPage() {
   const { user, isAuthenticated, mounted } = useAuth()
   const router = useRouter()
@@ -90,6 +234,12 @@ export default function JobsPage() {
   const [bookmarkIds, setBookmarkIds] = useState([])
   const [resumes, setResumes] = useState([])
   const [matchedJobs, setMatchedJobs] = useState([])
+  const [matchScoreFilter, setMatchScoreFilter] = useState('all')
+  const [matchHiringFilter, setMatchHiringFilter] = useState('all')
+  const [matchSuccessBanner, setMatchSuccessBanner] = useState(null)
+  const [matchSuccessBannerFading, setMatchSuccessBannerFading] = useState(false)
+  const [lastAiAnalysisAt, setLastAiAnalysisAt] = useState('')
+  const [loadingStepIndex, setLoadingStepIndex] = useState(0)
 
   const resumeUserId = user?.uid || user?.id || ''
 
@@ -112,12 +262,48 @@ export default function JobsPage() {
         if (normalized.length > 0) {
           setMatchedJobs(normalized)
           setAiMatched(true)
+          setLastAiAnalysisAt(localStorage.getItem(LAST_AI_ANALYSIS_AT_KEY) || '')
         }
       }
     } catch (error) {
       console.error('저장된 매칭 결과 불러오기 실패:', error)
     }
   }, [mounted, resumeUserId])
+
+  useEffect(() => {
+    if (!matchSuccessBanner) return undefined
+
+    const fadeTimer = setTimeout(() => {
+      setMatchSuccessBannerFading(true)
+    }, 2500)
+
+    const hideTimer = setTimeout(() => {
+      setMatchSuccessBanner(null)
+      setMatchSuccessBannerFading(false)
+    }, 3000)
+
+    return () => {
+      clearTimeout(fadeTimer)
+      clearTimeout(hideTimer)
+    }
+  }, [matchSuccessBanner])
+
+  useEffect(() => {
+    if (!isMatching) {
+      setLoadingStepIndex(0)
+      return undefined
+    }
+
+    setLoadingStepIndex(0)
+
+    const interval = setInterval(() => {
+      setLoadingStepIndex((prev) =>
+        prev < AI_LOADING_STEPS.length - 1 ? prev + 1 : prev
+      )
+    }, 1500)
+
+    return () => clearInterval(interval)
+  }, [isMatching])
 
   useEffect(() => {
     if (!mounted || !isAuthenticated) return
@@ -175,10 +361,27 @@ export default function JobsPage() {
     })
   }, [jobs, selectedRegion, selectedCategory, searchQuery])
 
+  const filteredMatchedJobs = useMemo(() => {
+    if (matchScoreFilter === 'all' && matchHiringFilter === 'all') {
+      return matchedJobs
+    }
+
+    return matchedJobs.filter(
+      (job) =>
+        passesMatchScoreFilter(job, matchScoreFilter) &&
+        passesMatchHiringFilter(job, matchHiringFilter)
+    )
+  }, [matchedJobs, matchScoreFilter, matchHiringFilter])
+
   const shownJobs = useMemo(() => {
-    if (aiMatched) return matchedJobs
+    if (aiMatched) return filteredMatchedJobs
     return filteredJobs
-  }, [aiMatched, matchedJobs, filteredJobs])
+  }, [aiMatched, filteredMatchedJobs, filteredJobs])
+
+  const matchResultStats = useMemo(
+    () => getMatchResultStats(filteredMatchedJobs),
+    [filteredMatchedJobs]
+  )
 
   const runAiMatching = async () => {
     if (!resumes.length) {
@@ -194,6 +397,10 @@ export default function JobsPage() {
     }
 
     setIsMatching(true)
+    setMatchScoreFilter('all')
+    setMatchHiringFilter('all')
+    setMatchSuccessBanner(null)
+    setMatchSuccessBannerFading(false)
 
     try {
       const res = await fetch(MATCH_API_URL, {
@@ -230,7 +437,12 @@ export default function JobsPage() {
 
       setMatchedJobs(matches)
       localStorage.setItem('jobpick_matched_jobs', JSON.stringify(matches))
+      const analyzedAt = formatAiAnalysisTime()
+      localStorage.setItem(LAST_AI_ANALYSIS_AT_KEY, analyzedAt)
+      setLastAiAnalysisAt(analyzedAt)
       setAiMatched(true)
+      setMatchSuccessBannerFading(false)
+      setMatchSuccessBanner({ count: matches.length })
     } catch (error) {
       console.error(error)
       alert(error.message || 'AI 매칭 중 오류가 발생했습니다.')
@@ -322,6 +534,8 @@ export default function JobsPage() {
     localStorage.removeItem('jobpick_matched_jobs')
     setMatchedJobs([])
     setAiMatched(false)
+    setMatchScoreFilter('all')
+    setMatchHiringFilter('all')
   }
 
   if (!mounted || !isAuthenticated) {
@@ -442,6 +656,88 @@ export default function JobsPage() {
           </div>
         </div>
 
+        {aiMatched && lastAiAnalysisAt && (
+          <p className="text-xs text-gray-500 mb-4">
+            최근 AI 분석
+            <br />
+            {lastAiAnalysisAt}
+          </p>
+        )}
+
+        {matchSuccessBanner && aiMatched && (
+          <div
+            className={`overflow-hidden transition-all duration-500 ${
+              matchSuccessBannerFading ? 'max-h-0 opacity-0 mb-0' : 'max-h-24 opacity-100 mb-4'
+            }`}
+          >
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 animate-fade-in">
+              <div className="flex items-start gap-3">
+                <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path
+                      d="M5 13l4 4L19 7"
+                      stroke="currentColor"
+                      strokeWidth="2.2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <div>
+                  <p className="font-semibold text-emerald-800">AI 분석 완료</p>
+                  <p className="text-sm text-emerald-700">
+                    {matchSuccessBanner.count}개의 추천 공고를 찾았습니다.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {aiMatched && (
+          <div className="mb-4 rounded-xl border border-gray-200 bg-slate-50 px-4 py-3">
+            <p className="text-sm font-medium text-gray-800">
+              추천 공고 {matchResultStats.total}개
+            </p>
+            <p className="mt-1 text-xs text-gray-500">
+              AI 적합 {matchResultStats.aiSuitable}개 · 보통 {matchResultStats.normal}개 · 지원 가능{' '}
+              {matchResultStats.accessible}개 · 정보 부족 {matchResultStats.infoLacking}개 · 부적합{' '}
+              {matchResultStats.unsuitable}개
+            </p>
+          </div>
+        )}
+
+        {aiMatched && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            <select
+              value={matchScoreFilter}
+              onChange={(e) => setMatchScoreFilter(e.target.value)}
+              className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm"
+            >
+              <option value="all">점수: 전체</option>
+              <option value="90">90점 이상</option>
+              <option value="80">80점 이상</option>
+              <option value="70">70점 이상</option>
+              <option value="60">60점 이상</option>
+              <option value="50">50점 이상</option>
+              <option value="40">40점 이상</option>
+              <option value="30">30점 이상</option>
+              <option value="20">20점 이상</option>
+              <option value="10">10점 이상</option>
+            </select>
+
+            <select
+              value={matchHiringFilter}
+              onChange={(e) => setMatchHiringFilter(e.target.value)}
+              className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm"
+            >
+              <option value="all">채용형태: 전체</option>
+              <option value="entry">신입</option>
+              <option value="intern">인턴</option>
+            </select>
+          </div>
+        )}
+
         {isLoadingJobs && !aiMatched ? (
           <div className="p-8 bg-white border border-gray-200 rounded-2xl text-center">
             <div className="w-10 h-10 border-2 border-gray-200 border-t-primary rounded-full animate-spin mx-auto mb-4" />
@@ -450,7 +746,9 @@ export default function JobsPage() {
         ) : isMatching ? (
           <div className="p-8 bg-white border border-gray-200 rounded-2xl text-center">
             <div className="w-10 h-10 border-2 border-gray-200 border-t-primary rounded-full animate-spin mx-auto mb-4" />
-            <p>AI가 조건에 맞는 기업을 찾는 중입니다...</p>
+            <p key={loadingStepIndex} className="animate-fade-in">
+              {AI_LOADING_STEPS[loadingStepIndex]}
+            </p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -461,7 +759,7 @@ export default function JobsPage() {
                 <div key={jobKey} className="relative bg-white rounded-2xl p-6 border border-gray-200 min-h-[230px]">
                   <button
                     onClick={() => handleToggleBookmark(job)}
-                    className="absolute top-5 right-5 text-xl"
+                    className="absolute top-5 right-5 max-md:p-3 max-md:min-h-[44px] max-md:min-w-[44px] max-md:flex max-md:items-center max-md:justify-center text-xl"
                     aria-label="북마크"
                   >
                     <svg
@@ -522,7 +820,7 @@ export default function JobsPage() {
                   </div>
 
                   {aiMatched && (
-                    <span className="text-4xl md:text-5xl font-bold text-primary absolute right-6 md:right-8 bottom-6">
+                    <span className="max-md:static max-md:block max-md:mt-3 max-md:text-right text-4xl md:text-5xl font-bold text-primary md:absolute md:right-8 md:bottom-6 pointer-events-none">
                       {job.matchRate ?? Math.round(job.finalScore ?? 0)}점{' '}
                       <span className="text-lg md:text-xl text-gray-500 font-medium">적합</span>
                     </span>

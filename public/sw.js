@@ -1,10 +1,9 @@
-const VERSION = 'jobpick-sw-v2'
+const VERSION = 'jobpick-sw-v3'
 const STATIC_CACHE = `${VERSION}-static`
-const RUNTIME_CACHE = `${VERSION}-runtime`
 
 const OFFLINE_URL = '/offline'
 
-const PRECACHE_URLS = ['/', OFFLINE_URL, '/manifest.json', '/brand-logo.svg']
+const PRECACHE_URLS = [OFFLINE_URL]
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -19,59 +18,62 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k))))
+      .then((keys) =>
+        Promise.all(keys.filter((key) => !key.startsWith(VERSION)).map((key) => caches.delete(key)))
+      )
       .then(() => self.clients.claim())
   )
 })
 
-function isApiRequest(requestUrl) {
+function shouldSkipRequest(request) {
+  if (request.method !== 'GET') {
+    return true
+  }
+
   try {
-    const url = new URL(requestUrl)
-    return url.pathname.startsWith('/api')
-  } catch {
+    const url = new URL(request.url)
+
+    if (url.origin !== self.location.origin) {
+      return true
+    }
+
+    if (url.pathname.startsWith('/api/')) {
+      return true
+    }
+
+    if (url.pathname.startsWith('/_next/')) {
+      return true
+    }
+
+    if (url.pathname.startsWith('/__nextjs')) {
+      return true
+    }
+
     return false
+  } catch {
+    return true
   }
 }
 
 self.addEventListener('fetch', (event) => {
   const { request } = event
 
-  if (request.method !== 'GET') return
-
-  const requestUrl = request.url
-
-  if (isApiRequest(requestUrl)) {
+  if (shouldSkipRequest(request)) {
     return
   }
 
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          const copy = response.clone()
-          caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy))
-          return response
-        })
-        .catch(async () => {
-          const cached = await caches.match(request)
-          if (cached) return cached
-          return caches.match(OFFLINE_URL)
-        })
-    )
+  if (request.mode !== 'navigate') {
     return
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached
+    fetch(request).catch(async () => {
+      const offlinePage = await caches.match(OFFLINE_URL)
+      if (offlinePage) {
+        return offlinePage
+      }
 
-      return fetch(request)
-        .then((response) => {
-          const copy = response.clone()
-          caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, copy))
-          return response
-        })
-        .catch(() => cached)
+      throw new Error('offline page unavailable')
     })
   )
 })

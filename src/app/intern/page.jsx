@@ -249,7 +249,7 @@ export default function InternPage() {
           <div className="space-y-4">
             {INTERN_JOBS.map((job) => (
               <div key={job.id} className="bg-white border border-gray-200 rounded-2xl p-4 md:p-5 relative">
-                <button onClick={() => handleToggleBookmark(job)} className="absolute top-5 right-5" aria-label="북마크">
+                <button onClick={() => handleToggleBookmark(job)} className="absolute top-5 right-5 max-md:p-3 max-md:min-h-[44px] max-md:min-w-[44px] max-md:flex max-md:items-center max-md:justify-center" aria-label="북마크">
                   <svg width="22" height="22" viewBox="0 0 24 24" fill={bookmarkIds.includes(job.id) ? '#2563eb' : '#ffffff'} xmlns="http://www.w3.org/2000/svg">
                     <path
                       d="M6 3.75C6 3.33579 6.33579 3 6.75 3H17.25C17.6642 3 18 3.33579 18 3.75V21L12 16.5L6 21V3.75Z"
@@ -279,7 +279,7 @@ export default function InternPage() {
           <div className="space-y-4">
             {INTERN_JOBS.map((job) => (
               <div key={job.id} className="bg-white border border-gray-200 rounded-2xl p-4 md:p-5 flex justify-between items-center gap-3 relative">
-                <button onClick={() => handleToggleBookmark(job)} className="absolute top-5 right-5" aria-label="북마크">
+                <button onClick={() => handleToggleBookmark(job)} className="absolute top-5 right-5 max-md:p-3 max-md:min-h-[44px] max-md:min-w-[44px] max-md:flex max-md:items-center max-md:justify-center" aria-label="북마크">
                   <svg width="22" height="22" viewBox="0 0 24 24" fill={bookmarkIds.includes(job.id) ? '#2563eb' : '#ffffff'} xmlns="http://www.w3.org/2000/svg">
                     <path
                       d="M6 3.75C6 3.33579 6.33579 3 6.75 3H17.25C17.6642 3 18 3.33579 18 3.75V21L12 16.5L6 21V3.75Z"

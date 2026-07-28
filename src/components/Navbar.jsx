@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
 import SlideMenu from './SlideMenu'
 import NotificationPanel from './NotificationPanel'
-import { Bell, ClipboardList } from 'lucide-react'
+import { Bell, ClipboardList, Menu } from 'lucide-react'
 
 export default function Navbar() {
   const pathname = usePathname()
@@ -44,7 +44,7 @@ export default function Navbar() {
             <>
               <button
                 onClick={() => setNotificationOpen(true)}
-                className="relative p-2 text-xl hover:bg-gray-100 rounded-lg transition-colors"
+                className="relative p-2 max-md:min-h-[44px] max-md:min-w-[44px] max-md:flex max-md:items-center max-md:justify-center text-xl hover:bg-gray-100 rounded-lg transition-colors"
                 aria-label="알림"
               >
                 <Bell className="w-6 h-6 text-gray-800" aria-hidden />
@@ -53,6 +53,14 @@ export default function Navbar() {
                     {unreadCount}
                   </span>
                 )}
+              </button>
+
+              <button
+                onClick={() => setMenuOpen(true)}
+                className="inline-flex md:hidden p-2.5 min-h-[44px] min-w-[44px] items-center justify-center rounded-lg hover:bg-gray-100 transition-colors"
+                aria-label="메뉴 열기"
+              >
+                <Menu className="w-6 h-6 text-gray-800" aria-hidden />
               </button>
 
               <button

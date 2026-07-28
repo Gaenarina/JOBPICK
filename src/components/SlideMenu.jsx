@@ -32,7 +32,7 @@ export default function SlideMenu({ isOpen, onClose }) {
         aria-hidden="true"
       />
       <aside
-        className="fixed top-0 right-0 h-full w-72 bg-white shadow-xl z-50 flex flex-col animate-slide-in"
+        className="fixed top-0 right-0 h-full w-72 max-w-[calc(100vw-2rem)] bg-white shadow-xl z-50 flex flex-col animate-slide-in"
         role="dialog"
         aria-label="메뉴"
       >

@@ -2,6 +2,7 @@ import { AuthProvider } from '@/context/AuthContext'
 import { NotificationProvider } from '@/context/NotificationContext'
 import Navbar from '@/components/Navbar'
 import AppShell from '@/components/AppShell'
+import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import './globals.css'
 
 export const metadata = {
@@ -15,6 +16,7 @@ export default function RootLayout({ children }) {
       <body>
         <AuthProvider>
           <NotificationProvider>
+            <ServiceWorkerRegistration />
             <Navbar />
             <AppShell>{children}</AppShell>
           </NotificationProvider>
