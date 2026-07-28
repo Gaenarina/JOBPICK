@@ -709,6 +709,135 @@ def build_matching_groups(results, limit=5):
     }
 
 
+def to_number(value, default=0):
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def get_semantic_level(similarity):
+    value = to_number(similarity)
+
+    if value >= 0.7:
+        return "높게"
+    if value >= 0.4:
+        return "보통 이상으로"
+    if value > 0:
+        return "일부"
+    return "확인 가능한 정보가 적게"
+
+
+def build_explanation_summary(
+    result,
+    rule_details,
+    semantic_details,
+    ncs_details,
+    fit_score,
+    accessibility_score,
+    confidence_score,
+    recommend_type,
+):
+    strengths = []
+    cautions = []
+    reason_parts = []
+
+    skill_total = int(to_number(rule_details.get("skill_total_count", 0)))
+    skill_matches = int(to_number(rule_details.get("skill_match_count", 0)))
+
+    if skill_total > 0:
+        reason_parts.append(f"기술 조건 {skill_total}개 중 {skill_matches}개 일치")
+
+        if skill_matches > 0:
+            strengths.append("요구 기술과 보유 기술이 일부 일치합니다.")
+        else:
+            cautions.append("공고의 필수 기술과 일치하는 이력서 기술이 확인되지 않았습니다.")
+
+    exp_condition_used = bool(rule_details.get("exp_condition_used", True))
+    min_exp = to_number(rule_details.get("min_exp", 0))
+    resume_exp = to_number(rule_details.get("resume_exp", 0))
+
+    if exp_condition_used and min_exp > 0:
+        reason_parts.append(f"요구 경력 {min_exp:g}년 대비 이력서 경력 {resume_exp:g}년")
+
+        if resume_exp >= min_exp:
+            strengths.append("요구 경력 조건을 충족합니다.")
+        else:
+            cautions.append("요구 경력 연수보다 이력서 경력이 부족할 수 있습니다.")
+
+    cert_total = int(to_number(rule_details.get("cert_total_count", 0)))
+    cert_matches = int(to_number(rule_details.get("cert_match_count", 0)))
+
+    if cert_total > 0:
+        if cert_matches > 0:
+            strengths.append("필수 자격증 조건과 일치하는 항목이 있습니다.")
+        else:
+            cautions.append("필수 자격증 충족 여부를 지원 전에 확인해야 합니다.")
+
+    qual_total = int(to_number(rule_details.get("qual_total_count", 0)))
+    matched_quals = rule_details.get("matched_quals", []) or []
+
+    if qual_total > 0:
+        if matched_quals:
+            strengths.append("필수 자격요건과 연결되는 이력서 항목이 있습니다.")
+        else:
+            cautions.append("필수 자격요건 충족 근거가 약합니다.")
+
+    full_similarity = semantic_details.get("full_sim", 0)
+
+    if full_similarity:
+        reason_parts.append(f"직무 내용 유사도 {get_semantic_level(full_similarity)} 평가")
+
+        if to_number(full_similarity) >= 0.4:
+            strengths.append("이력서 내용과 공고 직무 설명의 의미 유사도가 보통 이상입니다.")
+
+    if ncs_details.get("ncs_used", False):
+        matched_unit = ncs_details.get("matched_unit_name", "")
+        strengths.append(
+            f"NCS {matched_unit} 역량 기준으로 보완 평가했습니다."
+            if matched_unit
+            else "NCS 직무역량 기준으로 보완 평가했습니다."
+        )
+
+    unmet_conditions = result.get("unmet_conditions", []) or []
+
+    for condition in unmet_conditions:
+        cautions.append(f"{condition} 항목을 확인해야 합니다.")
+
+    reason = (
+        ", ".join(reason_parts[:2])
+        if reason_parts
+        else "이력서와 공고의 조건, 직무 내용, 자격요건을 종합해 계산했습니다."
+    )
+
+    if unmet_conditions:
+        status_reason = (
+            "미충족 조건이 있어 추천 우선순위가 낮게 조정되었습니다: "
+            + ", ".join(unmet_conditions[:2])
+        )
+    else:
+        status_reason = (
+            f"{recommend_type} 판정은 적합도 {round(fit_score)}점, "
+            f"지원 가능성 {round(accessibility_score)}점, "
+            f"판단 근거 충분도 {round(confidence_score)}점을 함께 반영했습니다."
+        )
+
+    next_action = (
+        "지원 전 미충족 조건과 원본 공고의 세부 자격요건을 확인해보세요."
+        if unmet_conditions or cautions
+        else "지원 전 원본 공고의 우대사항과 제출 서류를 확인해보세요."
+    )
+
+    return {
+        "reason": reason,
+        "statusReason": status_reason,
+        "strengths": strengths[:3] or ["이력서와 공고의 조건을 종합해 추천 후보로 분류했습니다."],
+        "cautions": cautions[:3] or ["큰 미충족 조건은 발견되지 않았지만 원본 공고 확인이 필요합니다."],
+        "nextAction": next_action,
+        "source": "rule_based",
+    }
+
+
 
 # ============================================================
 # 이력서 최신 분석 결과 선택 관련 함수
@@ -867,6 +996,16 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score, analys
 
     recommend_type = result.get("recommend_type", "보통")
     match_badges = result.get("match_badges", [])
+    explanation_summary = build_explanation_summary(
+        result=result,
+        rule_details=rule_details,
+        semantic_details=semantic_details,
+        ncs_details=ncs_details,
+        fit_score=fit_score,
+        accessibility_score=accessibility_score,
+        confidence_score=confidence_score,
+        recommend_type=recommend_type,
+    )
 
     return {
         "id": job_doc_id,
@@ -895,6 +1034,7 @@ def build_match_result(job_doc_id, job_raw, resume_raw, resume_for_score, analys
 
         "recommendType": recommend_type,
         "matchBadges": match_badges,
+        "explanationSummary": explanation_summary,
 
         "ruleTotal": round(result.get("rule_total", 0), 2),
         "ruleTotalMax": result.get("rule_total_max", 25),

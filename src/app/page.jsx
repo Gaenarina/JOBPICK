@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
 import {
@@ -178,6 +178,324 @@ function extractMatchedJobsFromResponse(data) {
     data?.matches ||
     []
   )
+}
+
+function extractMatchMetaFromResponse(data) {
+  const root = data?.result || data || {}
+  const groups = root?.groups || root?.matchingResults || root || {}
+
+  return {
+    matchPreferences: groups.matchPreferences || root.matchPreferences || data?.matchPreferences || {},
+    totalJobCount: groups.totalJobCount ?? root.totalJobCount ?? data?.totalJobCount ?? null,
+    filteredJobCount: groups.filteredJobCount ?? root.filteredJobCount ?? data?.filteredJobCount ?? null,
+    aiSummary: groups.aiSummary || root.aiSummary || data?.aiSummary || null,
+  }
+}
+
+function normalizePreferenceList(value) {
+  if (!Array.isArray(value)) return []
+  return value.map((item) => String(item || '').trim()).filter(Boolean)
+}
+
+function formatPreferenceList(items, fallback) {
+  return items.length ? items.join(', ') : fallback
+}
+
+function hasMatchPreferences(preferences) {
+  if (!preferences) return false
+
+  return (
+    normalizePreferenceList(preferences.desiredRoles).length > 0 ||
+    normalizePreferenceList(preferences.desiredLocations).length > 0 ||
+    normalizePreferenceList(preferences.employmentTypes).length > 0
+  )
+}
+
+function toNumber(value, fallback = 0) {
+  const numberValue = Number(value ?? fallback)
+  return Number.isFinite(numberValue) ? numberValue : fallback
+}
+
+function getExplanationSemanticLevel(similarity) {
+  const value = toNumber(similarity)
+
+  if (value >= 0.7) return '높게'
+  if (value >= 0.4) return '보통 이상으로'
+  if (value > 0) return '일부'
+  return '확인 가능한 정보가 적게'
+}
+
+function buildJobExplanation(job) {
+  const summary = job?.explanationSummary || job?.explanation_summary
+
+  if (summary?.reason || summary?.statusReason || summary?.status_reason) {
+    return {
+      reason: summary.reason || '이력서와 공고의 조건, 직무 내용, 자격요건을 종합해 계산',
+      statusReason:
+        summary.statusReason ||
+        summary.status_reason ||
+        summary.nextAction ||
+        '추천 상태는 적합도, 지원 가능성, 판단 근거 충분도를 함께 반영했습니다.',
+    }
+  }
+
+  const matchDetail = job?.matchDetail || {}
+  const skills = matchDetail.skills || {}
+  const experience = matchDetail.experience || {}
+  const semantic = matchDetail.semantic || {}
+  const ncs = matchDetail.ncs || job?.ncsDetails || {}
+  const unmetConditions = job?.unmetConditions || job?.unmet_conditions || []
+  const skillTotal = toNumber(skills.totalCount)
+  const skillMatches = toNumber(skills.matchCount)
+  const fullSimilarity = semantic.fullSimilarity ?? semantic.full_sim
+  const reasons = []
+
+  if (skillTotal > 0) {
+    reasons.push(`기술 조건 ${skillTotal}개 중 ${skillMatches}개 일치`)
+  }
+
+  if (experience.conditionUsed !== false && toNumber(experience.minExp) > 0) {
+    reasons.push(`요구 경력 ${experience.minExp}년 대비 이력서 경력 ${experience.resumeExp ?? 0}년`)
+  }
+
+  if (fullSimilarity !== undefined) {
+    reasons.push(`직무 내용 유사도 ${getExplanationSemanticLevel(fullSimilarity)} 평가`)
+  }
+
+  if (ncs.used || job?.ncsTotal > 0) {
+    reasons.push(`${ncs.matchedUnitName || ncs.matched_unit_name || 'NCS 직무역량'} 기준 보완 평가`)
+  }
+
+  const reason =
+    reasons.length > 0
+      ? reasons.slice(0, 2).join(', ')
+      : '이력서와 공고의 조건, 직무 내용, 자격요건을 종합해 계산'
+
+  let statusReason = `${getPrimaryBadge(job)} 판정은 적합도 ${Math.round(
+    toNumber(job?.fitScore ?? job?.finalScore ?? job?.matchRate)
+  )}점, 지원 가능성 ${Math.round(toNumber(job?.accessibilityScore))}점, 판단 근거 충분도 ${Math.round(
+    toNumber(job?.confidenceScore)
+  )}점을 함께 반영했습니다.`
+
+  if (unmetConditions.length > 0) {
+    statusReason = `미충족 조건이 있어 추천 우선순위가 낮게 조정되었습니다: ${unmetConditions
+      .slice(0, 2)
+      .join(', ')}`
+  }
+
+  return {
+    reason,
+    statusReason,
+  }
+}
+
+function buildAiRecommendationSummary(jobs, meta, selectedResume) {
+  const matched = jobs || []
+  const geminiSummary = meta?.aiSummary || null
+  const preferences = hasMatchPreferences(meta?.matchPreferences)
+    ? meta.matchPreferences
+    : selectedResume?.matchPreferences || {}
+  const desiredRoles = normalizePreferenceList(preferences.desiredRoles)
+  const desiredLocations = normalizePreferenceList(preferences.desiredLocations)
+  const employmentTypes = normalizePreferenceList(preferences.employmentTypes)
+  const hasPreferences = desiredRoles.length > 0 || desiredLocations.length > 0 || employmentTypes.length > 0
+  const fitScores = matched.map((job) => toNumber(job.fitScore ?? job.finalScore ?? job.matchRate))
+  const accessibilityScores = matched.map((job) => toNumber(job.accessibilityScore))
+  const confidenceScores = matched.map((job) => toNumber(job.confidenceScore))
+  const average = (items) =>
+    items.length ? Math.round(items.reduce((sum, value) => sum + value, 0) / items.length) : 0
+  const strongSignals = []
+  const checkPoints = []
+
+  const skillMatchedCount = matched.filter((job) => {
+    const skills = job?.matchDetail?.skills || {}
+    return toNumber(skills.totalCount) > 0 && toNumber(skills.matchCount) > 0
+  }).length
+
+  const semanticHighCount = matched.filter((job) => {
+    const semantic = job?.matchDetail?.semantic || {}
+    return toNumber(semantic.fullSimilarity ?? semantic.full_sim) >= 0.4
+  }).length
+
+  const unmetConditionCount = matched.reduce(
+    (count, job) => count + (job?.unmetConditions || job?.unmet_conditions || []).length,
+    0
+  )
+
+  if (hasPreferences) {
+    strongSignals.push('이력서 등록 시 선택한 희망 조건에 맞는 공고를 먼저 선별했습니다.')
+  }
+
+  if (skillMatchedCount > 0) {
+    strongSignals.push(`요구 기술과 보유 기술이 겹치는 공고 ${skillMatchedCount}개`)
+  }
+
+  if (semanticHighCount > 0) {
+    strongSignals.push(`직무 설명과 이력서 경험의 의미 유사도가 보통 이상인 공고 ${semanticHighCount}개`)
+  }
+
+  if (unmetConditionCount > 0) {
+    checkPoints.push(`미충족 조건 ${unmetConditionCount}건은 지원 전 확인 필요`)
+  }
+
+  if (average(confidenceScores) < 50) {
+    checkPoints.push('일부 공고는 판단 근거가 부족해 원본 공고 상세 확인이 필요')
+  }
+
+  if (average(accessibilityScores) < 60) {
+    checkPoints.push('지원 가능성 점수가 낮은 공고는 경력, 자격요건을 먼저 점검')
+  }
+
+  return {
+    fitAverage: average(fitScores),
+    accessibilityAverage: average(accessibilityScores),
+    confidenceAverage: average(confidenceScores),
+    description: `추천 순위는 희망 조건, 적합도, 지원 가능성, 판단 근거 충분도를 함께 반영했습니다. 평균 적합도는 ${average(
+      fitScores
+    )}점입니다.`,
+    preferenceText: hasPreferences
+      ? `희망 직무: ${formatPreferenceList(desiredRoles, '전체')} · 희망 지역: ${formatPreferenceList(
+          desiredLocations,
+          '전체'
+        )} · 채용 유형: ${formatPreferenceList(employmentTypes, '전체')}`
+      : '별도 희망 조건 없이 전체 공고를 기준으로 분석했습니다.',
+    filterText:
+      meta?.totalJobCount !== null && meta?.filteredJobCount !== null
+        ? `전체 ${meta.totalJobCount}개 공고 중 조건에 맞는 ${meta.filteredJobCount}개를 먼저 선별했습니다.`
+        : '',
+    strongSignals:
+      strongSignals.length > 0
+        ? strongSignals.slice(0, 3)
+        : ['이력서와 공고의 조건, 직무 내용, 자격요건을 종합해 추천했습니다.'],
+    checkPoints:
+      checkPoints.length > 0
+        ? checkPoints.slice(0, 3)
+        : ['큰 미충족 조건은 발견되지 않았지만, 지원 전 원본 공고의 세부 조건을 확인해보세요.'],
+  }
+}
+
+function getRecommendationDistribution(jobs) {
+  return (jobs || []).reduce(
+    (counts, job) => {
+      const badges = job?.matchBadges || job?.match_badges || []
+      const recommendType = String(job?.recommendType || job?.recommend_type || '')
+      const text = `${recommendType} ${badges.join(' ')}`
+      const fitScore = toNumber(job?.fitScore ?? job?.finalScore ?? job?.matchRate)
+      const accessibilityScore = toNumber(job?.accessibilityScore)
+      const confidenceScore = toNumber(job?.confidenceScore)
+
+      if (text.includes('AI 적합') || fitScore >= 70) {
+        counts.aiFit += 1
+      } else if (text.includes('지원 가능') || accessibilityScore >= 70) {
+        counts.accessible += 1
+      } else if (text.includes('정보 부족') || confidenceScore < 45) {
+        counts.insufficientInfo += 1
+      } else {
+        counts.needsReview += 1
+      }
+
+      return counts
+    },
+    {
+      aiFit: 0,
+      accessible: 0,
+      insufficientInfo: 0,
+      needsReview: 0,
+    }
+  )
+}
+
+function buildOverallRecommendationSummary(jobs, meta, selectedResume) {
+  const fallback = buildAiRecommendationSummary(jobs, meta, selectedResume)
+  const matched = jobs || []
+  const preferences = hasMatchPreferences(meta?.matchPreferences)
+    ? meta.matchPreferences
+    : selectedResume?.matchPreferences || {}
+  const desiredRoles = normalizePreferenceList(preferences.desiredRoles)
+  const desiredLocations = normalizePreferenceList(preferences.desiredLocations)
+  const employmentTypes = normalizePreferenceList(preferences.employmentTypes)
+  const hasPreferences = desiredRoles.length > 0 || desiredLocations.length > 0 || employmentTypes.length > 0
+  const totalJobCount = toNumber(meta?.totalJobCount, matched.length)
+  const filteredJobCount = toNumber(meta?.filteredJobCount, matched.length)
+  const distribution = getRecommendationDistribution(matched)
+  const geminiSummary = meta?.aiSummary || null
+  const recommendedTypes = [
+    distribution.aiFit > 0 ? `AI 적합 공고 ${distribution.aiFit}개` : '',
+    distribution.accessible > 0 ? `지원 가능 공고 ${distribution.accessible}개` : '',
+    distribution.insufficientInfo > 0 ? `정보 부족 공고 ${distribution.insufficientInfo}개` : '',
+    distribution.needsReview > 0 ? `검토 필요 공고 ${distribution.needsReview}개` : '',
+  ].filter(Boolean)
+  const distributionText =
+    recommendedTypes.length > 0
+      ? `전체 공고를 분석한 결과, 최종적으로 ${recommendedTypes.join(', ')}가 추천되었습니다.`
+      : '전체 공고를 분석했지만 최종 추천 공고는 아직 없습니다.'
+  const summaryCaption =
+    matched.length === 1
+      ? 'Gemini로 추천 공고의 추천 이유와 확인사항을 요약해보세요!'
+      : 'Gemini로 추천 공고의 주요 근거와 확인사항을 요약해보세요!'
+
+  const preferenceText = hasPreferences
+    ? `희망 직무: ${formatPreferenceList(desiredRoles, '전체')} · 희망 지역: ${formatPreferenceList(
+        desiredLocations,
+        '전체'
+      )} · 채용 유형: ${formatPreferenceList(employmentTypes, '전체')}`
+    : `별도의 희망 조건이 선택되지 않아 전체 ${totalJobCount}개 공고를 대상으로 분석했습니다.`
+
+  const filterText = hasPreferences
+    ? `전체 ${totalJobCount}개 공고 중 희망 조건에 맞는 ${filteredJobCount}개 공고를 우선 분석했습니다.`
+    : distributionText
+
+  if (!geminiSummary?.description) {
+    return {
+      ...fallback,
+      preferenceText,
+      filterText,
+      summaryCaption,
+      source: fallback.source || 'fallback',
+    }
+  }
+
+  return {
+    ...fallback,
+    description: geminiSummary.description,
+    preferenceText,
+    filterText,
+    summaryCaption,
+    strongSignals:
+      Array.isArray(geminiSummary.strongSignals) && geminiSummary.strongSignals.length > 0
+        ? geminiSummary.strongSignals.slice(0, 3)
+        : fallback.strongSignals,
+    checkPoints:
+      Array.isArray(geminiSummary.checkPoints) && geminiSummary.checkPoints.length > 0
+        ? geminiSummary.checkPoints.slice(0, 3)
+        : fallback.checkPoints,
+    nextAction: geminiSummary.nextAction || '',
+    source: geminiSummary.source || 'gemini',
+  }
+}
+
+function buildAiRecommendationSummaryWithGemini(jobs, meta, selectedResume) {
+  const fallback = buildAiRecommendationSummary(jobs, meta, selectedResume)
+  const geminiSummary = meta?.aiSummary || null
+
+  if (!geminiSummary?.description) {
+    return fallback
+  }
+
+  return {
+    ...fallback,
+    description: geminiSummary.description,
+    strongSignals:
+      Array.isArray(geminiSummary.strongSignals) && geminiSummary.strongSignals.length > 0
+        ? geminiSummary.strongSignals.slice(0, 3)
+        : fallback.strongSignals,
+    checkPoints:
+      Array.isArray(geminiSummary.checkPoints) && geminiSummary.checkPoints.length > 0
+        ? geminiSummary.checkPoints.slice(0, 3)
+        : fallback.checkPoints,
+    nextAction: geminiSummary.nextAction || '',
+    source: geminiSummary.source || 'gemini',
+  }
 }
 
 function formatScore(value, digits = 2) {
@@ -640,6 +958,13 @@ export default function LandingPage() {
   const [selectedResume, setSelectedResume] = useState(null)
   const [bookmarkIds, setBookmarkIds] = useState([])
   const [scoreDetailJob, setScoreDetailJob] = useState(null)
+  const [showAiSummary, setShowAiSummary] = useState(false)
+  const [isGeneratingAiSummary, setIsGeneratingAiSummary] = useState(false)
+  const [matchMeta, setMatchMeta] = useState({
+    matchPreferences: {},
+    totalJobCount: null,
+    filteredJobCount: null,
+  })
   const [desiredRoles, setDesiredRoles] = useState([])
   const [desiredLocations, setDesiredLocations] = useState([])
   const [employmentTypes, setEmploymentTypes] = useState([])
@@ -663,6 +988,19 @@ export default function LandingPage() {
       return
     }
     setShowSavedResumes((prev) => !prev)
+  }
+
+  const handleToggleAiSummary = () => {
+    if (showAiSummary) {
+      setShowAiSummary(false)
+      return
+    }
+
+    setIsGeneratingAiSummary(true)
+    window.setTimeout(() => {
+      setShowAiSummary(true)
+      setIsGeneratingAiSummary(false)
+    }, 700)
   }
 
   const handleNewUploadClick = () => {
@@ -719,6 +1057,14 @@ export default function LandingPage() {
       if (normalized.length > 0) {
         setSelectedResume(resume)
         setMatchedJobs(normalized)
+        setShowAiSummary(false)
+        setIsGeneratingAiSummary(false)
+        setMatchMeta({
+          matchPreferences: parsed.matchPreferences || resume?.matchPreferences || {},
+          totalJobCount: parsed.totalJobCount ?? null,
+          filteredJobCount: parsed.filteredJobCount ?? null,
+          aiSummary: parsed.aiSummary || null,
+        })
         setAnalysisDone(true)
         return true
       }
@@ -743,6 +1089,13 @@ export default function LandingPage() {
     setIsAnalyzing(true)
     setAnalysisDone(false)
     setMatchedJobs([])
+    setShowAiSummary(false)
+    setIsGeneratingAiSummary(false)
+    setMatchMeta({
+      matchPreferences: resume?.matchPreferences || {},
+      totalJobCount: null,
+      filteredJobCount: null,
+    })
     setMatchPage(1)
 
     try {
@@ -774,8 +1127,12 @@ export default function LandingPage() {
 
       const rawMatches = extractMatchedJobsFromResponse(data)
       const topMatches = normalizeJobs(rawMatches)
+      const nextMatchMeta = extractMatchMetaFromResponse(data)
 
       setMatchedJobs(topMatches)
+      setShowAiSummary(false)
+      setIsGeneratingAiSummary(false)
+      setMatchMeta(nextMatchMeta)
 
       const storageKey = getMatchedJobsStorageKey(userId, resumeId)
       localStorage.setItem(
@@ -797,6 +1154,10 @@ export default function LandingPage() {
             data?.result?.isAnalysisEdited ??
             data?.isAnalysisEdited ??
             false,
+          matchPreferences: nextMatchMeta.matchPreferences,
+          totalJobCount: nextMatchMeta.totalJobCount,
+          filteredJobCount: nextMatchMeta.filteredJobCount,
+          aiSummary: nextMatchMeta.aiSummary,
         })
       )
 
@@ -958,6 +1319,13 @@ export default function LandingPage() {
       setIsAnalyzing(true)
       setAnalysisDone(false)
       setMatchedJobs([])
+      setShowAiSummary(false)
+      setIsGeneratingAiSummary(false)
+      setMatchMeta({
+        matchPreferences: matchPreferences,
+        totalJobCount: null,
+        filteredJobCount: null,
+      })
 
       const formData = new FormData()
       formData.append('file', file)
@@ -1056,6 +1424,13 @@ export default function LandingPage() {
       setSelectedResume(null)
       setAnalysisDone(false)
       setMatchedJobs([])
+      setShowAiSummary(false)
+      setIsGeneratingAiSummary(false)
+      setMatchMeta({
+        matchPreferences: {},
+        totalJobCount: null,
+        filteredJobCount: null,
+      })
     }
   }
 
@@ -1221,6 +1596,10 @@ export default function LandingPage() {
   const matchStartIndex = (matchPage - 1) * matchItemsPerPage
   const matchEndIndex = matchStartIndex + matchItemsPerPage
   const pagedMatchedJobs = matchedJobs.slice(matchStartIndex, matchEndIndex)
+  const aiRecommendationSummary = useMemo(
+    () => buildOverallRecommendationSummary(matchedJobs, matchMeta, selectedResume),
+    [matchedJobs, matchMeta, selectedResume]
+  )
 
   console.log('matchedJobs:', matchedJobs)
   console.log('matchedJobs length:', matchedJobs.length)
@@ -1421,6 +1800,109 @@ export default function LandingPage() {
                 {name} 님의 이력서 기준으로 아래 채용 공고를 추천드려요.
               </p>
 
+              {matchedJobs.length > 0 && (
+                <div className="mb-5 overflow-hidden rounded-xl border border-blue-100 bg-white shadow-sm">
+                  <div className="border-b border-blue-50 bg-blue-50/70 px-4 py-3 md:px-5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-semibold text-primary">AI 추천 요약</p>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
+                            aiRecommendationSummary.source === 'gemini'
+                              ? 'border-blue-200 bg-white text-blue-600'
+                              : 'border-gray-200 bg-white text-gray-500'
+                          }`}
+                        >
+                          {aiRecommendationSummary.source === 'gemini' ? 'Gemini 요약' : '기본 요약'}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 text-xs text-gray-600">
+                        <span className="rounded-full bg-white px-2 py-1">
+                          적합도 {aiRecommendationSummary.fitAverage}점
+                        </span>
+                        <span className="rounded-full bg-white px-2 py-1">
+                          지원 {aiRecommendationSummary.accessibilityAverage}점
+                        </span>
+                        <span className="rounded-full bg-white px-2 py-1">
+                          판단 근거 {aiRecommendationSummary.confidenceAverage}점
+                        </span>
+                      </div>
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {aiRecommendationSummary.summaryCaption}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleToggleAiSummary}
+                      disabled={isGeneratingAiSummary}
+                      className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-wait disabled:opacity-80"
+                    >
+                      <Sparkles className={`h-4 w-4 ${isGeneratingAiSummary ? 'animate-spin' : ''}`} />
+                      {isGeneratingAiSummary
+                        ? 'Gemini 요약 생성 중...'
+                        : showAiSummary
+                          ? 'AI 요약 접기'
+                          : 'AI 요약 생성'}
+                    </button>
+                  </div>
+
+                  {showAiSummary && (
+                  <div className="p-4 md:p-5">
+                    <p className="text-sm leading-6 text-gray-800 md:text-[15px]">
+                      {aiRecommendationSummary.description}
+                    </p>
+
+                    <div className="mt-3 space-y-1.5 rounded-lg bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-600">
+                      <p>{aiRecommendationSummary.preferenceText}</p>
+                      {aiRecommendationSummary.filterText && (
+                        <p>{aiRecommendationSummary.filterText}</p>
+                      )}
+                    </div>
+
+                    {aiRecommendationSummary.nextAction && (
+                      <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5">
+                        <p className="text-xs font-semibold text-blue-600">
+                          다음 행동 추천
+                        </p>
+                        <p className="mt-1 text-sm font-medium leading-5 text-gray-800">
+                          {aiRecommendationSummary.nextAction}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-3">
+                        <p className="text-sm font-semibold text-gray-900">
+                          가장 강한 추천 근거
+                        </p>
+                        <ul className="mt-2 space-y-1.5 text-sm leading-5 text-gray-700">
+                          {aiRecommendationSummary.strongSignals.map((signal) => (
+                            <li key={signal} className="flex gap-2">
+                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
+                              <span>{signal}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-3">
+                        <p className="text-sm font-semibold text-gray-900">
+                          확인하면 좋은 점
+                        </p>
+                        <ul className="mt-2 space-y-1.5 text-sm leading-5 text-gray-700">
+                          {aiRecommendationSummary.checkPoints.map((point) => (
+                            <li key={point} className="flex gap-2">
+                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                              <span>{point}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  )}
+                </div>
+              )}
+
               <div className="flex flex-col gap-4">
                 {pagedMatchedJobs.length === 0 ? (
                   <p className="text-sm md:text-base text-gray-500">
@@ -1430,6 +1912,7 @@ export default function LandingPage() {
                   pagedMatchedJobs.map((job) => {
                     const jobKey = getJobKey(job)
                     const badges = getMatchBadges(job)
+                    const jobExplanation = buildJobExplanation(job)
 
                     return (
                       <div
@@ -1467,6 +1950,17 @@ export default function LandingPage() {
                                 {job.salary}
                               </span>
                             )}
+                          </div>
+
+                          <div className="mt-4 space-y-2 rounded-lg bg-slate-50 p-3 text-sm text-gray-700">
+                            <p>
+                              <span className="font-semibold text-gray-900">AI 추천 이유: </span>
+                              {jobExplanation.reason}
+                            </p>
+                            <p>
+                              <span className="font-semibold text-gray-900">판정 이유: </span>
+                              {jobExplanation.statusReason}
+                            </p>
                           </div>
                         </div>
 
