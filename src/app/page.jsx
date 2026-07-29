@@ -1066,6 +1066,9 @@ export default function LandingPage() {
   const [scoreDetailJob, setScoreDetailJob] = useState(null)
   const [showAiSummary, setShowAiSummary] = useState(false)
   const [isGeneratingAiSummary, setIsGeneratingAiSummary] = useState(false)
+  const [aiSummaryError, setAiSummaryError] = useState('')
+  const [typedAiSummary, setTypedAiSummary] = useState('')
+  const [showAiSummaryDetails, setShowAiSummaryDetails] = useState(false)
   const [matchMeta, setMatchMeta] = useState({
     matchPreferences: {},
     totalJobCount: null,
@@ -1102,17 +1105,64 @@ export default function LandingPage() {
     setShowSavedResumes((prev) => !prev)
   }
 
-  const handleToggleAiSummary = () => {
+  const handleToggleAiSummary = async () => {
     if (showAiSummary) {
       setShowAiSummary(false)
       return
     }
 
-    setIsGeneratingAiSummary(true)
-    window.setTimeout(() => {
+    if (matchMeta?.aiSummary?.description) {
       setShowAiSummary(true)
+      return
+    }
+
+    const resumeId = getResumeDocId(selectedResume)
+
+    if (!resumeId) {
+      setAiSummaryError('요약을 생성할 이력서를 찾을 수 없습니다.')
+      setShowAiSummary(true)
+      return
+    }
+
+    setIsGeneratingAiSummary(true)
+    setAiSummaryError('')
+
+    try {
+      const res = await fetch(`/api/resume/${resumeId}/ai-summary`, {
+        method: 'POST',
+      })
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok || !data?.aiSummary?.description) {
+        throw new Error(data.error || 'Gemini 요약 생성에 실패했습니다.')
+      }
+
+      setMatchMeta((prev) => ({ ...prev, aiSummary: data.aiSummary }))
+
+      const userId = user?.uid || user?.id || ''
+      const storageKey = getMatchedJobsStorageKey(userId, resumeId)
+      try {
+        const savedValue = localStorage.getItem(storageKey)
+
+        if (savedValue) {
+          const savedResult = JSON.parse(savedValue)
+          localStorage.setItem(
+            storageKey,
+            JSON.stringify({ ...savedResult, aiSummary: data.aiSummary })
+          )
+        }
+      } catch (storageError) {
+        console.error('Gemini 요약 로컬 저장 실패:', storageError)
+      }
+
+      setShowAiSummary(true)
+    } catch (error) {
+      console.error('Gemini 요약 생성 실패:', error)
+      setAiSummaryError(error?.message || 'Gemini 요약 생성에 실패했습니다.')
+      setShowAiSummary(true)
+    } finally {
       setIsGeneratingAiSummary(false)
-    }, 700)
+    }
   }
 
   const handleNewUploadClick = () => {
@@ -1171,6 +1221,7 @@ export default function LandingPage() {
         setMatchedJobs(normalized)
         setShowAiSummary(false)
         setIsGeneratingAiSummary(false)
+        setAiSummaryError('')
         setMatchMeta({
           matchPreferences: parsed.matchPreferences || resume?.matchPreferences || {},
           totalJobCount: parsed.totalJobCount ?? null,
@@ -1208,6 +1259,7 @@ export default function LandingPage() {
     setMatchedJobs([])
     setShowAiSummary(false)
     setIsGeneratingAiSummary(false)
+    setAiSummaryError('')
     setMatchMeta({
       matchPreferences: resume?.matchPreferences || {},
       totalJobCount: null,
@@ -1254,6 +1306,7 @@ export default function LandingPage() {
       setMatchedJobs(topMatches)
       setShowAiSummary(false)
       setIsGeneratingAiSummary(false)
+      setAiSummaryError('')
       setMatchMeta(nextMatchMeta)
 
       const storageKey = getMatchedJobsStorageKey(userId, resumeId)
@@ -1450,6 +1503,7 @@ export default function LandingPage() {
       setMatchedJobs([])
       setShowAiSummary(false)
       setIsGeneratingAiSummary(false)
+      setAiSummaryError('')
       setMatchMeta({
         matchPreferences: matchPreferences,
         totalJobCount: null,
@@ -1555,6 +1609,7 @@ export default function LandingPage() {
       setMatchedJobs([])
       setShowAiSummary(false)
       setIsGeneratingAiSummary(false)
+      setAiSummaryError('')
       setMatchMeta({
         matchPreferences: {},
         totalJobCount: null,
@@ -1746,6 +1801,76 @@ export default function LandingPage() {
     () => buildOverallRecommendationSummary(matchedJobs, matchMeta, selectedResume),
     [matchedJobs, matchMeta, selectedResume]
   )
+
+  useEffect(() => {
+    if (!showAiSummary) {
+      setTypedAiSummary('')
+      setShowAiSummaryDetails(false)
+      return undefined
+    }
+
+    const characters = Array.from(aiRecommendationSummary.description || '')
+    const prefersReducedMotion = window.matchMedia(
+      '(prefers-reduced-motion: reduce)'
+    ).matches
+
+    if (prefersReducedMotion || characters.length === 0) {
+      setTypedAiSummary(characters.join(''))
+      setShowAiSummaryDetails(true)
+      return undefined
+    }
+
+    let characterIndex = 0
+    let typingStep = 0
+    let typingTimer
+    let detailTimer
+    setTypedAiSummary('')
+    setShowAiSummaryDetails(false)
+
+    const typeNextCharacters = () => {
+      const chunkPattern = [1, 2, 1, 1, 2, 1]
+      const delayPattern = [22, 14, 25, 18, 14, 24]
+      const shouldStreamBurst = typingStep % 7 === 4 || typingStep % 11 === 8
+      let chunkSize = chunkPattern[typingStep % chunkPattern.length]
+
+      if (shouldStreamBurst) {
+        const remainingText = characters.slice(characterIndex).join('')
+        const nextSpaceIndex = remainingText.search(/\s/)
+        chunkSize =
+          nextSpaceIndex > 2
+            ? Math.min(nextSpaceIndex + 1, 9)
+            : Math.min(5, remainingText.length)
+      }
+
+      characterIndex = Math.min(characterIndex + chunkSize, characters.length)
+      setTypedAiSummary(characters.slice(0, characterIndex).join(''))
+
+      if (characterIndex >= characters.length) {
+        detailTimer = window.setTimeout(() => {
+          setShowAiSummaryDetails(true)
+        }, 180)
+        return
+      }
+
+      const lastCharacter = characters[characterIndex - 1]
+      const punctuationPause = /[.!?。！？]/.test(lastCharacter) ? 65 : 0
+      const commaPause = /[,，]/.test(lastCharacter) ? 35 : 0
+      const nextDelay =
+        delayPattern[typingStep % delayPattern.length] +
+        (shouldStreamBurst ? 32 : 0) +
+        punctuationPause +
+        commaPause
+      typingStep += 1
+      typingTimer = window.setTimeout(typeNextCharacters, nextDelay)
+    }
+
+    typingTimer = window.setTimeout(typeNextCharacters, 80)
+
+    return () => {
+      window.clearTimeout(typingTimer)
+      if (detailTimer) window.clearTimeout(detailTimer)
+    }
+  }, [showAiSummary, aiRecommendationSummary.description])
 
   console.log('matchedJobs:', matchedJobs)
   console.log('matchedJobs length:', matchedJobs.length)
@@ -2073,11 +2198,27 @@ export default function LandingPage() {
 
                   {showAiSummary && (
                   <div className="p-4 md:p-5">
-                    <p className="text-sm leading-6 text-gray-800 md:text-[15px]">
-                      {aiRecommendationSummary.description}
+                    {aiSummaryError && (
+                      <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                        {aiSummaryError} 기본 요약을 표시합니다.
+                      </p>
+                    )}
+                    <p
+                      className="text-sm leading-6 text-gray-800 md:text-[15px]"
+                      aria-label={aiRecommendationSummary.description}
+                    >
+                      <span aria-hidden="true">{typedAiSummary}</span>
+                      {typedAiSummary !== aiRecommendationSummary.description && (
+                        <span
+                          aria-hidden="true"
+                          className="animate-type-caret ml-0.5 inline-block h-[1.05em] w-0.5 translate-y-0.5 bg-blue-500"
+                        />
+                      )}
                     </p>
 
-                    <div className="mt-3 space-y-1.5 rounded-lg bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-600">
+                    {showAiSummaryDetails && (
+                      <>
+                    <div className="mt-3 animate-fade-in space-y-1.5 rounded-lg bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-600">
                       <p>{aiRecommendationSummary.preferenceText}</p>
                       {aiRecommendationSummary.filterText && (
                         <p>{aiRecommendationSummary.filterText}</p>
@@ -2085,7 +2226,10 @@ export default function LandingPage() {
                     </div>
 
                     {aiRecommendationSummary.nextAction && (
-                      <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5">
+                      <div
+                        className="mt-3 animate-fade-in rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 opacity-0"
+                        style={{ animationDelay: '120ms' }}
+                      >
                         <p className="text-xs font-semibold text-blue-600">
                           다음 행동 추천
                         </p>
@@ -2095,7 +2239,10 @@ export default function LandingPage() {
                       </div>
                     )}
 
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <div
+                      className="mt-4 grid animate-fade-in gap-3 opacity-0 md:grid-cols-2"
+                      style={{ animationDelay: '240ms' }}
+                    >
                       <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-3">
                         <p className="text-sm font-semibold text-gray-900">
                           가장 강한 추천 근거
@@ -2123,6 +2270,8 @@ export default function LandingPage() {
                         </ul>
                       </div>
                     </div>
+                      </>
+                    )}
                   </div>
                   )}
                 </div>

@@ -583,9 +583,6 @@ def return_cached_result(cached_result, user_id=""):
         "aiSummary": cached_result.get("aiSummary", {}),
     })
 
-    if not groups.get("aiSummary"):
-        groups = attach_ai_summary(groups)
-
     save_matching_result(
         db=db,
         resume_id=cached_result["resumeId"],
@@ -678,7 +675,6 @@ def process_resume():
         print("[process-resume] matching started")
         groups = process_matching_groups_by_resume_id(resume_id, limit=5)
         groups = normalize_matching_groups(groups)
-        groups = attach_ai_summary(groups)
 
         # Re-read latest resume state before saving matching result.
         latest_resume_snap = db.collection("resumes").document(resume_id).get()
@@ -745,22 +741,6 @@ def read_matching_result(resume_id):
             "aiSummary": result.get("aiSummary", {}),
         })
 
-        if not groups.get("aiSummary"):
-            groups = attach_ai_summary(groups)
-
-        save_matching_result(
-            db=db,
-            resume_id=result["resumeId"],
-            matches=groups["matches"],
-            top_fit_matches=groups["topFitMatches"],
-            top_accessible_matches=groups["topAccessibleMatches"],
-            top_confidence_matches=groups["topConfidenceMatches"],
-            match_preferences=groups.get("matchPreferences", {}),
-            total_job_count=groups.get("totalJobCount"),
-            filtered_job_count=groups.get("filteredJobCount"),
-            ai_summary=groups.get("aiSummary", {}),
-        )
-
         return jsonify({
             "resumeId": result["resumeId"],
             "matches": groups["topFitMatches"],
@@ -783,6 +763,47 @@ def read_matching_result(resume_id):
         return jsonify({
             "error": str(e)
         }), 500
+
+
+@app.route("/matching-results/<resume_id>/ai-summary", methods=["POST"])
+def create_ai_summary(resume_id):
+    try:
+        result = get_matching_result(db, resume_id)
+
+        if not result:
+            return jsonify({"error": "Matching result not found."}), 404
+
+        cached_summary = result.get("aiSummary", {}) or {}
+
+        if cached_summary.get("description"):
+            return jsonify({
+                "resumeId": resume_id,
+                "aiSummary": cached_summary,
+                "fromCache": True,
+            })
+
+        groups = normalize_matching_groups(result)
+        ai_summary = generate_gemini_ai_summary(groups)
+
+        if not ai_summary or not ai_summary.get("description"):
+            return jsonify({
+                "error": "Gemini summary generation failed."
+            }), 502
+
+        db.collection("matching_results").document(str(resume_id)).set(
+            {"aiSummary": ai_summary},
+            merge=True,
+        )
+
+        return jsonify({
+            "resumeId": resume_id,
+            "aiSummary": ai_summary,
+            "fromCache": False,
+        })
+
+    except Exception as e:
+        print("[gemini-summary] endpoint error:", e)
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/process-one-match", methods=["POST"])
