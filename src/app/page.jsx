@@ -2027,70 +2027,115 @@ export default function LandingPage() {
                     등록된 이력서가 없습니다. 새 이력서를 등록해 주세요.
                   </p>
                 ) : (
-                  resumes.map((resume) => (
-                    <div
-                      key={resume.id}
-                      className={`flex items-center justify-between gap-3 p-4 border rounded-lg bg-white ${
-                        getResumeDocId(selectedResume) === getResumeDocId(resume)
-                          ? 'border-primary'
-                          : 'border-gray-200'
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        onClick={() =>
-                          isAuthenticated ? handleResumeAnalyze(resume) : router.push('/login')
-                        }
-                        className="flex items-center gap-4 text-left flex-1"
-                      >
-                        <FileText className="w-6 h-6 text-gray-500" aria-hidden />
-                        <div className="flex flex-col">
-                          <span className="font-medium">{resume.name}</span>
-                          <span className="text-sm text-gray-500">
-                            {resume.size} · {resume.date}
-                          </span>
-                          <span className="text-xs px-2 py-1 rounded bg-blue-50 text-blue-600 w-fit mt-1">
-                            {resume.status === 'INIT' && '업로드 완료'}
-                            {resume.status === 'PROCESSING' && '분석 중'}
-                            {resume.status === 'DONE' && '분석 완료'}
-                            {resume.status === 'FAILED' && '실패'}
-                          </span>
-                        </div>
-                      </button>
+                  resumes.map((resume) => {
+                    const isSelected =
+                      getResumeDocId(selectedResume) === getResumeDocId(resume)
+                    const hasSelectedResume = Boolean(
+                      getResumeDocId(selectedResume)
+                    )
 
-                      <div className="flex flex-wrap justify-end gap-2">
+                    return (
+                      <div
+                        key={resume.id}
+                        className={`relative flex items-center justify-between gap-3 rounded-xl border p-4 transition-all duration-200 ${
+                          isSelected
+                            ? 'border-blue-500 bg-blue-50/70 shadow-md ring-2 ring-blue-100'
+                            : hasSelectedResume
+                              ? 'border-gray-200 bg-white opacity-55 hover:border-blue-200 hover:opacity-100 hover:shadow-sm'
+                              : 'border-gray-200 bg-white hover:border-blue-200 hover:shadow-sm'
+                        }`}
+                      >
                         <button
                           type="button"
                           onClick={() =>
                             isAuthenticated
-                              ? handleDeleteResume(getResumeDocId(resume))
+                              ? handleResumeAnalyze(resume)
                               : router.push('/login')
                           }
-                          className="h-fit rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100"
+                          className="flex min-w-0 flex-1 items-center gap-4 text-left"
                         >
-                          삭제
+                          <FileText
+                            className={`h-6 w-6 flex-shrink-0 ${
+                              isSelected ? 'text-blue-600' : 'text-gray-500'
+                            }`}
+                            aria-hidden
+                          />
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span
+                                className={`truncate font-semibold ${
+                                  isSelected ? 'text-blue-900' : 'text-gray-900'
+                                }`}
+                              >
+                                {resume.name}
+                              </span>
+
+                              {isSelected && (
+                                <span className="inline-flex flex-shrink-0 items-center gap-1 rounded-full bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm">
+                                  <span aria-hidden="true">✓</span>
+                                  현재 선택됨
+                                </span>
+                              )}
+                            </div>
+
+                            <span
+                              className={`mt-1 block text-sm ${
+                                isSelected ? 'text-blue-700' : 'text-gray-500'
+                              }`}
+                            >
+                              {resume.size} · {resume.date}
+                            </span>
+
+                            <span className="mt-1 inline-flex w-fit rounded bg-blue-50 px-2 py-1 text-xs text-blue-600">
+                              {resume.status === 'INIT' && '업로드 완료'}
+                              {resume.status === 'PROCESSING' && '분석 중'}
+                              {resume.status === 'DONE' && '분석 완료'}
+                              {resume.status === 'FAILED' && '실패'}
+                            </span>
+
+                            {isSelected && (
+                              <p className="mt-2 text-xs font-medium text-blue-600">
+                                현재 매칭에 사용할 이력서로 선택되어 있습니다.
+                              </p>
+                            )}
+                          </div>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleOpenPreferenceEdit(resume)}
-                          disabled={isAnalyzing || isUpdatingPreferences}
-                          className="h-fit rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          조건 수정
-                        </button>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              isAuthenticated
+                                ? handleDeleteResume(getResumeDocId(resume))
+                                : router.push('/login')
+                            }
+                            className="h-fit rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100"
+                          >
+                            삭제
+                          </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleRematch(resume)}
-                          disabled={isAnalyzing || isUpdatingPreferences}
-                          className="h-fit rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          재분석
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenPreferenceEdit(resume)}
+                            disabled={isAnalyzing || isUpdatingPreferences}
+                            className="h-fit rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            조건 수정
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRematch(resume)}
+                            disabled={isAnalyzing || isUpdatingPreferences}
+                            className="h-fit rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            재분석
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))
+                    )
+                  })
                 )}
               </div>
             )}

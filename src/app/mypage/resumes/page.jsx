@@ -236,6 +236,7 @@ export default function ResumeManagePage() {
   const { user, isAuthenticated, mounted } = useAuth()
   const resumeUserId = user?.uid || user?.id || ''
   const [resumes, setResumes] = useState([])
+  const [selectedResumeId, setSelectedResumeId] = useState('')
   const fileInputRef = useRef(null)
 
   // 분석 내용 보기 모달용 state
@@ -248,8 +249,39 @@ export default function ResumeManagePage() {
   const [editForm, setEditForm] = useState(null)
 
   useEffect(() => {
-    if (mounted && !isAuthenticated) router.replace('/login')
-    if (mounted && isAuthenticated) setResumes(getResumes(resumeUserId))
+    if (mounted && !isAuthenticated) {
+      router.replace('/login')
+      return
+    }
+
+    if (mounted && isAuthenticated) {
+      const savedResumes = getResumes(resumeUserId)
+      setResumes(savedResumes)
+
+      // 이 페이지에서 마지막으로 선택했던 이력서를 복원합니다.
+      // 저장된 선택값이 없거나 삭제된 이력서라면 첫 번째 이력서를 기본 선택합니다.
+      const storageKey = `jobpick-selected-resume-${resumeUserId}`
+      const savedSelectedResumeId =
+        typeof window !== 'undefined' ? localStorage.getItem(storageKey) : ''
+
+      const hasSavedResume = savedResumes.some(
+        (resume) => (resume.docId || resume.id) === savedSelectedResumeId
+      )
+
+      const initialSelectedId = hasSavedResume
+        ? savedSelectedResumeId
+        : savedResumes[0]?.docId || savedResumes[0]?.id || ''
+
+      setSelectedResumeId(initialSelectedId)
+
+      if (typeof window !== 'undefined') {
+        if (initialSelectedId) {
+          localStorage.setItem(storageKey, initialSelectedId)
+        } else {
+          localStorage.removeItem(storageKey)
+        }
+      }
+    }
   }, [mounted, isAuthenticated, router, resumeUserId])
 
   if (!mounted || !isAuthenticated) return null
@@ -330,7 +362,21 @@ export default function ResumeManagePage() {
         })
       }
 
-      setResumes(addResumes(uploadedResumes, resumeUserId))
+      const nextResumes = addResumes(uploadedResumes, resumeUserId)
+      setResumes(nextResumes)
+
+      // 기존 선택 이력서가 없다면 새로 등록된 첫 이력서를 선택합니다.
+      if (!selectedResumeId && nextResumes.length > 0) {
+        const nextSelectedId = nextResumes[0].docId || nextResumes[0].id
+        setSelectedResumeId(nextSelectedId)
+
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(
+            `jobpick-selected-resume-${resumeUserId}`,
+            nextSelectedId
+          )
+        }
+      }
     } catch (error) {
       console.error(error)
       alert(error.message || '이력서 업로드 실패')
@@ -339,8 +385,40 @@ export default function ResumeManagePage() {
     }
   }
 
+  const handleSelectResume = (resume) => {
+    const resumeId = resume.docId || resume.id
+    if (!resumeId) return
+
+    setSelectedResumeId(resumeId)
+
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(
+        `jobpick-selected-resume-${resumeUserId}`,
+        resumeId
+      )
+    }
+  }
+
   const handleDeleteResume = (resumeId) => {
-    setResumes(removeResume(resumeId, resumeUserId))
+    const nextResumes = removeResume(resumeId, resumeUserId)
+    setResumes(nextResumes)
+
+    if (selectedResumeId === resumeId) {
+      const nextSelectedId =
+        nextResumes[0]?.docId || nextResumes[0]?.id || ''
+
+      setSelectedResumeId(nextSelectedId)
+
+      if (typeof window !== 'undefined') {
+        const storageKey = `jobpick-selected-resume-${resumeUserId}`
+
+        if (nextSelectedId) {
+          localStorage.setItem(storageKey, nextSelectedId)
+        } else {
+          localStorage.removeItem(storageKey)
+        }
+      }
+    }
   }
 
   const handleOpenAnalysis = async (resume) => {
@@ -481,38 +559,105 @@ export default function ResumeManagePage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {resumes.map((resume) => (
-            <div
-              key={resume.id}
-              className="bg-white border border-gray-200 rounded-xl p-4 flex items-center justify-between gap-3"
-            >
-              <div>
-                <p className="font-semibold">{resume.name}</p>
-                <p className="text-sm text-gray-500">
-                  {resume.size} · {resume.date}
-                  {resume.status && ` · ${resume.status}`}
-                </p>
-              </div>
+          {resumes.map((resume) => {
+            const resumeId = resume.docId || resume.id
+            const isSelected = selectedResumeId === resumeId
+            const hasSelectedResume = Boolean(selectedResumeId)
 
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleOpenAnalysis(resume)}
-                  className="px-3 py-1 rounded-md bg-blue-50 text-blue-600 text-sm hover:bg-blue-100 transition-colors"
-                >
-                  분석 내용 보기
-                </button>
+            return (
+              <div
+                key={resume.id}
+                onClick={() => handleSelectResume(resume)}
+                role="button"
+                tabIndex={0}
+                aria-pressed={isSelected}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    handleSelectResume(resume)
+                  }
+                }}
+                className={`relative flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-4 transition-all duration-200 ${
+                  isSelected
+                    ? 'border-blue-500 bg-blue-50/70 shadow-md ring-2 ring-blue-100'
+                    : hasSelectedResume
+                      ? 'border-gray-200 bg-white opacity-55 hover:border-blue-200 hover:opacity-100 hover:shadow-sm'
+                      : 'border-gray-200 bg-white hover:border-blue-200 hover:shadow-sm'
+                }`}
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p
+                      className={`font-semibold ${
+                        isSelected ? 'text-blue-900' : 'text-gray-900'
+                      }`}
+                    >
+                      {resume.name}
+                    </p>
 
-                <button
-                  type="button"
-                  onClick={() => handleDeleteResume(resume.id)}
-                  className="px-3 py-1 rounded-md bg-red-50 text-red-600 text-sm hover:bg-red-100 transition-colors"
-                >
-                  삭제
-                </button>
+                    {isSelected && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white shadow-sm">
+                        <span aria-hidden="true">✓</span>
+                        현재 선택됨
+                      </span>
+                    )}
+                  </div>
+
+                  <p
+                    className={`mt-1 text-sm ${
+                      isSelected ? 'text-blue-700' : 'text-gray-500'
+                    }`}
+                  >
+                    {resume.size} · {resume.date}
+                    {resume.status && ` · ${resume.status}`}
+                  </p>
+
+                  {isSelected && (
+                    <p className="mt-2 text-xs font-medium text-blue-600">
+                      현재 매칭에 사용할 이력서로 선택되어 있습니다.
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex shrink-0 items-center gap-2">
+                  {!isSelected && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        handleSelectResume(resume)
+                      }}
+                      className="rounded-md border border-gray-200 bg-white px-3 py-1 text-sm font-medium text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                    >
+                      이 이력서 선택
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleOpenAnalysis(resume)
+                    }}
+                    className="rounded-md bg-blue-50 px-3 py-1 text-sm text-blue-600 transition-colors hover:bg-blue-100"
+                  >
+                    분석 내용 보기
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      handleDeleteResume(resumeId)
+                    }}
+                    className="rounded-md bg-red-50 px-3 py-1 text-sm text-red-600 transition-colors hover:bg-red-100"
+                  >
+                    삭제
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
