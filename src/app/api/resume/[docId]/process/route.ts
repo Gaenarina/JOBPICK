@@ -32,6 +32,7 @@ export async function POST(
         resumeId: docId,
         userId,
         forceRefresh,
+        matchPreferences: body.matchPreferences || {},
       }),
     });
 

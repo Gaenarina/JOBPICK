@@ -8,18 +8,6 @@ PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from crawler.crawler_jobposting import JobKoreaCrawler
-from ocr.ocr_jobposting import extract_text_from_image
-from preprocess.preprocess_jobposting import preprocess_text
-from structure.structure_image_jobposting import structure_jobposting_from_image
-from structure.structure_text_jobposting import structure_jobposting_from_text
-
-from database.firebase_init import init_firebase
-from database.firebase_save_jobposting import (
-    save_jobposting,
-    save_failed_jobposting,
-)
-
 TARGET_COUNT = 5
 
 
@@ -40,6 +28,34 @@ def load_existing_links(db):
 
 
 def main():
+    # The official API is the active source.  The legacy crawler is preserved
+    # below for reference/fallback, but it runs only after an explicit opt-in.
+    source = os.getenv("JOB_POSTING_SOURCE", "moef").strip().lower()
+    if source in {"moef", "job_alio", "api"}:
+        from main.main_moef_jobposting import main as run_moef_pipeline
+
+        return run_moef_pipeline()
+
+    if source != "jobkorea" or os.getenv("ENABLE_LEGACY_JOBKOREA_CRAWLER") != "true":
+        raise RuntimeError(
+            "The JobKorea crawler is disabled. Use JOB_POSTING_SOURCE=moef, or "
+            "explicitly set JOB_POSTING_SOURCE=jobkorea and "
+            "ENABLE_LEGACY_JOBKOREA_CRAWLER=true for the legacy fallback."
+        )
+
+    # Keep crawler-only dependencies out of the official API execution path.
+    global JobKoreaCrawler
+    global extract_text_from_image, preprocess_text
+    global structure_jobposting_from_image, structure_jobposting_from_text
+    global init_firebase, save_jobposting, save_failed_jobposting
+    from crawler.crawler_jobposting import JobKoreaCrawler
+    from ocr.ocr_jobposting import extract_text_from_image
+    from preprocess.preprocess_jobposting import preprocess_text
+    from structure.structure_image_jobposting import structure_jobposting_from_image
+    from structure.structure_text_jobposting import structure_jobposting_from_text
+    from database.firebase_init import init_firebase
+    from database.firebase_save_jobposting import save_jobposting, save_failed_jobposting
+
     db, _ = init_firebase("config/firebase_key.json")
     crawler = JobKoreaCrawler(headless=True)
 

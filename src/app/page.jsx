@@ -15,6 +15,7 @@ import { FileText, Sparkles, X } from 'lucide-react'
 
 import {
   ROLE_OPTIONS,
+  JOB_KEYWORD_OPTIONS,
   LOCATION_OPTIONS,
   EMPLOYMENT_TYPE_OPTIONS,
 } from '@/lib/matchingPreferenceOptions'
@@ -313,7 +314,8 @@ function hasMatchPreferences(preferences) {
   return (
     normalizePreferenceList(preferences.desiredRoles).length > 0 ||
     normalizePreferenceList(preferences.desiredLocations).length > 0 ||
-    normalizePreferenceList(preferences.employmentTypes).length > 0
+    normalizePreferenceList(preferences.employmentTypes).length > 0 ||
+    normalizePreferenceList(preferences.desiredKeywords).length > 0
   )
 }
 
@@ -1077,6 +1079,7 @@ export default function LandingPage() {
   const [desiredRoles, setDesiredRoles] = useState([])
   const [desiredLocations, setDesiredLocations] = useState([])
   const [employmentTypes, setEmploymentTypes] = useState([])
+  const [desiredKeywords, setDesiredKeywords] = useState([])
   const [pendingFile, setPendingFile] = useState(null)
   const [showPreferenceModal, setShowPreferenceModal] = useState(false)
 
@@ -1085,6 +1088,7 @@ export default function LandingPage() {
   const [editDesiredRoles, setEditDesiredRoles] = useState([])
   const [editDesiredLocations, setEditDesiredLocations] = useState([])
   const [editEmploymentTypes, setEditEmploymentTypes] = useState([])
+  const [editDesiredKeywords, setEditDesiredKeywords] = useState([])
   const [isUpdatingPreferences, setIsUpdatingPreferences] = useState(false)
   const [matchScoreFilter, setMatchScoreFilter] = useState('all')
   const [matchHiringFilter, setMatchHiringFilter] = useState('all')
@@ -1175,6 +1179,8 @@ export default function LandingPage() {
     setDesiredRoles([])
     setDesiredLocations([])
     setEmploymentTypes([])
+    setDesiredKeywords([])
+    setDesiredKeywords([])
 
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
@@ -1288,6 +1294,7 @@ export default function LandingPage() {
           userId,
           forceRefresh,
           force: forceRefresh,
+          matchPreferences: resume?.matchPreferences || {},
         }),
       })
 
@@ -1482,6 +1489,7 @@ export default function LandingPage() {
     setDesiredRoles([])
     setDesiredLocations([])
     setEmploymentTypes([])
+    setDesiredKeywords([])
   }
 
   const handleConfirmUpload = async () => {
@@ -1495,6 +1503,7 @@ export default function LandingPage() {
       desiredRoles,
       desiredLocations,
       employmentTypes,
+      desiredKeywords,
     }
 
     try {
@@ -1557,6 +1566,7 @@ export default function LandingPage() {
       setDesiredRoles([])
       setDesiredLocations([])
       setEmploymentTypes([])
+      setDesiredKeywords([])
     } catch (error) {
       console.error(error)
       alert(error.message || '업로드 중 오류가 발생했습니다.')
@@ -1677,6 +1687,11 @@ export default function LandingPage() {
           ? matchPreferences.employmentTypes
           : []
       )
+      setEditDesiredKeywords(
+        Array.isArray(matchPreferences.desiredKeywords)
+          ? matchPreferences.desiredKeywords
+          : []
+      )
       setEditingResume(resume)
     } catch (error) {
       console.error(error)
@@ -1691,6 +1706,7 @@ export default function LandingPage() {
     setEditDesiredRoles([])
     setEditDesiredLocations([])
     setEditEmploymentTypes([])
+    setEditDesiredKeywords([])
   }
 
   const handleSavePreferenceEdit = async () => {
@@ -1705,6 +1721,7 @@ export default function LandingPage() {
       desiredRoles: editDesiredRoles,
       desiredLocations: editDesiredLocations,
       employmentTypes: editEmploymentTypes,
+      desiredKeywords: editDesiredKeywords,
     }
 
     try {
@@ -2526,6 +2543,7 @@ export default function LandingPage() {
             <option value="의료/바이오">의료/바이오</option>
             <option value="운전/운송/배송">운전/운송/배송</option>
             <option value="건축/시설">건축/시설</option>
+            <option value="기타">기타</option>
           </select>
         </div>
 
@@ -2699,6 +2717,15 @@ export default function LandingPage() {
                   toggleSelectedValue(setEditEmploymentTypes, value)
                 }
               />
+
+              <PreferenceOptionGroup
+                title="관심 직무 키워드"
+                options={JOB_KEYWORD_OPTIONS}
+                selectedValues={editDesiredKeywords}
+                onToggle={(value) =>
+                  toggleSelectedValue(setEditDesiredKeywords, value)
+                }
+              />
             </div>
 
             <p className="mt-5 text-xs text-gray-400">
@@ -2707,13 +2734,15 @@ export default function LandingPage() {
 
             {(editDesiredRoles.length > 0 ||
               editDesiredLocations.length > 0 ||
-              editEmploymentTypes.length > 0) && (
+              editEmploymentTypes.length > 0 ||
+              editDesiredKeywords.length > 0) && (
               <button
                 type="button"
                 onClick={() => {
                   setEditDesiredRoles([])
                   setEditDesiredLocations([])
                   setEditEmploymentTypes([])
+                  setEditDesiredKeywords([])
                 }}
                 disabled={isUpdatingPreferences}
                 className="mt-3 text-sm font-medium text-gray-500 underline hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
@@ -2805,6 +2834,13 @@ export default function LandingPage() {
                 selectedValues={employmentTypes}
                 onToggle={(value) => toggleSelectedValue(setEmploymentTypes, value)}
               />
+
+              <PreferenceOptionGroup
+                title="관심 직무 키워드"
+                options={JOB_KEYWORD_OPTIONS}
+                selectedValues={desiredKeywords}
+                onToggle={(value) => toggleSelectedValue(setDesiredKeywords, value)}
+              />
             </div>
 
             <p className="mt-5 text-xs text-gray-400">
@@ -2813,13 +2849,15 @@ export default function LandingPage() {
 
             {(desiredRoles.length > 0 ||
               desiredLocations.length > 0 ||
-              employmentTypes.length > 0) && (
+              employmentTypes.length > 0 ||
+              desiredKeywords.length > 0) && (
               <button
                 type="button"
                 onClick={() => {
                   setDesiredRoles([])
                   setDesiredLocations([])
                   setEmploymentTypes([])
+                  setDesiredKeywords([])
                 }}
                 disabled={isAnalyzing}
                 className="mt-3 text-sm font-medium text-gray-500 underline hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50"

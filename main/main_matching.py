@@ -16,6 +16,8 @@ from matching.matchtest import (
     get_resume_embedding_text,
     get_job_embedding_text,
     calculate_full_embedding_similarity,
+    clear_embedding_cache,
+    preload_score_embeddings,
 )
 
 
@@ -496,14 +498,68 @@ def is_job_matched_with_preferences(job_raw, match_preferences):
     desired_roles = normalize_list(match_preferences.get("desiredRoles"))
     desired_locations = normalize_list(match_preferences.get("desiredLocations"))
     employment_types = normalize_list(match_preferences.get("employmentTypes"))
+    desired_keywords = normalize_list(match_preferences.get("desiredKeywords"))
 
     job_text = get_job_filter_text(job_raw)
 
     role_matched = matches_role(job_text, desired_roles)
     location_matched = matches_location(job_text, desired_locations)
     employment_matched = matches_employment_type(job_text, employment_types)
+    keyword_matched = (
+        not desired_keywords
+        or any(keyword in job_text for keyword in desired_keywords)
+    )
 
-    return role_matched and location_matched and employment_matched
+    return (
+        role_matched
+        and location_matched
+        and employment_matched
+        and keyword_matched
+    )
+
+
+def rank_job_candidates(candidates, resume_text, match_preferences, limit=None):
+    """Cheap lexical pre-ranking before expensive embedding/NCS scoring."""
+    if limit is None:
+        limit = int(os.getenv("MATCHING_AI_CANDIDATE_LIMIT", "80"))
+    limit = max(10, limit)
+    if len(candidates) <= limit:
+        return candidates
+
+    preferred = normalize_list((match_preferences or {}).get("desiredKeywords"))
+    resume_tokens = set(re.findall(r"[가-힣A-Za-z0-9+#.]{2,}", normalize_text(resume_text)))
+
+    ranked = []
+    for index, candidate in enumerate(candidates):
+        job_text = get_job_filter_text(candidate[1])
+        job_tokens = set(re.findall(r"[가-힣A-Za-z0-9+#.]{2,}", job_text))
+        overlap = len(resume_tokens & job_tokens)
+        preference_hits = sum(1 for keyword in preferred if keyword in job_text)
+        ranked.append((preference_hits * 100 + overlap, -index, candidate))
+
+    ranked.sort(reverse=True)
+    return [item[2] for item in ranked[:limit]]
+
+
+def is_enabled_job_source(job_raw):
+    """Exclude preserved legacy crawler data from the active matching pool."""
+    configured = os.getenv("JOB_POSTING_ACTIVE_SOURCES", "moef_job_alio")
+    enabled_sources = {
+        source.strip().lower()
+        for source in configured.split(",")
+        if source.strip()
+    }
+    if not enabled_sources or "all" in enabled_sources:
+        return True
+
+    job_posting = job_raw.get("jobPosting", {}) or {}
+    meta = job_raw.get("meta", {}) or {}
+    source = str(
+        meta.get("source")
+        or job_posting.get("sourceSite")
+        or ""
+    ).strip().lower()
+    return source in enabled_sources
 
 
 # ============================================================
@@ -1141,6 +1197,7 @@ def process_matching_by_resume_id(resume_doc_id, limit=5):
 
 
 def process_matching_groups_by_resume_id(resume_doc_id, limit=5):
+    clear_embedding_cache()
     db, _ = init_firebase("config/firebase_key.json")
 
     resume_snapshot = db.collection("resumes").document(resume_doc_id).get()
@@ -1171,6 +1228,7 @@ def process_matching_groups_by_resume_id(resume_doc_id, limit=5):
     job_snapshots = db.collection("job_postings").stream()
 
     results = []
+    candidate_jobs = []
     total_job_count = 0
     filtered_job_count = 0
 
@@ -1181,17 +1239,33 @@ def process_matching_groups_by_resume_id(resume_doc_id, limit=5):
     print(f"[matching] 수정 여부: {analysis_meta.get('isAnalysisEdited')}")
 
     for job_snapshot in job_snapshots:
-        total_job_count += 1
-
         job_doc_id = job_snapshot.id
         job_raw = job_snapshot.to_dict() or {}
+
+        if not is_enabled_job_source(job_raw):
+            continue
+
+        total_job_count += 1
 
         # 이력서에 저장된 희망 직무/지역/근무형태 조건에 맞지 않는 공고는 점수계산 전에 제외
         if not is_job_matched_with_preferences(job_raw, match_preferences):
             continue
 
         filtered_job_count += 1
+        candidate_jobs.append((job_doc_id, job_raw))
 
+    candidate_jobs = rank_job_candidates(
+        candidate_jobs,
+        get_resume_embedding_text(resume_raw_for_matching),
+        match_preferences,
+    )
+
+    preload_score_embeddings(
+        [flatten_job(job_raw) for _, job_raw in candidate_jobs],
+        resume_for_score,
+    )
+
+    for job_doc_id, job_raw in candidate_jobs:
         final_result = build_match_result(
             job_doc_id=job_doc_id,
             job_raw=job_raw,
@@ -1213,6 +1287,7 @@ def process_matching_groups_by_resume_id(resume_doc_id, limit=5):
     groups["matchPreferences"] = match_preferences
     groups["totalJobCount"] = total_job_count
     groups["filteredJobCount"] = filtered_job_count
+    groups["candidateJobCount"] = len(candidate_jobs)
 
     # 어떤 이력서 분석 결과로 계산했는지 groups에도 남긴다.
     groups["selectedAnalysisField"] = analysis_meta.get("selectedAnalysisField")
@@ -1223,6 +1298,7 @@ def process_matching_groups_by_resume_id(resume_doc_id, limit=5):
     print(f"[matching] 전체 공고 수: {total_job_count}")
     print(f"[matching] 조건 필터링 후 공고 수: {filtered_job_count}")
     print(f"[matching] 적용된 조건: {match_preferences}")
+    print(f"[matching] AI 정밀 비교 공고 수: {len(candidate_jobs)}")
 
     return groups
 

@@ -1,4 +1,5 @@
 import re
+from collections import OrderedDict
 from typing import Any, Dict, List, Tuple
 
 from sentence_transformers import SentenceTransformer, util
@@ -10,10 +11,13 @@ from matching.keyword_dictionary import (
     get_category_overlap,
 )
 from matching.ncs_matcher import calculate_ncs_score
+from matching.vector_store import get_vector
 
 
 MODEL_NAME = "jhgan/ko-sroberta-multitask"
 _model = None
+_embedding_cache = OrderedDict()
+EMBEDDING_CACHE_LIMIT = 1024
 
 NO_NCS_RULE_WEIGHT = 30.0
 NO_NCS_SEMANTIC_WEIGHT = 70.0
@@ -45,6 +49,74 @@ def get_model():
         _model = SentenceTransformer(MODEL_NAME)
 
     return _model
+
+
+def get_text_embedding(text: str):
+    normalized = prepare_semantic_text(text)
+    cached = _embedding_cache.get(normalized)
+    if cached is not None:
+        _embedding_cache.move_to_end(normalized)
+        return cached
+
+    stored = get_vector(normalized)
+    if stored is not None:
+        import torch
+        embedding = torch.from_numpy(stored.copy())
+    else:
+        embedding = get_model().encode(normalized, convert_to_tensor=True)
+    _embedding_cache[normalized] = embedding
+    while len(_embedding_cache) > EMBEDDING_CACHE_LIMIT:
+        _embedding_cache.popitem(last=False)
+    return embedding
+
+
+def clear_embedding_cache():
+    _embedding_cache.clear()
+
+
+def get_score_semantic_texts(job: Dict[str, Any], resume: Dict[str, Any]):
+    resume_full = prepare_semantic_text(" / ".join([
+        safe_str(resume.get("education", "")), safe_str(resume.get("skills", [])),
+        safe_str(resume.get("certifications", [])), safe_str(resume.get("projects", [])),
+    ]))
+    job_full = prepare_semantic_text(" / ".join([
+        safe_str(job.get("category", "")), safe_str(job.get("education", "")),
+        safe_str(job.get("experience", {})), safe_str(job.get("skills", {})),
+        safe_str(job.get("responsibilities", [])), safe_str(job.get("qualifications", {})),
+        safe_str(job.get("certifications", [])),
+    ]))
+    resume_experience = prepare_semantic_text(" ".join(as_list(resume.get("projects", []))))
+    job_responsibilities = prepare_semantic_text(" ".join(as_list(job.get("responsibilities", []))))
+    job_qualifications = prepare_semantic_text(
+        " ".join(
+            as_qualification_list(
+                (job.get("qualifications", {}) or {}).get("required", [])
+            )
+        )
+    )
+    return resume_full, job_full, resume_experience, job_responsibilities, job_qualifications
+
+
+def preload_score_embeddings(jobs: List[Dict[str, Any]], resume: Dict[str, Any], batch_size: int = 32):
+    """Encode all semantic score inputs in batches before per-job scoring."""
+    texts = []
+    seen = set()
+    for job in jobs:
+        for text in get_score_semantic_texts(job, resume):
+            if text and text not in seen and text not in _embedding_cache and get_vector(text) is None:
+                seen.add(text)
+                texts.append(text)
+    if not texts:
+        return
+
+    embeddings = get_model().encode(
+        texts,
+        convert_to_tensor=True,
+        batch_size=batch_size,
+        show_progress_bar=False,
+    )
+    for text, embedding in zip(texts, embeddings):
+        _embedding_cache[text] = embedding
 
 
 def safe_str(value: Any) -> str:
@@ -104,6 +176,59 @@ def as_list(value: Any) -> List[Any]:
         return [value]
 
     return [value]
+
+
+
+def as_qualification_list(value: Any) -> List[str]:
+    """
+    자격요건 전용 파서.
+
+    일반 as_list()는 쉼표(,)까지 분리하지만,
+    공공기관 API의 자격요건 문장에는 쉼표가 자주 포함되므로
+    쉼표로 조건을 잘게 쪼개지 않는다.
+
+    - list/tuple/set: 각 항목 유지
+    - str: 줄바꿈 또는 | 기준으로만 분리
+    - 앞쪽의 목록기호/번호는 제거
+    """
+    if value is None:
+        return []
+
+    if isinstance(value, (list, tuple, set)):
+        result = []
+        for item in value:
+            result.extend(as_qualification_list(item))
+        return list(dict.fromkeys(result))
+
+    if isinstance(value, dict):
+        return as_qualification_list(
+            value.get("name")
+            or value.get("text")
+            or value.get("value")
+            or list(value.values())
+        )
+
+    raw = str(value).strip()
+    if not raw:
+        return []
+
+    parts = re.split(r"[\r\n|]+", raw)
+    result = []
+
+    for part in parts:
+        cleaned = clean_text(part)
+
+        # "- ", "O ", "○ ", "① ", "1. " 같은 목록기호 제거
+        cleaned = re.sub(
+            r"^\s*(?:[-–—•·ㆍ※○O]+|\(?\d+(?:의\d+)?\)?[.)]?|[①-⑳])\s*",
+            "",
+            cleaned,
+        ).strip()
+
+        if cleaned:
+            result.append(cleaned)
+
+    return list(dict.fromkeys(result))
 
 
 def unique_preserve_order(items: List[Any]) -> List[str]:
@@ -492,9 +617,8 @@ def calculate_text_similarity(text1: str, text2: str) -> float:
     if not text1 or not text2:
         return 0.0
 
-    model = get_model()
-    emb1 = model.encode(text1, convert_to_tensor=True)
-    emb2 = model.encode(text2, convert_to_tensor=True)
+    emb1 = get_text_embedding(text1)
+    emb2 = get_text_embedding(text2)
     similarity = util.cos_sim(emb1, emb2).item()
 
     return max(0.0, min(1.0, float(similarity)))
@@ -507,8 +631,8 @@ def build_experience_relevance_text(job: Dict[str, Any]) -> str:
     qualifications = job.get("qualifications", {}) or {}
 
     if isinstance(qualifications, dict):
-        parts.extend(as_list(qualifications.get("required", [])))
-        parts.extend(as_list(qualifications.get("preferred", [])))
+        parts.extend(as_qualification_list(qualifications.get("required", [])))
+        parts.extend(as_qualification_list(qualifications.get("preferred", [])))
 
     skills = job.get("skills", {}) or {}
 
@@ -609,6 +733,52 @@ QUALIFICATION_NOISE_KEYWORDS = [
     "서류전형", "면접", "최종합격", "지도보기", "인근지하철", "복리후생"
 ]
 
+# 공공기관 채용공고에 자주 포함되지만,
+# 이력서의 기술/학력/경력/자격증과 직접 비교하기 어려운 공통 법적·행정 조건.
+# 이런 문장은 공고 원문에는 보존하되 '필수 자격요건 룰 점수'에서는 제외한다.
+PUBLIC_INSTITUTION_NON_SCORABLE_QUAL_KEYWORDS = [
+    "결격사유",
+    "인사규정",
+    "임용취소",
+    "임용될 수 없",
+    "정년에 따른",
+    "정년(",
+    "피성년후견인",
+    "피한정후견인",
+    "파산선고",
+    "복권되지",
+    "금고 이상의 형",
+    "집행유예",
+    "선고유예",
+    "자격이 상실 또는 정지",
+    "징계에 의하여",
+    "병역기피",
+    "채용신체검사",
+    "신체검사 불합격",
+    "부패방지",
+    "비위면직",
+    "채용비리",
+    "부정한 방법으로 채용",
+    "채용이 취소",
+    "가족과 친척을 부당하게 채용",
+    "성폭력범죄",
+    "아동·청소년대상 성범죄",
+    "노인복지법",
+    "장애인복지법",
+    "취업제한",
+    "공고문 참고",
+    "자세한 사항은",
+]
+
+# 실제 이력서와 비교할 수 있는 조건을 적극적으로 남기기 위한 힌트.
+SCORABLE_QUALIFICATION_HINTS = [
+    "자격증", "면허", "소지자", "전문의", "자격인정증",
+    "경력", "경험", "전공", "학위", "학력",
+    "가능자", "가능한 자", "활용", "사용", "숙련",
+    "운전", "외국어", "토익", "toeic", "컴퓨터",
+    "오피스", "excel", "엑셀", "한글", "powerpoint", "ppt",
+]
+
 
 def is_valid_required_qualification(text: Any) -> bool:
     value = clean_text(text)
@@ -624,13 +794,58 @@ def is_valid_required_qualification(text: Any) -> bool:
     if any(keyword in value for keyword in QUALIFICATION_NOISE_KEYWORDS):
         return False
 
+    # 공공기관 공통 법적/행정 자격조건은 이력서 적합도 룰 점수에서 제외한다.
+    lowered = value.lower()
+    if any(keyword.lower() in lowered for keyword in PUBLIC_INSTITUTION_NON_SCORABLE_QUAL_KEYWORDS):
+        return False
+
     return True
 
 
+def is_scorable_required_qualification(text: Any) -> bool:
+    """
+    실제 이력서 내용과 비교해 점수화할 수 있는 자격요건인지 판단한다.
+
+    1) 기존 노이즈/공공기관 공통 법적 조건 제거
+    2) 사전에서 기술·자격·업무·카테고리 등의 신호가 잡히면 평가
+    3) 사전 신호가 없어도 자격증/면허/경력/전공/활용 가능 등
+       명시적 자격 힌트가 있으면 평가
+    """
+    value = clean_text(text)
+
+    if not is_valid_required_qualification(value):
+        return False
+
+    features = extract_dictionary_features(value)
+    feature_count = 0
+
+    for key in ["skills", "certifications", "requirements", "categories", "tasks"]:
+        feature_count += len(features.get(key, []))
+
+    if feature_count > 0:
+        return True
+
+    lowered = value.lower()
+    if any(hint.lower() in lowered for hint in SCORABLE_QUALIFICATION_HINTS):
+        return True
+
+    # 너무 포괄적이거나 추상적인 문장은 자동 룰 점수에는 넣지 않는다.
+    return False
+
+
 def calculate_qualification_rule_score(required_quals: List[Any], resume: Dict[str, Any]) -> Tuple[float, List[str], int, bool]:
-    required = [clean_text(item) for item in as_list(required_quals)]
+    # [기존 방식]
+    # required = [clean_text(item) for item in as_list(required_quals)]
+    # required = [remove_stopwords(item) for item in required]
+    # required = [item for item in required if is_valid_required_qualification(item)]
+
+    # [새 방식]
+    # 자격요건은 쉼표로 분리하지 않고 줄 단위로 유지하며,
+    # 실제 이력서와 비교 가능한 조건만 룰 점수에 사용한다.
+    required = [clean_text(item) for item in as_qualification_list(required_quals)]
     required = [remove_stopwords(item) for item in required]
-    required = [item for item in required if is_valid_required_qualification(item)]
+    required = [item for item in required if is_scorable_required_qualification(item)]
+    required = unique_preserve_order(required)
 
     if not required:
         return 0.0, [], 0, False
@@ -946,8 +1161,14 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
     experience = requirements.get("experience", {}) or {}
     certifications = requirements.get("certifications", []) or []
 
-    required_quals = as_list(requirements.get("requiredQualifications", []))
-    preferred_quals = as_list(requirements.get("preferredQualifications", []))
+    # [기존 방식]
+    # required_quals = as_list(requirements.get("requiredQualifications", []))
+    # preferred_quals = as_list(requirements.get("preferredQualifications", []))
+
+    # [새 방식]
+    # 공공기관 API 자격요건 문장의 쉼표를 조건 구분자로 오인하지 않는다.
+    required_quals = as_qualification_list(requirements.get("requiredQualifications", []))
+    preferred_quals = as_qualification_list(requirements.get("preferredQualifications", []))
 
     responsibilities = unique_preserve_order(job.get("responsibilities", []))
 
@@ -974,6 +1195,7 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
 
     job_category = extract_job_category(firebase_job_doc, job, job_text_for_dictionary)
     ncs_category = infer_ncs_category_from_job(job_category, job_text_for_dictionary)
+    ncs_info = job.get("ncs", {}) or {}
 
     return {
         "skills": {
@@ -994,6 +1216,8 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
         "dictionaryFeatures": dictionary_features,
         "category": job_category,
         "ncsCategory": ncs_category,
+        "ncsCodes": as_list(ncs_info.get("codes", [])),
+        "ncsNames": as_list(ncs_info.get("names", [])),
     }
 
 
@@ -1189,13 +1413,170 @@ def build_ncs_not_applied_result(reason: str) -> Dict[str, Any]:
     }
 
 
-def get_rule_component_weights(rule_total_max: float) -> Dict[str, float]:
+def get_rule_component_weights(
+    rule_total_max: float,
+    skill_used: bool,
+    edu_used: bool,
+    exp_used: bool,
+    cert_used: bool,
+    qual_used: bool,
+) -> Dict[str, float]:
+    """
+    공고에 실제로 존재하는 룰 항목만 대상으로 rule_total_max를 재분배한다.
+
+    기본 중요도는 다음 비율을 유지한다.
+    - 기술 스택: 40%
+    - 학력: 10%
+    - 경력: 20%
+    - 자격증: 10%
+    - 필수 자격요건: 20%
+
+    예:
+    - 필수 자격요건만 존재 + rule_total_max=15
+      -> qual 15점
+    - 기술/경력/필수 자격요건 존재 + rule_total_max=30
+      -> 40:20:20 = 15:7.5:7.5점
+
+    조건이 없는 항목은 최대 배점도 0점으로 처리한다.
+    """
+    base_ratios = {
+        "skill": RULE_SKILL_RATIO,
+        "edu": RULE_EDU_RATIO,
+        "exp": RULE_EXP_RATIO,
+        "cert": RULE_CERT_RATIO,
+        "qual": RULE_QUAL_RATIO,
+    }
+
+    used_map = {
+        "skill": bool(skill_used),
+        "edu": bool(edu_used),
+        "exp": bool(exp_used),
+        "cert": bool(cert_used),
+        "qual": bool(qual_used),
+    }
+
+    active_ratio_sum = sum(
+        base_ratios[key]
+        for key, is_used in used_map.items()
+        if is_used
+    )
+
+    if rule_total_max <= 0 or active_ratio_sum <= 0:
+        return {
+            "skill": 0.0,
+            "edu": 0.0,
+            "exp": 0.0,
+            "cert": 0.0,
+            "qual": 0.0,
+        }
+
     return {
-        "skill": rule_total_max * RULE_SKILL_RATIO,
-        "edu": rule_total_max * RULE_EDU_RATIO,
-        "exp": rule_total_max * RULE_EXP_RATIO,
-        "cert": rule_total_max * RULE_CERT_RATIO,
-        "qual": rule_total_max * RULE_QUAL_RATIO,
+        key: (
+            rule_total_max * (base_ratios[key] / active_ratio_sum)
+            if used_map[key]
+            else 0.0
+        )
+        for key in base_ratios
+    }
+
+
+def has_meaningful_responsibilities(job: Dict[str, Any]) -> bool:
+    """
+    담당업무가 실제 직무 설명으로서 의미 있는지 판단한다.
+
+    JOB-ALIO API 공고의 경우 별도 담당업무가 없어
+    responsibilities에 NCS 대분류명만 들어갈 수 있다.
+    이 경우에는 '담당업무 의미 유사도' 평가에서 제외한다.
+    """
+    responsibilities = unique_preserve_order(as_list(job.get("responsibilities", [])))
+
+    if not responsibilities:
+        return False
+
+    ncs_names = {
+        clean_text(name).lower()
+        for name in as_list(job.get("ncsNames", []))
+        if clean_text(name)
+    }
+
+    category = clean_text(job.get("category", "")).lower()
+
+    meaningful_items = []
+
+    for item in responsibilities:
+        normalized = clean_text(item).lower()
+
+        if not normalized:
+            continue
+
+        # JOB-ALIO의 NCS 대분류명만 responsibilities에 들어간 경우
+        # 실제 담당업무 설명으로 보지 않는다.
+        if normalized in ncs_names:
+            continue
+
+        # 카테고리명 하나만 담당업무처럼 들어간 경우도 제외한다.
+        if category and normalized == category:
+            continue
+
+        meaningful_items.append(normalized)
+
+    return bool(meaningful_items)
+
+
+def get_semantic_component_weights(
+    semantic_total_max: float,
+    full_used: bool,
+    resp_used: bool,
+    qual_used: bool,
+) -> Dict[str, float]:
+    """
+    실제 사용할 수 있는 의미 기반 항목끼리 semantic_total_max를 재분배한다.
+
+    기본 중요도:
+    - 공고 전체 ↔ 이력서 전체: 50%
+    - 담당업무 ↔ 경험: 30%
+    - 자격요건 ↔ 경험: 20%
+
+    예:
+    - 전체 + 담당업무 + 자격요건 모두 존재
+      -> 35 / 21 / 14 (총 70)
+    - 담당업무 없음, 전체 + 자격요건만 존재
+      -> 50 / 20 (총 70)
+    - 자격요건 없음, 전체 + 담당업무만 존재
+      -> 43.75 / 26.25 (총 70)
+    """
+    base_ratios = {
+        "full": FULL_SEMANTIC_RATIO,
+        "resp": RESPONSIBILITY_SEMANTIC_RATIO,
+        "qual": QUALIFICATION_SEMANTIC_RATIO,
+    }
+
+    used_map = {
+        "full": bool(full_used),
+        "resp": bool(resp_used),
+        "qual": bool(qual_used),
+    }
+
+    active_ratio_sum = sum(
+        base_ratios[key]
+        for key, is_used in used_map.items()
+        if is_used
+    )
+
+    if semantic_total_max <= 0 or active_ratio_sum <= 0:
+        return {
+            "full": 0.0,
+            "resp": 0.0,
+            "qual": 0.0,
+        }
+
+    return {
+        key: (
+            semantic_total_max * (base_ratios[key] / active_ratio_sum)
+            if used_map[key]
+            else 0.0
+        )
+        for key in base_ratios
     }
 
 
@@ -1280,6 +1661,8 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     )
 
     required_quals = (job.get("qualifications", {}) or {}).get("required", [])
+    qual_original_count = len(as_qualification_list(required_quals))
+
     qual_rule_score_raw, matched_quals, qual_total_count, qual_used = calculate_qualification_rule_score(
         required_quals, resume
     )
@@ -1316,30 +1699,64 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         safe_str(job.get("certifications", [])),
     ]))
 
-    resume_full_text = prepare_semantic_text(raw_resume_full_text)
-    job_full_text = prepare_semantic_text(raw_job_full_text)
-
-    resume_exp_text = prepare_semantic_text(" ".join(as_list(resume.get("projects", []))))
-    job_resp_text = prepare_semantic_text(" ".join(as_list(job.get("responsibilities", []))))
-    job_qual_text = prepare_semantic_text(" ".join(as_list((job.get("qualifications", {}) or {}).get("required", []))))
-
-    raw_full_sim, raw_full_score = calculate_semantic_score(
+    (
         resume_full_text,
         job_full_text,
-        FULL_SEMANTIC_WEIGHT
-    ) if resume_full_text and job_full_text else (0.0, 0.0)
-
-    raw_resp_sim, raw_resp_score = calculate_semantic_score(
         resume_exp_text,
         job_resp_text,
-        RESPONSIBILITY_SEMANTIC_WEIGHT
-    ) if resume_exp_text and job_resp_text else (0.0, 0.0)
-
-    raw_qual_sim, raw_qual_score = calculate_semantic_score(
-        resume_exp_text,
         job_qual_text,
-        QUALIFICATION_SEMANTIC_WEIGHT
-    ) if resume_exp_text and job_qual_text else (0.0, 0.0)
+    ) = get_score_semantic_texts(job, resume)
+
+    # ------------------------------------------------------------------
+    # [기존 방식 - 고정 35/21/14 배점]
+    # 실제 정보 존재 여부와 관계없이 의미 기반 70점을
+    # 전체 35점 / 담당업무 21점 / 자격요건 14점으로 고정 배분했다.
+    #
+    # raw_full_sim, raw_full_score = calculate_semantic_score(
+    #     resume_full_text,
+    #     job_full_text,
+    #     FULL_SEMANTIC_WEIGHT
+    # ) if resume_full_text and job_full_text else (0.0, 0.0)
+    #
+    # raw_resp_sim, raw_resp_score = calculate_semantic_score(
+    #     resume_exp_text,
+    #     job_resp_text,
+    #     RESPONSIBILITY_SEMANTIC_WEIGHT
+    # ) if resume_exp_text and job_resp_text else (0.0, 0.0)
+    #
+    # raw_qual_sim, raw_qual_score = calculate_semantic_score(
+    #     resume_exp_text,
+    #     job_qual_text,
+    #     QUALIFICATION_SEMANTIC_WEIGHT
+    # ) if resume_exp_text and job_qual_text else (0.0, 0.0)
+    # ------------------------------------------------------------------
+
+    # [새 방식]
+    # 먼저 각 텍스트 쌍의 순수 유사도만 계산하고,
+    # 실제 배점은 scoring_mode 결정 후 사용 가능한 항목끼리 재분배한다.
+    raw_full_sim = (
+        calculate_text_similarity(resume_full_text, job_full_text)
+        if resume_full_text and job_full_text
+        else 0.0
+    )
+
+    raw_resp_sim = (
+        calculate_text_similarity(resume_exp_text, job_resp_text)
+        if resume_exp_text and job_resp_text
+        else 0.0
+    )
+
+    raw_qual_sim = (
+        calculate_text_similarity(resume_exp_text, job_qual_text)
+        if resume_exp_text and job_qual_text
+        else 0.0
+    )
+
+    # 기존 응답 구조와 디버깅 값 호환을 위해
+    # 고정 배점 기준의 raw score도 별도로 유지한다.
+    raw_full_score = raw_full_sim * FULL_SEMANTIC_WEIGHT
+    raw_resp_score = raw_resp_sim * RESPONSIBILITY_SEMANTIC_WEIGHT
+    raw_qual_score = raw_qual_sim * QUALIFICATION_SEMANTIC_WEIGHT
 
     required_condition_ratio = calculate_required_condition_ratio(
         skill_used=skill_used,
@@ -1359,11 +1776,23 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     resp_sim = raw_resp_sim
     qual_sim = raw_qual_sim
 
-    full_score = raw_full_score
-    resp_score = raw_resp_score
-    qual_score = raw_qual_score
-    semantic_before_adjust = full_score + resp_score + qual_score
-    semantic_total = semantic_before_adjust
+    # ------------------------------------------------------------------
+    # [기존 방식 - 고정 배점]
+    # full_score = raw_full_score
+    # resp_score = raw_resp_score
+    # qual_score = raw_qual_score
+    # semantic_before_adjust = full_score + resp_score + qual_score
+    # semantic_total = semantic_before_adjust
+    # ------------------------------------------------------------------
+
+    # [새 방식]
+    # scoring_mode에서 semantic_total_max가 결정된 뒤
+    # 실제 사용 가능한 항목만 대상으로 배점을 재분배한다.
+    full_score = 0.0
+    resp_score = 0.0
+    qual_score = 0.0
+    semantic_before_adjust = 0.0
+    semantic_total = 0.0
 
     rule_evidence_count = count_rule_evidence_groups(
         skill_used=skill_used,
@@ -1380,7 +1809,9 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         ncs_result = calculate_ncs_score(
             resume_text=resume_full_text,
             job_text=job_full_text,
-            category=job.get("ncsCategory", ""),
+            category=job.get("ncsCategory", "") or job.get("category", ""),
+            ncs_codes=job.get("ncsCodes", []),
+            ncs_names=job.get("ncsNames", []),
             model=get_model(),
             util_module=util,
         )
@@ -1407,7 +1838,64 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         ncs_total_max = 0.0
         scoring_mode = "RULE_30_SEMANTIC_70"
 
-    rule_weights = get_rule_component_weights(rule_total_max)
+    # ------------------------------------------------------------------
+    # 의미 기반 항목 사용 여부 판단
+    # ------------------------------------------------------------------
+    full_semantic_used = bool(resume_full_text and job_full_text)
+
+    # 단순히 responsibilities가 존재하는지만 보지 않고,
+    # NCS 대분류명/카테고리명만 들어간 경우는 실제 담당업무가 없는 것으로 처리한다.
+    resp_semantic_used = bool(
+        resume_exp_text
+        and job_resp_text
+        and has_meaningful_responsibilities(job)
+    )
+
+    # 자격요건 의미 유사도는 '필수 자격요건' 텍스트가 실제 존재할 때만 사용한다.
+    qual_semantic_used = bool(resume_exp_text and job_qual_text)
+
+    semantic_weights = get_semantic_component_weights(
+        semantic_total_max=semantic_total_max,
+        full_used=full_semantic_used,
+        resp_used=resp_semantic_used,
+        qual_used=qual_semantic_used,
+    )
+
+    # ------------------------------------------------------------------
+    # [기존 방식 - 고정 35/21/14 배점]
+    # full_score = raw_full_sim * FULL_SEMANTIC_WEIGHT
+    # resp_score = raw_resp_sim * RESPONSIBILITY_SEMANTIC_WEIGHT
+    # qual_score = raw_qual_sim * QUALIFICATION_SEMANTIC_WEIGHT
+    # ------------------------------------------------------------------
+
+    # [새 방식 - 실제 존재하는 항목끼리 재분배]
+    full_score = (
+        full_sim * semantic_weights["full"]
+        if full_semantic_used
+        else 0.0
+    )
+    resp_score = (
+        resp_sim * semantic_weights["resp"]
+        if resp_semantic_used
+        else 0.0
+    )
+    qual_score = (
+        qual_sim * semantic_weights["qual"]
+        if qual_semantic_used
+        else 0.0
+    )
+
+    semantic_before_adjust = full_score + resp_score + qual_score
+    semantic_total = semantic_before_adjust
+
+    rule_weights = get_rule_component_weights(
+        rule_total_max=rule_total_max,
+        skill_used=skill_used,
+        edu_used=edu_used,
+        exp_used=exp_used,
+        cert_used=cert_used,
+        qual_used=qual_used,
+    )
     skill_score = get_score_ratio(skill_score_raw, 30) * rule_weights["skill"] if skill_used else 0.0
     edu_score = get_score_ratio(edu_score_raw, 10) * rule_weights["edu"] if edu_used else 0.0
 
@@ -1465,28 +1953,93 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     print(f"- 일치 직무 카테고리: {category_info.get('matchedCategories', [])}")
 
     print("[룰 기반]")
-    print(f"- 기술 스택 일치도: {skill_score:.2f}/{rule_weights['skill']:.1f} (일치 {skill_match_count}/{skill_total_count}, 매칭: {matched_skills})")
+
+    if skill_used:
+        print(
+            f"- 기술 스택 일치도: {skill_score:.2f}/{rule_weights['skill']:.1f} "
+            f"(일치 {skill_match_count}/{skill_total_count}, 매칭: {matched_skills})"
+        )
+    else:
+        print("- 기술 스택: 요구 조건 없음, 평가 제외")
 
     if edu_used:
-        print(f"- 학력 조건: {edu_score:.2f}/{rule_weights['edu']:.1f} (공고: {job_edu_level or '무관'}, 이력서: {resume_edu_level or '미확인'})")
+        print(
+            f"- 학력 조건: {edu_score:.2f}/{rule_weights['edu']:.1f} "
+            f"(공고: {job_edu_level or '무관'}, 이력서: {resume_edu_level or '미확인'})"
+        )
     else:
-        print(f"- 학력 조건: 0.00/{rule_weights['edu']:.1f} (학력 무관, 적합도 가산 제외)")
+        print("- 학력: 학력 조건 없음, 평가 제외")
 
-    if exp_detail.get("exp_condition_used", False):
-        print(f"- 경력 조건: {exp_score:.2f}/{rule_weights['exp']:.1f} (지원자 {exp_detail.get('resume_exp', 0)}년 / 요구 {exp_detail.get('min_exp', 0)}년)")
+    if exp_used:
+        print(
+            f"- 경력 조건: {exp_score:.2f}/{rule_weights['exp']:.1f} "
+            f"(지원자 {exp_detail.get('resume_exp', 0)}년 / 요구 {exp_detail.get('min_exp', 0)}년)"
+        )
     else:
-        print(f"- 경력 조건: 0.00/{rule_weights['exp']:.1f} (경력 무관, 적합도 가산 제외)")
+        print("- 경력: 경력 조건 없음, 평가 제외")
 
-    print(f"- 자격증: {cert_score:.2f}/{rule_weights['cert']:.1f} (일치 {cert_match_count}/{cert_total_count})")
-    print(f"- 필수 자격요건: {qual_rule_score:.2f}/{rule_weights['qual']:.1f} (일치 {len(matched_quals)}/{qual_total_count})")
+    if cert_used:
+        print(
+            f"- 자격증: {cert_score:.2f}/{rule_weights['cert']:.1f} "
+            f"(일치 {cert_match_count}/{cert_total_count})"
+        )
+    else:
+        print("- 자격증: 요구 조건 없음, 평가 제외")
+
+    if qual_used:
+        print(
+            f"- 필수 자격요건: {qual_rule_score:.2f}/{rule_weights['qual']:.1f} "
+            f"(일치 {len(matched_quals)}/{qual_total_count}, "
+            f"원문 {qual_original_count}개 중 평가대상 {qual_total_count}개)"
+        )
+    elif qual_original_count > 0:
+        print(
+            f"- 필수 자격요건: 원문 {qual_original_count}개 존재, "
+            "이력서로 점수화 가능한 조건 없음 → 평가 제외"
+        )
+    else:
+        print("- 필수 자격요건: 요구 조건 없음, 평가 제외")
+
     print(f"룰 기반 점수 합계: {rule_total:.2f}/{rule_total_max:.0f}")
 
     print("[의미 기반]")
     print(f"- 필수조건 충족률: {required_condition_ratio:.4f}")
     print(f"- 의미 기반 보정 비율: {semantic_adjust_ratio:.4f}")
-    print(f"- 이력서 전체와 공고 전체 유사도: {full_score:.2f}/{FULL_SEMANTIC_WEIGHT:.0f} (유사도 {full_sim:.4f})")
-    print(f"- 자기소개서·경험과 담당업무 유사도: {resp_score:.2f}/{RESPONSIBILITY_SEMANTIC_WEIGHT:.0f} (유사도 {resp_sim:.4f})")
-    print(f"- 자기소개서·경험과 자격요건 유사도: {qual_score:.2f}/{QUALIFICATION_SEMANTIC_WEIGHT:.0f} (유사도 {qual_sim:.4f})")
+
+    # ------------------------------------------------------------------
+    # [기존 방식 - 고정 최대점수 출력]
+    # print(f"- 이력서 전체와 공고 전체 유사도: {full_score:.2f}/{FULL_SEMANTIC_WEIGHT:.0f} (유사도 {full_sim:.4f})")
+    # print(f"- 자기소개서·경험과 담당업무 유사도: {resp_score:.2f}/{RESPONSIBILITY_SEMANTIC_WEIGHT:.0f} (유사도 {resp_sim:.4f})")
+    # print(f"- 자기소개서·경험과 자격요건 유사도: {qual_score:.2f}/{QUALIFICATION_SEMANTIC_WEIGHT:.0f} (유사도 {qual_sim:.4f})")
+    # ------------------------------------------------------------------
+
+    if full_semantic_used:
+        print(
+            f"- 이력서 전체와 공고 전체 유사도: "
+            f"{full_score:.2f}/{semantic_weights['full']:.2f} "
+            f"(유사도 {full_sim:.4f})"
+        )
+    else:
+        print("- 이력서 전체와 공고 전체 유사도: 비교 정보 없음, 평가 제외")
+
+    if resp_semantic_used:
+        print(
+            f"- 자기소개서·경험과 담당업무 유사도: "
+            f"{resp_score:.2f}/{semantic_weights['resp']:.2f} "
+            f"(유사도 {resp_sim:.4f})"
+        )
+    else:
+        print("- 자기소개서·경험과 담당업무 유사도: 담당업무 정보 없음, 평가 제외")
+
+    if qual_semantic_used:
+        print(
+            f"- 자기소개서·경험과 자격요건 유사도: "
+            f"{qual_score:.2f}/{semantic_weights['qual']:.2f} "
+            f"(유사도 {qual_sim:.4f})"
+        )
+    else:
+        print("- 자기소개서·경험과 자격요건 유사도: 자격요건 정보 없음, 평가 제외")
+
     print(f"의미 기반 점수 합계: {semantic_total:.2f}/{semantic_total_max:.0f}")
 
     print("[NCS 직무역량]")
@@ -1572,23 +2125,30 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "qual_raw_score_max": 10,
             "matched_quals": matched_quals,
             "qual_total_count": qual_total_count,
+            "qual_original_count": qual_original_count,
             "qual_used": qual_used,
         },
         "semantic_details": {
             "full_sim": full_sim,
             "full_score": round(full_score, 2),
-            "full_score_max": FULL_SEMANTIC_WEIGHT,
+            # [기존 방식] "full_score_max": FULL_SEMANTIC_WEIGHT,
+            "full_score_max": round(semantic_weights["full"], 2),
             "full_score_raw": round(raw_full_score, 2),
+            "full_semantic_used": full_semantic_used,
 
             "resp_sim": resp_sim,
             "resp_score": round(resp_score, 2),
-            "resp_score_max": RESPONSIBILITY_SEMANTIC_WEIGHT,
+            # [기존 방식] "resp_score_max": RESPONSIBILITY_SEMANTIC_WEIGHT,
+            "resp_score_max": round(semantic_weights["resp"], 2),
             "resp_score_raw": round(raw_resp_score, 2),
+            "resp_semantic_used": resp_semantic_used,
 
             "qual_sim": qual_sim,
             "qual_score": round(qual_score, 2),
-            "qual_score_max": QUALIFICATION_SEMANTIC_WEIGHT,
+            # [기존 방식] "qual_score_max": QUALIFICATION_SEMANTIC_WEIGHT,
+            "qual_score_max": round(semantic_weights["qual"], 2),
             "qual_score_raw": round(raw_qual_score, 2),
+            "qual_semantic_used": qual_semantic_used,
 
             "semantic_total_max": semantic_total_max,
             "semantic_before_adjust": round(semantic_before_adjust, 2),

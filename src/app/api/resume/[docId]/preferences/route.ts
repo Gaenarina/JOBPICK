@@ -32,6 +32,9 @@ function normalizeMatchPreferences(value: unknown) {
     employmentTypes: normalizeStringArray(
       preferences.employmentTypes
     ),
+    desiredKeywords: normalizeStringArray(
+      preferences.desiredKeywords
+    ),
   }
 }
 

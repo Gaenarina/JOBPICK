@@ -8,6 +8,7 @@ function parseMatchPreferences(value: FormDataEntryValue | null) {
       desiredRoles: [],
       desiredLocations: [],
       employmentTypes: [],
+      desiredKeywords: [],
     };
   }
 
@@ -24,6 +25,9 @@ function parseMatchPreferences(value: FormDataEntryValue | null) {
       employmentTypes: Array.isArray(parsed.employmentTypes)
         ? parsed.employmentTypes
         : [],
+      desiredKeywords: Array.isArray(parsed.desiredKeywords)
+        ? parsed.desiredKeywords
+        : [],
     };
   } catch (error) {
     console.error("matchPreferences 파싱 실패:", error);
@@ -32,6 +36,7 @@ function parseMatchPreferences(value: FormDataEntryValue | null) {
       desiredRoles: [],
       desiredLocations: [],
       employmentTypes: [],
+      desiredKeywords: [],
     };
   }
 }

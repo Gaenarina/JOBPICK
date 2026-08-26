@@ -628,6 +628,7 @@ def process_resume():
 
         doc_id = data.get("docId") or data.get("resumeId")
         force_refresh = bool(data.get("forceRefresh", False))
+        requested_preferences = data.get("matchPreferences")
 
         if not doc_id:
             return jsonify({"error": "docId is required."}), 400
@@ -656,6 +657,18 @@ def process_resume():
             return jsonify({"error": "Resume not found."}), 404
 
         resume_data = resume_snap.to_dict() or {}
+
+        # Use the conditions sent with this exact matching request. This avoids
+        # scoring with a stale Firestore snapshot immediately after an edit.
+        if isinstance(requested_preferences, dict):
+            normalized_preferences = {
+                key: clean_list(requested_preferences.get(key))
+                for key in (
+                    "desiredRoles", "desiredLocations", "employmentTypes", "desiredKeywords"
+                )
+            }
+            resume_ref.update({"matchPreferences": normalized_preferences})
+            resume_data["matchPreferences"] = normalized_preferences
 
         # Run OCR/structuring only when resume analysis does not exist yet.
         has_analysis = bool(
