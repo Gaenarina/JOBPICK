@@ -601,6 +601,14 @@ def parse_args():
 
 
 def main():
+    # Legacy implementation retained intentionally.  Official API ingestion is
+    # the default pipeline; accidental crawler execution is blocked.
+    if os.getenv("ENABLE_LEGACY_JOBKOREA_CRAWLER") != "true":
+        raise RuntimeError(
+            "Legacy JobKorea crawling is disabled. Run main/main_jobposting.py "
+            "for the MOEF API pipeline."
+        )
+
     target_count, keywords = parse_args()
 
     print(f"[목표 저장 개수] {target_count}")
