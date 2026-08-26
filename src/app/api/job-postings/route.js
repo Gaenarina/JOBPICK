@@ -3,6 +3,7 @@ import { cert, getApps, initializeApp } from 'firebase-admin/app'
 import { getFirestore } from 'firebase-admin/firestore'
 import fs from 'fs'
 import path from 'path'
+import { mapMoefCategory, syncMoefRecruitmentsIfNeeded } from '@/lib/moefRecruitment'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -366,16 +367,28 @@ function normalizeJob(doc) {
     ''
   )
 
-  const category =
-    toDisplayText(
-      jobPosting.category ||
-        legacy.category ||
-        data.category ||
-        data.jobCategory,
-      ''
-    ) ||
-    inferCategory(jobPosting) ||
-    toDisplayText(job.department, '')
+  const isMoefPosting =
+    meta.source === 'moef_job_alio' || jobPosting.sourceSite === 'moef_job_alio'
+
+  const category = isMoefPosting
+    ? mapMoefCategory(
+        jobPosting.ncs?.names,
+        jobPosting.sourceCategory,
+        jobPosting.category,
+        jobPosting.title,
+        job.department
+      )
+    : (
+        toDisplayText(
+          jobPosting.category ||
+            legacy.category ||
+            data.category ||
+            data.jobCategory,
+          ''
+        ) ||
+        inferCategory(jobPosting) ||
+        toDisplayText(job.department, '')
+      )
 
   const salary = toDisplayText(
     workConditions.salary ||
@@ -449,13 +462,28 @@ export async function GET() {
     initFirebaseAdmin()
 
     const db = getFirestore()
+    let sync = null
+    try {
+      sync = await syncMoefRecruitmentsIfNeeded(db)
+    } catch (syncError) {
+      // A temporary upstream outage must not hide already-synchronized jobs.
+      console.error('[MOEF job sync failed]', syncError)
+      sync = { synced: false, error: syncError.message }
+    }
+
     const snapshot = await db.collection('job_postings').get()
 
-    const jobs = snapshot.docs.map((doc) => normalizeJob(doc))
+    const jobs = snapshot.docs
+      .filter((doc) => {
+        const data = doc.data() || {}
+        return data.meta?.source === 'moef_job_alio' || data.jobPosting?.sourceSite === 'moef_job_alio'
+      })
+      .map((doc) => normalizeJob(doc))
 
     return NextResponse.json({
       jobs,
       count: jobs.length,
+      sync,
     })
   } catch (error) {
     console.error('[job-postings 조회 실패]', error)
