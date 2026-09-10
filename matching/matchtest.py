@@ -74,27 +74,176 @@ def clear_embedding_cache():
     _embedding_cache.clear()
 
 
-def get_score_semantic_texts(job: Dict[str, Any], resume: Dict[str, Any]):
-    resume_full = prepare_semantic_text(" / ".join([
-        safe_str(resume.get("education", "")), safe_str(resume.get("skills", [])),
-        safe_str(resume.get("certifications", [])), safe_str(resume.get("projects", [])),
-    ]))
-    job_full = prepare_semantic_text(" / ".join([
-        safe_str(job.get("category", "")), safe_str(job.get("education", "")),
-        safe_str(job.get("experience", {})), safe_str(job.get("skills", {})),
-        safe_str(job.get("responsibilities", [])), safe_str(job.get("qualifications", {})),
-        safe_str(job.get("certifications", [])),
-    ]))
-    resume_experience = prepare_semantic_text(" ".join(as_list(resume.get("projects", []))))
-    job_responsibilities = prepare_semantic_text(" ".join(as_list(job.get("responsibilities", []))))
-    job_qualifications = prepare_semantic_text(
-        " ".join(
-            as_qualification_list(
-                (job.get("qualifications", {}) or {}).get("required", [])
+def get_score_semantic_texts(
+    job: Dict[str, Any],
+    resume: Dict[str, Any],
+):
+    resume_full = prepare_semantic_text(
+        " / ".join([
+            safe_str(
+                resume.get(
+                    "education",
+                    "",
+                )
+            ),
+            safe_str(
+                resume.get(
+                    "skills",
+                    [],
+                )
+            ),
+            safe_str(
+                resume.get(
+                    "certifications",
+                    [],
+                )
+            ),
+            safe_str(
+                resume.get(
+                    "projects",
+                    [],
+                )
+            ),
+        ])
+    )
+
+    qualifications = (
+        job.get(
+            "qualifications",
+            {},
+        )
+        or {}
+    )
+
+    # ------------------------------------------------------
+    # 의미 유사도에서는
+    # 실제 이력서와 비교 가능한 자격요건만 사용
+    # ------------------------------------------------------
+
+    required_qualifications = [
+        qualification
+        for qualification
+        in as_qualification_list(
+            qualifications.get(
+                "required",
+                [],
+            )
+        )
+        if is_scorable_required_qualification(
+            qualification
+        )
+    ]
+
+    preferred_qualifications = [
+        qualification
+        for qualification
+        in as_qualification_list(
+            qualifications.get(
+                "preferred",
+                [],
+            )
+        )
+        if is_scorable_required_qualification(
+            qualification
+        )
+    ]
+
+    semantic_qualifications = (
+        unique_preserve_order(
+            [
+                *required_qualifications,
+                *preferred_qualifications,
+            ]
+        )
+    )
+
+    job_full = prepare_semantic_text(
+        " / ".join([
+            safe_str(
+                job.get(
+                    "category",
+                    "",
+                )
+            ),
+            safe_str(
+                job.get(
+                    "education",
+                    "",
+                )
+            ),
+            safe_str(
+                job.get(
+                    "experience",
+                    {},
+                )
+            ),
+            safe_str(
+                job.get(
+                    "skills",
+                    {},
+                )
+            ),
+            safe_str(
+                job.get(
+                    "responsibilities",
+                    [],
+                )
+            ),
+            safe_str(
+                semantic_qualifications
+            ),
+            safe_str(
+                job.get(
+                    "certifications",
+                    [],
+                )
+            ),
+        ])
+    )
+
+    resume_experience = (
+        prepare_semantic_text(
+            " ".join(
+                as_list(
+                    resume.get(
+                        "projects",
+                        [],
+                    )
+                )
             )
         )
     )
-    return resume_full, job_full, resume_experience, job_responsibilities, job_qualifications
+
+    job_responsibilities = (
+        prepare_semantic_text(
+            " ".join(
+                as_list(
+                    job.get(
+                        "responsibilities",
+                        [],
+                    )
+                )
+            )
+        )
+    )
+
+    # 자격요건 전용 의미 점수에는
+    # 필수조건 중 실제 비교 가능한 조건만 사용
+    job_qualifications = (
+        prepare_semantic_text(
+            " ".join(
+                required_qualifications
+            )
+        )
+    )
+
+    return (
+        resume_full,
+        job_full,
+        resume_experience,
+        job_responsibilities,
+        job_qualifications,
+    )
 
 
 def preload_score_embeddings(jobs: List[Dict[str, Any]], resume: Dict[str, Any], batch_size: int = 32):

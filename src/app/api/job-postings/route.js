@@ -452,8 +452,6 @@ function normalizeJob(doc) {
     sourceUrl,
     imageUrl,
     postingType,
-
-    rawData: data,
   }
 }
 
