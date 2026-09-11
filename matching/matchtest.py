@@ -986,6 +986,20 @@ def is_valid_required_qualification(text: Any) -> bool:
     ):
         return False
 
+    if re.match(
+        r"^(?:모집\s*분야|모집분야)"
+        r"\s*[:：]",
+        value,
+    ):
+        return False
+
+    if re.match(
+        r"^(?=.*(?:청년인턴|체험형인턴|채용형인턴|기간제|무기계약|계약직))"
+        r".+/.+\s+[-–—]\s+.+$",
+        value,
+    ):
+        return False
+
     if any(keyword in value for keyword in QUALIFICATION_NOISE_KEYWORDS):
         return False
 

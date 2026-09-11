@@ -539,7 +539,7 @@ function isConditionalQualification(
 
   const match =
     cleaned.match(
-      /^\(([^)]+)\)/
+      /^(?:\(([^)]+)\)|\[([^\]]+)\])/
     )
 
   if (!match) {
@@ -547,7 +547,7 @@ function isConditionalQualification(
   }
 
   const label =
-    match[1]
+    (match[1] || match[2])
       .replace(/\s+/g, '')
       .toLowerCase()
 
@@ -630,32 +630,153 @@ function requirementGroupKey(value) {
     .toLowerCase()
 }
 
+const GROUP_HEADER_HINTS = [
+  '청년인턴',
+  '체험형인턴',
+  '채용형인턴',
+  '기간제',
+  '무기계약',
+  '계약직',
+]
+
+
+function requirementConditionKey(
+  value
+) {
+  return text(value)
+    .replace(
+      /[^0-9A-Za-z가-힣]+/g,
+      ''
+    )
+    .toLowerCase()
+}
+
+
+function hasRequirementStructure(
+  followingText
+) {
+  const compact =
+    String(
+      followingText || ''
+    ).replace(
+      /\s+/g,
+      ''
+    )
+
+  return [
+    '담당업무',
+    '담당직무',
+    '자격요건',
+    '지원자격',
+    '응시자격',
+    '연령:',
+    '연령：',
+    '학력:',
+    '학력：',
+    '자격:',
+    '자격：',
+    '경력:',
+    '경력：',
+    '기타제한:',
+    '기타제한：',
+  ].some(
+    (marker) =>
+      compact.includes(
+        marker
+      )
+  )
+}
+
+
+function extractInlineGroupResponsibility(
+  cleanedLine,
+  followingText
+) {
+  if (
+    !hasRequirementStructure(
+      followingText
+    )
+  ) {
+    return {
+      group: '',
+      responsibility: '',
+    }
+  }
+
+  const match =
+    cleanedLine.match(
+      /^(.{2,160}?)\s+[-–—]\s+(.+)$/
+    )
+
+  if (!match) {
+    return {
+      group: '',
+      responsibility: '',
+    }
+  }
+
+  const group =
+    match[1].trim()
+
+  const responsibility =
+    match[2].trim()
+
+  const looksLikeGroup =
+    group.includes('/') ||
+    GROUP_HEADER_HINTS.some(
+      (hint) =>
+        group.includes(hint)
+    )
+
+  if (!looksLikeGroup) {
+    return {
+      group: '',
+      responsibility: '',
+    }
+  }
+
+  return {
+    group,
+    responsibility,
+  }
+}
 
 function extractRequirementGroupHeader(
   rawLine,
   cleanedLine,
   followingText
 ) {
-  const hasStructuredFields = [
-    '담당업무',
-    '담당 업무',
-    '담당직무',
-    '담당 직무',
-    '자격요건',
-    '지원자격',
-    '응시자격',
-    '자격:',
-    '자격 :',
-    '자격：',
-  ].some((keyword) =>
-    followingText.includes(keyword)
-  )
+  // 모집 분야 : XXX
+  const explicitGroupMatch =
+    cleanedLine.match(
+      /^(?:모집\s*분야|모집분야)\s*[:：]\s*(.+)$/i
+    )
+
+  if (explicitGroupMatch) {
+    return explicitGroupMatch[1]
+      .trim()
+  }
+
+  // 모집분야 - 담당업무
+  const inline =
+    extractInlineGroupResponsibility(
+      cleanedLine,
+      followingText
+    )
+
+  if (inline.group) {
+    return inline.group
+  }
+
+  const hasStructuredFields =
+    hasRequirementStructure(
+      followingText
+    )
 
   if (!hasStructuredFields) {
     return ''
   }
 
-  // [청년인턴(사무_자립준비)]
   const bracketMatch =
     cleanedLine.match(
       /^\[([^\]]{1,120})\]$/
@@ -684,8 +805,6 @@ function extractRequirementGroupHeader(
     return groupName
   }
 
-  // 청년인턴(일반행정) 1명
-  // 청년인턴(사무_장애) : 2명
   if (
     /\d+\s*명\s*$/.test(
       cleanedLine
@@ -706,6 +825,25 @@ function extractRequirementGroupHeader(
     if (groupName) {
       return groupName
     }
+  }
+
+  const looksLikeGroup =
+    GROUP_HEADER_HINTS.some(
+      (hint) =>
+        cleanedLine.includes(
+          hint
+        )
+    )
+
+  const isConditionLine =
+    /(?:연령|학력|자격|경력|기타제한)\s*[:：]/
+      .test(cleanedLine)
+
+  if (
+    looksLikeGroup &&
+    !isConditionLine
+  ) {
+    return cleanedLine
   }
 
   return ''
@@ -991,6 +1129,23 @@ function parseApplicationRequirements(
           groupIsRequired(
             groupName
           )
+      }
+
+      // "모집분야 - 담당업무" 형태 처리
+      const inline =
+        extractInlineGroupResponsibility(
+          cleanedLine,
+          followingText
+        )
+
+      if (
+        inline.group &&
+        inline.responsibility
+      ) {
+        addResponsibility(
+          inline.responsibility,
+          currentGroup
+        )
       }
 
       continue
@@ -1629,7 +1784,8 @@ export function normalizeMoefRecruitment(
     responsibilities,
   } =
     parseApplicationRequirements(
-      item.aplyQlfcCn
+      item.aplyQlfcCn,
+      title
     )
 
 

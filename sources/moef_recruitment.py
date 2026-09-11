@@ -633,13 +633,32 @@ def _split_required_qualifications(
         list(dict.fromkeys(conditional)),
     )
 
-def _requirement_group_key(value: Any) -> str:
-    """
-    모집분야명을 비교하기 위한 키 생성.
+GROUP_HEADER_HINTS = (
+    "청년인턴",
+    "체험형인턴",
+    "채용형인턴",
+    "기간제",
+    "무기계약",
+    "계약직",
+)
 
-    예:
-    청년인턴(사무_자립준비)
-    -> 청년인턴사무자립준비
+
+def _requirement_group_key(
+    value: Any,
+) -> str:
+    return re.sub(
+        r"[^0-9A-Za-z가-힣]+",
+        "",
+        _text(value),
+    ).lower()
+
+
+def _requirement_condition_key(
+    value: Any,
+) -> str:
+    """
+    서로 다른 모집분야에 반복되는 동일 조건을
+    비교하기 위한 키.
     """
     return re.sub(
         r"[^0-9A-Za-z가-힣]+",
@@ -648,45 +667,150 @@ def _requirement_group_key(value: Any) -> str:
     ).lower()
 
 
+def _has_requirement_structure(
+    following_text: str,
+) -> bool:
+    """
+    뒤쪽 줄에 실제 채용조건 구조가 이어지는지 확인한다.
+    """
+
+    compact = re.sub(
+        r"\s+",
+        "",
+        following_text,
+    )
+
+    markers = [
+        "담당업무",
+        "담당직무",
+        "자격요건",
+        "지원자격",
+        "응시자격",
+        "연령:",
+        "연령：",
+        "학력:",
+        "학력：",
+        "자격:",
+        "자격：",
+        "경력:",
+        "경력：",
+        "기타제한:",
+        "기타제한：",
+    ]
+
+    return any(
+        marker in compact
+        for marker in markers
+    )
+
+
+def _extract_inline_group_responsibility(
+    cleaned_line: str,
+    following_text: str,
+) -> tuple[str, str]:
+    """
+    예:
+    청년인턴(사무_장애)/안전사업처(대구경북)
+      - 민원응대, 행정 및 사무보조 등
+
+    -> group:
+       청년인턴(사무_장애)/안전사업처(대구경북)
+
+    -> responsibility:
+       민원응대, 행정 및 사무보조 등
+    """
+
+    if not _has_requirement_structure(
+        following_text
+    ):
+        return "", ""
+
+    match = re.match(
+        r"^(.{2,160}?)\s+[-–—]\s+(.+)$",
+        cleaned_line,
+    )
+
+    if not match:
+        return "", ""
+
+    group_name = (
+        match.group(1).strip()
+    )
+
+    responsibility = (
+        match.group(2).strip()
+    )
+
+    # 모집분야처럼 보이는 앞부분일 때만 인정
+    looks_like_group = (
+        "/" in group_name
+        or any(
+            hint in group_name
+            for hint in GROUP_HEADER_HINTS
+        )
+    )
+
+    if not looks_like_group:
+        return "", ""
+
+    return (
+        group_name,
+        responsibility,
+    )
+
+
 def _extract_requirement_group_header(
     raw_line: str,
     cleaned_line: str,
     following_text: str,
 ) -> str:
-    """
-    현재 줄이 모집분야 제목인지 판단한다.
 
-    예:
-    [청년인턴(사무_자립준비)]
+    # --------------------------------------------------------
+    # 1. "모집 분야 : XXX"
+    # --------------------------------------------------------
 
-    □ 청년인턴(사무_장애) : 2명
+    explicit_group_match = re.match(
+        r"^(?:모집\s*분야|모집분야)"
+        r"\s*[:：]\s*(.+)$",
+        cleaned_line,
+        flags=re.IGNORECASE,
+    )
 
-    1. 청년인턴(일반행정) 1명
+    if explicit_group_match:
+        return (
+            explicit_group_match
+            .group(1)
+            .strip()
+        )
 
-    단순 자격조건 문장을 모집분야 제목으로 오인하지 않도록
-    뒤쪽에 담당업무/자격요건 같은 구조 필드가 있을 때만 인정한다.
-    """
+    # --------------------------------------------------------
+    # 2. "모집분야 - 담당업무"
+    # --------------------------------------------------------
 
-    has_structured_fields = any(
-        keyword in following_text
-        for keyword in [
-            "담당업무",
-            "담당 업무",
-            "담당직무",
-            "담당 직무",
-            "자격요건",
-            "지원자격",
-            "응시자격",
-            "자격:",
-            "자격 :",
-            "자격：",
-        ]
+    (
+        inline_group,
+        _,
+    ) = _extract_inline_group_responsibility(
+        cleaned_line,
+        following_text,
+    )
+
+    if inline_group:
+        return inline_group
+
+    has_structured_fields = (
+        _has_requirement_structure(
+            following_text
+        )
     )
 
     if not has_structured_fields:
         return ""
 
-    # [청년인턴(사무_자립준비)]
+    # --------------------------------------------------------
+    # 3. [청년인턴(사무_자립준비)]
+    # --------------------------------------------------------
+
     bracket_match = re.fullmatch(
         r"\[([^\]]{1,120})\]",
         cleaned_line,
@@ -699,11 +823,12 @@ def _extract_requirement_group_header(
             .strip()
         )
 
-        group_key = _requirement_group_key(
-            group_name
+        group_key = (
+            _requirement_group_key(
+                group_name
+            )
         )
 
-        # 공통 섹션을 모집분야로 오인하지 않는다.
         if group_key in {
             "공통",
             "공통사항",
@@ -714,8 +839,10 @@ def _extract_requirement_group_header(
 
         return group_name
 
-    # 청년인턴(일반행정) 1명
-    # 청년인턴(사무_장애) : 2명
+    # --------------------------------------------------------
+    # 4. 청년인턴(일반행정) : 1명
+    # --------------------------------------------------------
+
     if re.search(
         r"\d+\s*명\s*$",
         cleaned_line,
@@ -728,6 +855,34 @@ def _extract_requirement_group_header(
 
         if group_name:
             return group_name
+
+    # --------------------------------------------------------
+    # 5. 단독 모집분야명
+    #
+    # 예:
+    # 청년인턴(사무)_안전관리처(제주)
+    # ↓ 다음 줄
+    # 담당직무 : 국가자격시험 업무 보조
+    # --------------------------------------------------------
+
+    looks_like_group = any(
+        hint in cleaned_line
+        for hint in GROUP_HEADER_HINTS
+    )
+
+    is_condition_line = bool(
+        re.search(
+            r"(?:연령|학력|자격|경력|기타제한)"
+            r"\s*[:：]",
+            cleaned_line,
+        )
+    )
+
+    if (
+        looks_like_group
+        and not is_condition_line
+    ):
+        return cleaned_line
 
     return ""
 
@@ -781,7 +936,16 @@ def _parse_application_requirements(
         return [], [], []
 
     required: List[str] = []
-    conditional: List[str] = []
+
+    conditional_records: List[
+        tuple[str, str]
+    ] = []
+
+    group_condition_map: Dict[
+        str,
+        List[str],
+    ] = {}
+
     responsibilities: List[str] = []
 
     # --------------------------------------------------------
@@ -883,19 +1047,29 @@ def _parse_application_requirements(
         text_value: str,
         group: str = "",
     ):
-        cleaned = _clean_qualification_text(
-            text_value
+        cleaned = (
+            _clean_qualification_text(
+                text_value
+            )
         )
 
         if not cleaned:
             return
 
-        if group:
-            cleaned = (
-                f"({group}) {cleaned}"
+        conditional_records.append(
+            (
+                group,
+                cleaned,
             )
+        )
 
-        conditional.append(cleaned)
+        if group:
+            group_condition_map.setdefault(
+                group,
+                [],
+            ).append(
+                cleaned
+            )
 
     def add_responsibility(
         text_value: str,
@@ -999,16 +1173,39 @@ def _parse_application_requirements(
         if group_name:
             current_group = group_name
 
-            # 이미 "모집분야별 자격" 섹션으로 명시된 경우에는
-            # 항상 conditional로 유지
             if current_scope == "conditional":
                 current_group_required = False
             else:
                 current_scope = "group"
+
                 current_group_required = (
                     group_is_required(
                         group_name
                     )
+                )
+
+            # -----------------------------------------------
+            # "모집분야 - 담당업무" 형태이면
+            # 오른쪽은 자격요건이 아니라 responsibilities
+            # -----------------------------------------------
+
+            (
+                inline_group,
+                inline_responsibility,
+            ) = (
+                _extract_inline_group_responsibility(
+                    cleaned_line,
+                    following_text,
+                )
+            )
+
+            if (
+                inline_group
+                and inline_responsibility
+            ):
+                add_responsibility(
+                    inline_responsibility,
+                    current_group,
                 )
 
             continue
@@ -1111,16 +1308,27 @@ def _parse_application_requirements(
         ):
             continue
 
+        # "자격 요건"처럼 제목만 있는 줄은
+        # 실제 자격조건 자체가 아니다.
+        if re.fullmatch(
+            r"(?:자격\s*요건|지원\s*자격|응시\s*자격)"
+            r"\s*[:：]?",
+            cleaned_line,
+            flags=re.IGNORECASE,
+        ):
+            continue
+
         # ----------------------------------------------------
         # 명시적인 자격요건
         # ----------------------------------------------------
 
         qualification_match = re.search(
-            r"(?:자격요건|지원자격|응시자격|자격)"
+            r"(?:자격\s*요건|지원\s*자격|응시\s*자격|자격)"
             r"\s*[:：]\s*(.+)$",
             cleaned_line,
             flags=re.IGNORECASE,
         )
+        
 
         if qualification_match:
             qualification_text = (
@@ -1192,6 +1400,147 @@ def _parse_application_requirements(
         add_required(
             cleaned_line
         )
+
+                # ----------------------------------------------------
+        # 일반 공통 필수조건
+        # ----------------------------------------------------
+
+        add_required(
+            cleaned_line
+        )
+
+
+    # ========================================================
+    # 여러 모집분야에 반복되는 동일 조건은
+    # 실질적으로 공통 필수조건이다.
+    # ========================================================
+
+    common_condition_keys = set()
+
+    if (
+        len(detected_groups) > 1
+        and all(
+            group_condition_map.get(
+                group
+            )
+            for group in detected_groups
+        )
+    ):
+        condition_key_sets = []
+
+        for group in detected_groups:
+            keys = {
+                _requirement_condition_key(
+                    condition
+                )
+                for condition
+                in group_condition_map[
+                    group
+                ]
+                if _requirement_condition_key(
+                    condition
+                )
+            }
+
+            condition_key_sets.append(
+                keys
+            )
+
+        if condition_key_sets:
+            common_condition_keys = (
+                set.intersection(
+                    *condition_key_sets
+                )
+            )
+
+        first_group = (
+            detected_groups[0]
+        )
+
+        promoted_keys = set()
+
+        for condition in (
+            group_condition_map.get(
+                first_group,
+                [],
+            )
+        ):
+            key = (
+                _requirement_condition_key(
+                    condition
+                )
+            )
+
+            if (
+                key
+                and key
+                in common_condition_keys
+                and key
+                not in promoted_keys
+            ):
+                add_required(
+                    condition
+                )
+
+                promoted_keys.add(
+                    key
+                )
+
+
+    # --------------------------------------------------------
+    # 공통으로 승격되지 않은 조건만 conditional에 저장
+    # --------------------------------------------------------
+
+    conditional: List[str] = []
+
+    for (
+        group,
+        condition,
+    ) in conditional_records:
+
+        key = (
+            _requirement_condition_key(
+                condition
+            )
+        )
+
+        if (
+            group
+            and key
+            in common_condition_keys
+        ):
+            continue
+
+        if group:
+            rendered = (
+                f"({group}) "
+                f"{condition}"
+            )
+        else:
+            rendered = condition
+
+        conditional.append(
+            rendered
+        )
+
+
+    return (
+        list(
+            dict.fromkeys(
+                required
+            )
+        ),
+        list(
+            dict.fromkeys(
+                conditional
+            )
+        ),
+        list(
+            dict.fromkeys(
+                responsibilities
+            )
+        ),
+    )
 
     return (
         list(
