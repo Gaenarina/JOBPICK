@@ -275,7 +275,7 @@ function list(value) {
 
 
 const LIST_MARKER_PATTERN =
-  /^\s*(?:[-–—•·ㆍ※○?]+|[oOㅇ](?=\s|[가-힣])|[가-하][.)]|(?:\d+)[.)]|[①-⑳])\s*/
+  /^\s*(?:[-–—•·ㆍ※○?□■▪◆◇▶▷]+|[oOㅇ](?=\s|[가-힣])|[가-하][.)]|(?:\d+)[.)]|[①-⑳])\s*/
 
 
 function stripListMarker(value) {
@@ -762,36 +762,58 @@ function parseApplicationRequirements(
       )
 
     if (numberedHeader) {
-      const nextLines =
-        rawLines
-          .slice(
-            index + 1,
-            index + 4
+          const nextLines =
+      rawLines
+        .slice(index + 1, index + 4)
+        .join(' ')
+
+    const hasStructuredFields = [
+      '담당업무',
+      '담당 업무',
+      '담당직무',
+      '담당 직무',
+      '자격요건',
+      '지원자격',
+      '응시자격',
+      '자격:',
+      '자격 :',
+      '자격：',
+    ].some((keyword) =>
+      nextLines.includes(keyword)
+    )
+
+    const bracketHeaderMatch =
+      cleanedLine.match(
+        /^\[([^\]]{1,100})\]$/
+      )
+
+    if (
+      bracketHeaderMatch &&
+      hasStructuredFields
+    ) {
+      currentScope = 'conditional'
+      currentGroup =
+        bracketHeaderMatch[1].trim()
+      continue
+    }
+
+    if (
+      /\d+\s*명\s*$/.test(cleanedLine) &&
+      hasStructuredFields
+    ) {
+      currentScope = 'conditional'
+
+      currentGroup =
+        cleanedLine
+          .replace(
+            /\s*[:：]?\s*\d+\s*명\s*$/,
+            ''
           )
-          .join(' ')
+          .replace(/^\[|\]$/g, '')
+          .trim()
 
-      const hasStructuredFields =
-        nextLines.includes(
-          '담당업무'
-        ) ||
-        nextLines.includes(
-          '자격요건'
-        )
-
-      if (hasStructuredFields) {
-        currentScope =
-          'conditional'
-
-        currentGroup =
-          cleanedLine
-            .replace(
-              /\s+\d+\s*명\s*$/,
-              ''
-            )
-            .trim()
-
-        continue
-      }
+      continue
+    }
     }
 
     if (
@@ -841,7 +863,7 @@ function parseApplicationRequirements(
 
     const responsibilityMatch =
       cleanedLine.match(
-        /(?:담당업무|담당 업무)\s*[:：]\s*(.+)$/i
+        /(?:담당업무|담당 업무|담당직무|담당 직무)\s*[:：]\s*(.+)$/i
       )
 
     if (responsibilityMatch) {
@@ -861,7 +883,7 @@ function parseApplicationRequirements(
 
     const qualificationMatch =
       cleanedLine.match(
-        /(?:자격요건|지원자격|응시자격)\s*[:：]\s*(.+)$/i
+        /(?:자격요건|지원자격|응시자격|자격)\s*[:：]\s*(.+)$/i
       )
 
     if (qualificationMatch) {

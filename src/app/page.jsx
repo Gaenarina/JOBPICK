@@ -147,7 +147,11 @@ function getJobRecommendRank(job) {
   const text = `${recommendType} ${badges.join(' ')}`
   const unmetConditions = job?.unmetConditions || job?.unmet_conditions || []
 
-  if (unmetConditions.length > 0 || text.includes('부적합') || text.includes('미충족')) {
+  if (
+    unmetConditions.length > 0 ||
+    text.includes('부적합') ||
+    text.includes('미충족')
+  ) {
     return 0
   }
 
@@ -155,16 +159,17 @@ function getJobRecommendRank(job) {
     return 1
   }
 
-  if (text.includes('지원') && text.includes('가능')) {
-    return 2
+  // AI 적합을 지원 가능보다 먼저 확인
+  if (text.includes('AI') && text.includes('적합')) {
+    return 5
   }
 
   if (text.includes('보통')) {
     return 3
   }
 
-  if (text.includes('AI') && text.includes('적합')) {
-    return 5
+  if (text.includes('지원') && text.includes('가능')) {
+    return 2
   }
 
   return 1
@@ -217,7 +222,11 @@ function getMatchResultGroup(job) {
   const text = `${recommendType} ${badges.join(' ')}`
   const unmetConditions = job?.unmetConditions || job?.unmet_conditions || []
 
-  if (unmetConditions.length > 0 || text.includes('부적합') || text.includes('미충족')) {
+  if (
+    unmetConditions.length > 0 ||
+    text.includes('부적합') ||
+    text.includes('미충족')
+  ) {
     return 'unsuitable'
   }
 
@@ -225,16 +234,17 @@ function getMatchResultGroup(job) {
     return 'infoLacking'
   }
 
-  if (text.includes('지원') && text.includes('가능')) {
-    return 'accessible'
+  // AI 적합을 지원 가능보다 먼저 확인
+  if (text.includes('AI') && text.includes('적합')) {
+    return 'aiSuitable'
   }
 
   if (text.includes('보통')) {
     return 'normal'
   }
 
-  if (text.includes('AI') && text.includes('적합')) {
-    return 'aiSuitable'
+  if (text.includes('지원') && text.includes('가능')) {
+    return 'accessible'
   }
 
   return 'infoLacking'
@@ -306,6 +316,20 @@ function normalizePreferenceList(value) {
 
 function formatPreferenceList(items, fallback) {
   return items.length ? items.join(', ') : fallback
+}
+
+function formatRolePreferenceList(items, fallback = '전체') {
+  if (!items.length) return fallback
+
+  return items
+    .map((value) => {
+      const option = ROLE_OPTIONS.find(
+        (item) => item.value === value
+      )
+
+      return option?.label || value
+    })
+    .join(', ')
 }
 
 function hasMatchPreferences(preferences) {
@@ -462,7 +486,7 @@ function buildAiRecommendationSummary(jobs, meta, selectedResume) {
       fitScores
     )}점입니다.`,
     preferenceText: hasPreferences
-      ? `희망 직무: ${formatPreferenceList(desiredRoles, '전체')} · 희망 지역: ${formatPreferenceList(
+      ? `희망 직무: ${formatRolePreferenceList(desiredRoles, '전체')} · 희망 지역: ${formatPreferenceList(
           desiredLocations,
           '전체'
         )} · 채용 유형: ${formatPreferenceList(employmentTypes, '전체')}`
@@ -543,7 +567,7 @@ function buildOverallRecommendationSummary(jobs, meta, selectedResume) {
       : 'Gemini로 추천 공고의 주요 근거와 확인사항을 요약해보세요!'
 
   const preferenceText = hasPreferences
-    ? `희망 직무: ${formatPreferenceList(desiredRoles, '전체')} · 희망 지역: ${formatPreferenceList(
+    ? `희망 직무: ${formatRolePreferenceList(desiredRoles, '전체')} · 희망 지역: ${formatPreferenceList(
         desiredLocations,
         '전체'
       )} · 채용 유형: ${formatPreferenceList(employmentTypes, '전체')}`

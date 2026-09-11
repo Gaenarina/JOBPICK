@@ -281,7 +281,7 @@ def _list(value: Any) -> List[str]:
 
 LIST_MARKER_PATTERN = re.compile(
     r"^\s*(?:"
-    r"[-–—•·ㆍ※○?]+"
+    r"[-–—•·ㆍ※○?□■▪◆◇▶▷]+"
     r"|[oOㅇ](?=\s|[가-힣])"
     r"|[가-하][.)]"
     r"|(?:\d+)[.)]"
@@ -560,7 +560,7 @@ def _is_conditional_qualification(
     cleaned = _text(value)
 
     match = re.match(
-        r"^\(([^)]+)\)",
+        r"^(?:\(([^)]+)\)|\[([^\]]+)\])",
         cleaned,
     )
 
@@ -570,7 +570,7 @@ def _is_conditional_qualification(
     label = re.sub(
         r"\s+",
         "",
-        match.group(1),
+        match.group(1) or match.group(2),
     ).lower()
 
     # 공통사항은 모든 지원자에게 적용
@@ -732,6 +732,67 @@ def _parse_application_requirements(
             cleaned_line,
         ).lower()
 
+        next_lines = " ".join(
+            raw_lines[
+                index + 1:
+                index + 4
+            ]
+        )
+
+        has_structured_fields = any(
+            keyword in next_lines
+            for keyword in [
+                "담당업무",
+                "담당 업무",
+                "담당직무",
+                "담당 직무",
+                "자격요건",
+                "지원자격",
+                "응시자격",
+                "자격:",
+                "자격 :",
+                "자격：",
+            ]
+        )
+
+        # [청년인턴(사무_자립준비)] 형태의 모집분야 헤더
+        bracket_header_match = re.fullmatch(
+            r"\[([^\]]{1,100})\]",
+            cleaned_line,
+        )
+
+        if (
+            bracket_header_match
+            and has_structured_fields
+        ):
+            current_scope = "conditional"
+            current_group = (
+                bracket_header_match
+                .group(1)
+                .strip()
+            )
+            continue
+
+        # □ 청년인턴(사무_장애) : 2명
+        # 청년인턴(일반행정) 1명
+        # 같은 모집분야 헤더
+        if (
+            re.search(
+                r"\d+\s*명\s*$",
+                cleaned_line,
+            )
+            and has_structured_fields
+        ):
+            current_scope = "conditional"
+
+            current_group = re.sub(
+                r"\s*[:：]?\s*\d+\s*명\s*$",
+                "",
+                cleaned_line,
+            ).strip("[] ")
+
+            continue
+
         # ----------------------------------------------------
         # 공통 조건 섹션
         # ----------------------------------------------------
@@ -864,7 +925,7 @@ def _parse_application_requirements(
         # ----------------------------------------------------
 
         responsibility_match = re.search(
-            r"(?:담당업무|담당 업무)"
+            r"(?:담당업무|담당 업무|담당직무|담당 직무)"
             r"\s*[:：]\s*(.+)$",
             cleaned_line,
             flags=re.IGNORECASE,
@@ -896,7 +957,7 @@ def _parse_application_requirements(
         # ----------------------------------------------------
 
         qualification_match = re.search(
-            r"(?:자격요건|지원자격|응시자격)"
+            r"(?:자격요건|지원자격|응시자격|자격)"
             r"\s*[:：]\s*(.+)$",
             cleaned_line,
             flags=re.IGNORECASE,

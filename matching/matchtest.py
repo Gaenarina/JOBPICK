@@ -697,16 +697,28 @@ def normalize_education(value: Any) -> str:
 
     if "학력무관" in text_no_space or text_no_space == "무관":
         return "무관"
-    if "고졸" in text_no_space or "고등학교" in text_no_space:
-        return "고졸"
-    if "초대졸" in text_no_space or "전문대" in text_no_space:
-        return "초대졸"
-    if "대졸" in text_no_space or "4년제" in text_no_space or "학사" in text_no_space:
-        return "대졸"
-    if "석사" in text_no_space:
-        return "석사"
+
+    # 높은 학력부터 확인
     if "박사" in text_no_space:
         return "박사"
+
+    if "석사" in text_no_space:
+        return "석사"
+
+    # 전문대학교에도 '대학교'가 포함될 수 있으므로 먼저 확인
+    if "초대졸" in text_no_space or "전문대" in text_no_space:
+        return "초대졸"
+
+    if (
+        "대졸" in text_no_space
+        or "4년제" in text_no_space
+        or "학사" in text_no_space
+        or "대학교" in text_no_space
+    ):
+        return "대졸"
+
+    if "고졸" in text_no_space or "고등학교" in text_no_space:
+        return "고졸"
 
     return text
 
@@ -940,6 +952,21 @@ def is_valid_required_qualification(text: Any) -> bool:
         return False
     if re.fullmatch(r"[0-9○O]+명", value):
         return False
+
+    # 특정 모집분야 제목은 필수 자격요건 점수에서 제외
+    if re.fullmatch(
+        r"\[[^\]]+\]",
+        value,
+    ):
+        return False
+
+    # 담당업무/담당직무 문장은 자격요건이 아님
+    if re.match(
+        r"^(?:담당업무|담당 업무|담당직무|담당 직무)\s*[:：]",
+        value,
+    ):
+        return False
+
     if any(keyword in value for keyword in QUALIFICATION_NOISE_KEYWORDS):
         return False
 
@@ -1087,15 +1114,21 @@ def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
         skills.extend(as_list(skills_map))
 
     education_list = data.get("education", []) or []
+    education_candidates = []
+
+    for education_item in as_list(education_list):
+        normalized_education = normalize_education(education_item)
+
+        if normalized_education:
+            education_candidates.append(normalized_education)
+
     education = ""
 
-    if education_list:
-        first_education = education_list[0]
-
-        if isinstance(first_education, dict):
-            education = first_education.get("degree", "") or first_education.get("status", "") or ""
-        else:
-            education = clean_text(first_education)
+    if education_candidates:
+        education = max(
+            education_candidates,
+            key=education_level,
+        )
 
     exp_summary = data.get("experienceSummary", {}) or {}
     experience_years = float(exp_summary.get("yearsFloat", 0) or exp_summary.get("years", 0) or 0)
