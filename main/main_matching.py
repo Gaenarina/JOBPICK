@@ -262,63 +262,219 @@ def normalize_list(value):
 
 def get_job_filter_text(job_raw):
     """
-    공고 원본 데이터에서 필터링에 사용할 텍스트를 최대한 넓게 모은다.
-    """
-    job_posting = job_raw.get("jobPosting", {}) or {}
-    legacy = job_raw.get("legacyJobPosting", {}) or {}
-    meta = job_raw.get("meta", {}) or {}
+    공고 후보 필터링용 텍스트.
 
-    job = job_posting.get("job", {}) or {}
-    requirements = job_posting.get("requirements", {}) or {}
-    work_conditions = job_posting.get("workConditions", {}) or {}
-    company_info = job_posting.get("companyInfo", {}) or {}
+    점수 계산과 달리 후보 검색에서는
+    conditionalQualifications도 포함한다.
+
+    이유:
+    여러 모집분야가 포함된 통합공고에서
+    '행정', '사무' 같은 실제 모집직무가
+    conditional 쪽에만 존재할 수 있기 때문이다.
+    """
+
+    job_posting = (
+        job_raw.get(
+            "jobPosting",
+            {},
+        )
+        or {}
+    )
+
+    legacy = (
+        job_raw.get(
+            "legacyJobPosting",
+            {},
+        )
+        or {}
+    )
+
+    meta = (
+        job_raw.get(
+            "meta",
+            {},
+        )
+        or {}
+    )
+
+    job = (
+        job_posting.get(
+            "job",
+            {},
+        )
+        or {}
+    )
+
+    requirements = (
+        job_posting.get(
+            "requirements",
+            {},
+        )
+        or {}
+    )
+
+    work_conditions = (
+        job_posting.get(
+            "workConditions",
+            {},
+        )
+        or {}
+    )
+
+    company_info = (
+        job_posting.get(
+            "companyInfo",
+            {},
+        )
+        or {}
+    )
+
+    ncs = (
+        job_posting.get(
+            "ncs",
+            {},
+        )
+        or {}
+    )
 
     return normalize_text([
-        job_posting.get("title"),
-        job_posting.get("companyName"),
-        job_posting.get("category"),
-        job_posting.get("responsibilities"),
+        job_posting.get(
+            "title"
+        ),
+        job_posting.get(
+            "companyName"
+        ),
+        job_posting.get(
+            "category"
+        ),
+        job_posting.get(
+            "responsibilities"
+        ),
 
-        job.get("department"),
-        job.get("employmentType"),
-        job.get("hiringCount"),
+        job.get(
+            "department"
+        ),
+        job.get(
+            "employmentType"
+        ),
+        job.get(
+            "hiringCount"
+        ),
+        job.get(
+            "recruitmentType"
+        ),
 
-        requirements.get("requiredSkills"),
-        requirements.get("preferredSkills"),
-        requirements.get("requiredQualifications"),
-        requirements.get("preferredQualifications"),
-        requirements.get("coreCompetencies"),
-        requirements.get("certifications"),
-        requirements.get("education"),
-        requirements.get("experience"),
+        requirements.get(
+            "requiredSkills"
+        ),
+        requirements.get(
+            "preferredSkills"
+        ),
 
-        work_conditions.get("location"),
-        work_conditions.get("salary"),
+        # 공통 필수조건
+        requirements.get(
+            "requiredQualifications"
+        ),
 
-        company_info.get("location"),
+        # 후보 검색에서는 반드시 포함
+        requirements.get(
+            "conditionalQualifications"
+        ),
 
-        legacy.get("title"),
-        legacy.get("companyName"),
-        legacy.get("category"),
-        legacy.get("location"),
-        legacy.get("skills"),
-        legacy.get("qualifications"),
-        legacy.get("responsibilities"),
-        legacy.get("postingType"),
-        legacy.get("salary"),
+        requirements.get(
+            "preferredQualifications"
+        ),
+        requirements.get(
+            "coreCompetencies"
+        ),
+        requirements.get(
+            "certifications"
+        ),
+        requirements.get(
+            "education"
+        ),
+        requirements.get(
+            "experience"
+        ),
 
-        meta.get("title"),
-        meta.get("companyName"),
-        meta.get("postingType"),
+        # JOB-ALIO NCS 명칭도 후보 검색에는 활용
+        ncs.get(
+            "names"
+        ),
 
-        job_raw.get("title"),
-        job_raw.get("companyName"),
-        job_raw.get("company"),
-        job_raw.get("category"),
-        job_raw.get("location"),
-        job_raw.get("postingType"),
-        job_raw.get("employmentType"),
-        job_raw.get("salary"),
+        work_conditions.get(
+            "location"
+        ),
+        work_conditions.get(
+            "salary"
+        ),
+
+        company_info.get(
+            "location"
+        ),
+
+        legacy.get(
+            "title"
+        ),
+        legacy.get(
+            "companyName"
+        ),
+        legacy.get(
+            "category"
+        ),
+        legacy.get(
+            "location"
+        ),
+        legacy.get(
+            "skills"
+        ),
+        legacy.get(
+            "qualifications"
+        ),
+        legacy.get(
+            "responsibilities"
+        ),
+        legacy.get(
+            "postingType"
+        ),
+        legacy.get(
+            "salary"
+        ),
+
+        meta.get(
+            "title"
+        ),
+        meta.get(
+            "companyName"
+        ),
+        meta.get(
+            "postingType"
+        ),
+
+        job_raw.get(
+            "title"
+        ),
+        job_raw.get(
+            "companyName"
+        ),
+        job_raw.get(
+            "company"
+        ),
+        job_raw.get(
+            "category"
+        ),
+        job_raw.get(
+            "location"
+        ),
+        job_raw.get(
+            "postingType"
+        ),
+        job_raw.get(
+            "employmentType"
+        ),
+        job_raw.get(
+            "salary"
+        ),
     ])
 
 
@@ -385,7 +541,16 @@ def matches_role(job_text, desired_roles):
             "marketing", "마케팅", "콘텐츠", "브랜딩", "광고", "sns"
         ],
         "admin": [
-            "admin", "행정", "사무", "운영", "총무", "문서"
+            "admin",
+            "행정",
+            "사무",
+            "총무",
+            "문서",
+            "행정지원",
+            "사무지원",
+            "경영지원",
+            "운영지원",
+            "원무",
         ],
     }
 

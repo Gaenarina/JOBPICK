@@ -633,22 +633,134 @@ def _split_required_qualifications(
         list(dict.fromkeys(conditional)),
     )
 
+def _requirement_group_key(value: Any) -> str:
+    """
+    모집분야명을 비교하기 위한 키 생성.
+
+    예:
+    청년인턴(사무_자립준비)
+    -> 청년인턴사무자립준비
+    """
+    return re.sub(
+        r"[^0-9A-Za-z가-힣]+",
+        "",
+        _text(value),
+    ).lower()
+
+
+def _extract_requirement_group_header(
+    raw_line: str,
+    cleaned_line: str,
+    following_text: str,
+) -> str:
+    """
+    현재 줄이 모집분야 제목인지 판단한다.
+
+    예:
+    [청년인턴(사무_자립준비)]
+
+    □ 청년인턴(사무_장애) : 2명
+
+    1. 청년인턴(일반행정) 1명
+
+    단순 자격조건 문장을 모집분야 제목으로 오인하지 않도록
+    뒤쪽에 담당업무/자격요건 같은 구조 필드가 있을 때만 인정한다.
+    """
+
+    has_structured_fields = any(
+        keyword in following_text
+        for keyword in [
+            "담당업무",
+            "담당 업무",
+            "담당직무",
+            "담당 직무",
+            "자격요건",
+            "지원자격",
+            "응시자격",
+            "자격:",
+            "자격 :",
+            "자격：",
+        ]
+    )
+
+    if not has_structured_fields:
+        return ""
+
+    # [청년인턴(사무_자립준비)]
+    bracket_match = re.fullmatch(
+        r"\[([^\]]{1,120})\]",
+        cleaned_line,
+    )
+
+    if bracket_match:
+        group_name = (
+            bracket_match
+            .group(1)
+            .strip()
+        )
+
+        group_key = _requirement_group_key(
+            group_name
+        )
+
+        # 공통 섹션을 모집분야로 오인하지 않는다.
+        if group_key in {
+            "공통",
+            "공통사항",
+            "공통자격",
+            "공통자격요건",
+        }:
+            return ""
+
+        return group_name
+
+    # 청년인턴(일반행정) 1명
+    # 청년인턴(사무_장애) : 2명
+    if re.search(
+        r"\d+\s*명\s*$",
+        cleaned_line,
+    ):
+        group_name = re.sub(
+            r"\s*[:：]?\s*\d+\s*명\s*$",
+            "",
+            cleaned_line,
+        ).strip("[]() ")
+
+        if group_name:
+            return group_name
+
+    return ""
+
+
 def _parse_application_requirements(
     value: Any,
+    title: Any = "",
 ) -> tuple[List[str], List[str], List[str]]:
     """
-    JOB-ALIO aplyQlfcCn을 분석하여 다음을 분리한다.
+    JOB-ALIO aplyQlfcCn을 분석해 다음으로 분리한다.
 
-    1. requiredQualifications
-       - 전체 지원자에게 적용되는 공통조건
+    requiredQualifications
+      - 해당 공고 지원자에게 실제로 공통 적용되는 필수조건
 
-    2. conditionalQualifications
-       - 특정 직종/모집분야에만 적용되는 조건
+    conditionalQualifications
+      - 여러 모집분야가 한 공고에 섞여 있을 때
+        특정 모집분야에만 적용되는 조건
 
-    3. responsibilities
-       - 원문에 '담당업무:'가 명시된 경우에만 추출
+    responsibilities
+      - 담당업무 / 담당직무
 
-    담당업무/계약기간을 자격요건으로 잘못 저장하지 않는다.
+    핵심 원칙
+    ----------
+    1. 모집분야가 하나뿐이면 그 분야의 자격조건은
+       이 공고의 실제 필수조건으로 본다.
+
+    2. 모집분야가 여러 개이면 각 분야의 조건은
+       전체 공고 공통 필수조건으로 사용하지 않는다.
+
+    3. 여러 모집분야 중 공고 제목이 특정 모집분야를
+       명확하게 지칭하면 그 분야의 조건은 필수조건으로 본다.
+
+    4. 담당업무/담당직무는 자격요건으로 저장하지 않는다.
     """
 
     if value is None or value == "":
@@ -665,14 +777,101 @@ def _parse_application_requirements(
         if line.strip()
     ]
 
+    if not raw_lines:
+        return [], [], []
+
     required: List[str] = []
     conditional: List[str] = []
     responsibilities: List[str] = []
 
+    # --------------------------------------------------------
+    # 먼저 전체 텍스트에서 모집분야 헤더 수를 확인한다.
+    #
+    # 모집분야가 하나뿐인 공고:
+    # 해당 모집분야의 자격조건 = 실제 필수조건
+    #
+    # 모집분야가 여러 개인 공고:
+    # 각 모집분야별 조건 = conditional
+    # --------------------------------------------------------
+
+    detected_groups: List[str] = []
+
+    for index, raw_line in enumerate(
+        raw_lines
+    ):
+        cleaned_line = _strip_list_marker(
+            raw_line
+        )
+
+        if not cleaned_line:
+            continue
+
+        following_text = " ".join(
+            raw_lines[
+                index + 1:
+                index + 4
+            ]
+        )
+
+        group_name = (
+            _extract_requirement_group_header(
+                raw_line,
+                cleaned_line,
+                following_text,
+            )
+        )
+
+        if (
+            group_name
+            and group_name
+            not in detected_groups
+        ):
+            detected_groups.append(
+                group_name
+            )
+
+    title_key = _requirement_group_key(
+        title
+    )
+
+    def group_is_required(
+        group_name: str,
+    ) -> bool:
+        """
+        현재 모집분야 조건을 required로 볼지 결정한다.
+        """
+
+        if not group_name:
+            return False
+
+        # 모집분야가 하나뿐이면
+        # 해당 분야 조건은 이 공고의 실질적 필수조건
+        if len(detected_groups) <= 1:
+            return True
+
+        # 여러 분야가 존재하더라도
+        # 제목이 특정 분야를 정확히 지칭하면
+        # 해당 분야 조건은 필수조건으로 사용
+        group_key = _requirement_group_key(
+            group_name
+        )
+
+        if (
+            title_key
+            and group_key
+            and group_key in title_key
+        ):
+            return True
+
+        return False
+
     current_scope = "common"
     current_group = ""
+    current_group_required = False
 
-    def add_required(text_value: str):
+    def add_required(
+        text_value: str,
+    ):
         cleaned = _clean_qualification_text(
             text_value
         )
@@ -702,7 +901,9 @@ def _parse_application_requirements(
         text_value: str,
         group: str = "",
     ):
-        cleaned = _text(text_value)
+        cleaned = _text(
+            text_value
+        )
 
         if not cleaned:
             return
@@ -712,15 +913,19 @@ def _parse_application_requirements(
                 f"({group}) {cleaned}"
             )
 
-        responsibilities.append(cleaned)
+        responsibilities.append(
+            cleaned
+        )
+
+    # --------------------------------------------------------
+    # 실제 파싱
+    # --------------------------------------------------------
 
     for index, raw_line in enumerate(
         raw_lines
     ):
-        cleaned_line = (
-            _strip_list_marker(
-                raw_line
-            )
+        cleaned_line = _strip_list_marker(
+            raw_line
         )
 
         if not cleaned_line:
@@ -732,72 +937,16 @@ def _parse_application_requirements(
             cleaned_line,
         ).lower()
 
-        next_lines = " ".join(
-            raw_lines[
-                index + 1:
-                index + 4
-            ]
+        # [] 또는 ()로 감싸진 섹션명도 동일하게 판단
+        section_label = compact.strip(
+            "[]()"
         )
-
-        has_structured_fields = any(
-            keyword in next_lines
-            for keyword in [
-                "담당업무",
-                "담당 업무",
-                "담당직무",
-                "담당 직무",
-                "자격요건",
-                "지원자격",
-                "응시자격",
-                "자격:",
-                "자격 :",
-                "자격：",
-            ]
-        )
-
-        # [청년인턴(사무_자립준비)] 형태의 모집분야 헤더
-        bracket_header_match = re.fullmatch(
-            r"\[([^\]]{1,100})\]",
-            cleaned_line,
-        )
-
-        if (
-            bracket_header_match
-            and has_structured_fields
-        ):
-            current_scope = "conditional"
-            current_group = (
-                bracket_header_match
-                .group(1)
-                .strip()
-            )
-            continue
-
-        # □ 청년인턴(사무_장애) : 2명
-        # 청년인턴(일반행정) 1명
-        # 같은 모집분야 헤더
-        if (
-            re.search(
-                r"\d+\s*명\s*$",
-                cleaned_line,
-            )
-            and has_structured_fields
-        ):
-            current_scope = "conditional"
-
-            current_group = re.sub(
-                r"\s*[:：]?\s*\d+\s*명\s*$",
-                "",
-                cleaned_line,
-            ).strip("[] ")
-
-            continue
 
         # ----------------------------------------------------
         # 공통 조건 섹션
         # ----------------------------------------------------
 
-        if compact in {
+        if section_label in {
             "공통",
             "공통사항",
             "공통자격",
@@ -805,14 +954,15 @@ def _parse_application_requirements(
         }:
             current_scope = "common"
             current_group = ""
+            current_group_required = False
             continue
 
         # ----------------------------------------------------
-        # 직종/모집분야별 조건 섹션
+        # 명시적인 직종/모집분야별 조건 섹션
         # ----------------------------------------------------
 
         if any(
-            keyword in compact
+            keyword in section_label
             for keyword in [
                 "직종별자격",
                 "직종별자격요건",
@@ -824,13 +974,51 @@ def _parse_application_requirements(
         ):
             current_scope = "conditional"
             current_group = ""
+            current_group_required = False
             continue
 
         # ----------------------------------------------------
-        # 1. 청년인턴(채용형-일반행정) 1명
+        # 모집분야 제목
+        # ----------------------------------------------------
+
+        following_text = " ".join(
+            raw_lines[
+                index + 1:
+                index + 4
+            ]
+        )
+
+        group_name = (
+            _extract_requirement_group_header(
+                raw_line,
+                cleaned_line,
+                following_text,
+            )
+        )
+
+        if group_name:
+            current_group = group_name
+
+            # 이미 "모집분야별 자격" 섹션으로 명시된 경우에는
+            # 항상 conditional로 유지
+            if current_scope == "conditional":
+                current_group_required = False
+            else:
+                current_scope = "group"
+                current_group_required = (
+                    group_is_required(
+                        group_name
+                    )
+                )
+
+            continue
+
+        # ----------------------------------------------------
+        # 명시적인 conditional 섹션의 번호형 항목
         #
-        # 바로 뒤에 담당업무/자격요건이 나오면
-        # 모집분야 제목으로 판단
+        # 예:
+        # 1) KDN조공: ...
+        # 2) 현장보조원
         # ----------------------------------------------------
 
         numbered_header = bool(
@@ -840,41 +1028,6 @@ def _parse_application_requirements(
             )
         )
 
-        if numbered_header:
-            next_lines = " ".join(
-                raw_lines[
-                    index + 1:
-                    index + 4
-                ]
-            )
-
-            has_structured_fields = (
-                "담당업무" in next_lines
-                or "자격요건" in next_lines
-            )
-
-            if has_structured_fields:
-                group_name = re.sub(
-                    r"\s+\d+\s*명\s*$",
-                    "",
-                    cleaned_line,
-                ).strip()
-
-                current_scope = (
-                    "conditional"
-                )
-                current_group = (
-                    group_name
-                )
-                continue
-
-        # ----------------------------------------------------
-        # 직종별 자격 섹션:
-        #
-        # 1) KDN조공: 해당분야 ...
-        # 2) 현장보조원
-        # ----------------------------------------------------
-
         if (
             current_scope
             == "conditional"
@@ -882,7 +1035,10 @@ def _parse_application_requirements(
         ):
             body = cleaned_line
 
-            if ":" in body or "：" in body:
+            if (
+                ":" in body
+                or "：" in body
+            ):
                 parts = re.split(
                     r"[:：]",
                     body,
@@ -904,6 +1060,8 @@ def _parse_application_requirements(
                         group_name
                     )
 
+                current_group_required = False
+
                 if condition_text:
                     add_conditional(
                         condition_text,
@@ -918,10 +1076,11 @@ def _parse_application_requirements(
                 body,
             ).strip()
 
+            current_group_required = False
             continue
 
         # ----------------------------------------------------
-        # 담당업무
+        # 담당업무 / 담당직무
         # ----------------------------------------------------
 
         responsibility_match = re.search(
@@ -941,7 +1100,7 @@ def _parse_application_requirements(
             continue
 
         # ----------------------------------------------------
-        # 계약기간은 자격요건에서 제외
+        # 계약기간 / 근무기간은 자격요건이 아님
         # ----------------------------------------------------
 
         if re.search(
@@ -953,7 +1112,7 @@ def _parse_application_requirements(
             continue
 
         # ----------------------------------------------------
-        # 자격요건:
+        # 명시적인 자격요건
         # ----------------------------------------------------
 
         qualification_match = re.search(
@@ -971,10 +1130,24 @@ def _parse_application_requirements(
             )
 
             if current_group:
+                if current_group_required:
+                    add_required(
+                        qualification_text
+                    )
+                else:
+                    add_conditional(
+                        qualification_text,
+                        current_group,
+                    )
+
+            elif (
+                current_scope
+                == "conditional"
+            ):
                 add_conditional(
-                    qualification_text,
-                    current_group,
+                    qualification_text
                 )
+
             else:
                 add_required(
                     qualification_text
@@ -983,18 +1156,24 @@ def _parse_application_requirements(
             continue
 
         # ----------------------------------------------------
-        # 특정 모집그룹 안에 있는 후속 조건
+        # 모집분야 내부의 후속 조건
         # ----------------------------------------------------
 
         if current_group:
-            add_conditional(
-                cleaned_line,
-                current_group,
-            )
+            if current_group_required:
+                add_required(
+                    cleaned_line
+                )
+            else:
+                add_conditional(
+                    cleaned_line,
+                    current_group,
+                )
+
             continue
 
         # ----------------------------------------------------
-        # 직종별 조건 섹션
+        # 명시적으로 모집분야별 조건 섹션인 경우
         # ----------------------------------------------------
 
         if (
@@ -1002,13 +1181,12 @@ def _parse_application_requirements(
             == "conditional"
         ):
             add_conditional(
-                cleaned_line,
-                current_group,
+                cleaned_line
             )
             continue
 
         # ----------------------------------------------------
-        # 일반 공통 자격요건
+        # 일반 공통 필수조건
         # ----------------------------------------------------
 
         add_required(
@@ -1017,10 +1195,14 @@ def _parse_application_requirements(
 
     return (
         list(
-            dict.fromkeys(required)
+            dict.fromkeys(
+                required
+            )
         ),
         list(
-            dict.fromkeys(conditional)
+            dict.fromkeys(
+                conditional
+            )
         ),
         list(
             dict.fromkeys(
@@ -1531,7 +1713,8 @@ def normalize_recruitment(
         conditional_qualifications,
         responsibilities,
     ) = _parse_application_requirements(
-        item.get("aplyQlfcCn")
+        item.get("aplyQlfcCn"),
+        title=title,
     )
 
 

@@ -888,10 +888,29 @@ def calculate_certification_score(job_certs: List[Any], resume_certs: List[Any])
 
 
 QUALIFICATION_NOISE_KEYWORDS = [
-    "담당업무", "업무", "상담문의", "고객문의", "청약", "배정", "정리",
-    "어드민", "챗팅상담", "채팅상담", "처리", "운영관리", "유지보수",
-    "근무환경", "근무기간", "전형", "접수", "급여", "근무시간", "근무장소",
-    "서류전형", "면접", "최종합격", "지도보기", "인근지하철", "복리후생"
+    "담당업무",
+    "담당 업무",
+    "담당직무",
+    "담당 직무",
+    "상담문의",
+    "청약",
+    "배정",
+    "어드민",
+    "챗팅상담",
+    "채팅상담",
+    "근무환경",
+    "근무기간",
+    "전형절차",
+    "접수방법",
+    "급여",
+    "근무시간",
+    "근무장소",
+    "서류전형",
+    "면접전형",
+    "최종합격",
+    "지도보기",
+    "인근지하철",
+    "복리후생",
 ]
 
 # 공공기관 채용공고에 자주 포함되지만,
@@ -1197,35 +1216,152 @@ def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def extract_job_category(firebase_job_doc: Dict[str, Any], job: Dict[str, Any], job_text: str) -> str:
+def extract_job_category(
+    firebase_job_doc: Dict[str, Any],
+    job: Dict[str, Any],
+    job_text: str,
+) -> str:
+    """
+    공고의 대표 JOBPICK 카테고리를 하나만 반환한다.
+
+    기존처럼 여러 source 값을 문자열로 모두 이어붙이지 않는다.
+    """
+
     values = []
 
     for source in [
         firebase_job_doc,
         job,
-        firebase_job_doc.get("meta", {}) if isinstance(firebase_job_doc.get("meta", {}), dict) else {},
-        firebase_job_doc.get("legacyJobPosting", {}) if isinstance(firebase_job_doc.get("legacyJobPosting", {}), dict) else {},
-        job.get("job", {}) if isinstance(job.get("job", {}), dict) else {},
+        (
+            firebase_job_doc.get(
+                "meta",
+                {},
+            )
+            if isinstance(
+                firebase_job_doc.get(
+                    "meta",
+                    {},
+                ),
+                dict,
+            )
+            else {}
+        ),
+        (
+            firebase_job_doc.get(
+                "legacyJobPosting",
+                {},
+            )
+            if isinstance(
+                firebase_job_doc.get(
+                    "legacyJobPosting",
+                    {},
+                ),
+                dict,
+            )
+            else {}
+        ),
+        (
+            job.get(
+                "job",
+                {},
+            )
+            if isinstance(
+                job.get(
+                    "job",
+                    {},
+                ),
+                dict,
+            )
+            else {}
+        ),
     ]:
-        if not isinstance(source, dict):
+        if not isinstance(
+            source,
+            dict,
+        ):
             continue
 
         values.extend([
-            source.get("category", ""),
-            source.get("jobCategory", ""),
-            source.get("department", ""),
-            source.get("field", ""),
+            source.get(
+                "category",
+                "",
+            ),
+            source.get(
+                "jobCategory",
+                "",
+            ),
+            source.get(
+                "department",
+                "",
+            ),
+            source.get(
+                "field",
+                "",
+            ),
         ])
 
-    category_text = clean_text(" ".join(values))
+    values = unique_preserve_order(
+        values
+    )
 
-    if category_text:
-        return category_text
+    known_categories = {
+        "IT/개발",
+        "의료/바이오",
+        "디자인",
+        "마케팅",
+        "영업·고객상담",
+        "교육",
+        "운전/운송/배송",
+        "건축/시설",
+        "사무·총무",
+        "기타",
+    }
 
-    features = extract_dictionary_features(job_text)
-    categories = features.get("categories", [])
+    # 이미 JOBPICK 표준 카테고리가 있으면 그대로 사용
+    for value in values:
+        cleaned = clean_text(
+            value
+        )
 
-    return clean_text(" ".join(categories))
+        if cleaned in known_categories:
+            return cleaned
+
+    # 기타 원본 카테고리 값이 하나라도 있으면 첫 번째 사용
+    if values:
+        return clean_text(
+            values[0]
+        )
+
+    # 마지막 fallback
+    features = (
+        extract_dictionary_features(
+            job_text
+        )
+    )
+
+    categories = (
+        unique_preserve_order(
+            features.get(
+                "categories",
+                [],
+            )
+        )
+    )
+
+    for category in categories:
+        if (
+            category
+            in known_categories
+        ):
+            return category
+
+    return (
+        clean_text(
+            categories[0]
+        )
+        if categories
+        else ""
+    )
 
 
 def infer_ncs_category_from_job(category: str, job_text: str) -> str:
@@ -1579,6 +1715,57 @@ def count_rule_evidence_groups(
 def should_try_ncs_score(rule_evidence_count: int) -> bool:
     return rule_evidence_count < 2
 
+NCS_SAFE_CATEGORIES = {
+    "IT/개발",
+    "의료/바이오",
+    "디자인",
+    "마케팅",
+    "영업·고객상담",
+    "교육",
+    "운전/운송/배송",
+    "건축/시설",
+    "사무·총무",
+}
+
+
+def get_safe_ncs_category(
+    job: Dict[str, Any],
+) -> str:
+    """
+    NCS 보완 평가에 사용할 카테고리.
+
+    '기타'처럼 직무 범위가 불명확한 공고에서는
+    NCS 전체 후보 중 우연히 비슷한 능력단위를 고르는 것을 막는다.
+    """
+
+    inferred_category = clean_text(
+        job.get(
+            "ncsCategory",
+            "",
+        )
+    )
+
+    if (
+        inferred_category
+        in NCS_SAFE_CATEGORIES
+    ):
+        return inferred_category
+
+    job_category = clean_text(
+        job.get(
+            "category",
+            "",
+        )
+    )
+
+    if (
+        job_category
+        in NCS_SAFE_CATEGORIES
+    ):
+        return job_category
+
+    return ""
+
 
 def build_ncs_not_applied_result(reason: str) -> Dict[str, Any]:
     return {
@@ -1767,25 +1954,52 @@ def get_match_badges(
     accessibility_score: float,
     confidence_score: float,
     has_blocking_unmet: bool = False,
+    rule_evidence_count: int = 0,
+    ncs_used: bool = False,
 ) -> List[str]:
-    badges = []
+    """
+    매칭 결과에 표시할 배지를 결정한다.
+
+    AI 적합:
+    - 적합도 70점 이상
+    - 판단 근거 충분도 45점 이상
+    - 룰 기반 근거가 1개 이상이거나 신뢰 가능한 NCS가 사용됨
+
+    즉, 의미 유사도만으로 70점을 넘긴 경우에는
+    AI 적합 배지를 부여하지 않는다.
+    """
 
     if has_blocking_unmet:
-        badges.append("부적합")
-        return badges
+        return ["부적합"]
 
     if confidence_score < 40:
-        badges.append("정보 부족")
-        return badges
+        return ["정보 부족"]
 
-    if fit_score >= 70 and confidence_score >= 45:
+    # 기존 부적합 기준
+    if (
+        fit_score < 40
+        or accessibility_score < 60
+    ):
+        return ["부적합"]
+
+    badges = []
+
+    # 객관적인 판단 근거 존재 여부
+    has_objective_evidence = (
+        rule_evidence_count > 0
+        or ncs_used
+    )
+
+    # 의미 유사도만 높은 경우에는 AI 적합으로 올리지 않는다.
+    if (
+        fit_score >= 70
+        and confidence_score >= 45
+        and has_objective_evidence
+    ):
         badges.append("AI 적합")
 
     if accessibility_score >= 75:
         badges.append("지원 가능")
-
-    if fit_score < 40 or accessibility_score < 60:
-        badges.append("부적합")
 
     if not badges:
         badges.append("보통")
@@ -1798,6 +2012,8 @@ def get_recommend_type(
     accessibility_score: float,
     confidence_score: float,
     has_blocking_unmet: bool = False,
+    rule_evidence_count: int = 0,
+    ncs_used: bool = False,
 ) -> str:
     if has_blocking_unmet:
         return "부적합"
@@ -1806,10 +2022,12 @@ def get_recommend_type(
         return "정보 부족"
 
     badges = get_match_badges(
-        fit_score,
-        accessibility_score,
-        confidence_score,
-        has_blocking_unmet
+        fit_score=fit_score,
+        accessibility_score=accessibility_score,
+        confidence_score=confidence_score,
+        has_blocking_unmet=has_blocking_unmet,
+        rule_evidence_count=rule_evidence_count,
+        ncs_used=ncs_used,
     )
 
     if "AI 적합" in badges:
@@ -1987,36 +2205,90 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         qual_total_count=qual_total_count,
     )
 
-    if should_try_ncs_score(rule_evidence_count):
-        ncs_result = calculate_ncs_score(
-            resume_text=resume_full_text,
-            job_text=job_full_text,
-            category=job.get("ncsCategory", "") or job.get("category", ""),
-            ncs_codes=job.get("ncsCodes", []),
-            ncs_names=job.get("ncsNames", []),
-            model=get_model(),
-            util_module=util,
+    safe_ncs_category = (
+    get_safe_ncs_category(
+        job
         )
+    )
+
+    if should_try_ncs_score(
+        rule_evidence_count
+    ):
+        if safe_ncs_category:
+            ncs_result = (
+                calculate_ncs_score(
+                    resume_text=
+                        resume_full_text,
+
+                    job_text=
+                        job_full_text,
+
+                    category=
+                        safe_ncs_category,
+
+                    ncs_codes=
+                        job.get(
+                            "ncsCodes",
+                            [],
+                        ),
+
+                    ncs_names=
+                        job.get(
+                            "ncsNames",
+                            [],
+                        ),
+
+                    model=
+                        get_model(),
+
+                    util_module=
+                        util,
+                )
+            )
+        else:
+            ncs_result = (
+                build_ncs_not_applied_result(
+                    "공고의 직무 카테고리가 명확하지 않아 "
+                    "NCS 보완 점수를 적용하지 않았습니다."
+                )
+            )
+
     else:
-        ncs_result = build_ncs_not_applied_result(
-            "공고에 명시된 룰 기반 판단 지표가 충분하여 NCS 보완 점수를 적용하지 않았습니다."
+        ncs_result = (
+            build_ncs_not_applied_result(
+                "공고에 명시된 룰 기반 판단 지표가 충분하여 "
+                "NCS 보완 점수를 적용하지 않았습니다."
+            )
         )
 
     ncs_used = bool(ncs_result.get("ncs_used", False))
 
     if ncs_used and rule_evidence_count == 0:
+        # 룰 근거 없음 + NCS 사용
         rule_total_max = 0.0
-        semantic_total_max = NCS_NO_RULE_SEMANTIC_WEIGHT
-        ncs_total_max = NCS_NO_RULE_NCS_WEIGHT
+        semantic_total_max = 70.0
+        ncs_total_max = 30.0
         scoring_mode = "SEMANTIC_70_NCS_30"
+
     elif ncs_used:
-        rule_total_max = NCS_WITH_RULE_RULE_WEIGHT
-        semantic_total_max = NCS_WITH_RULE_SEMANTIC_WEIGHT
-        ncs_total_max = NCS_WITH_RULE_NCS_WEIGHT
+        # 룰 근거 있음 + NCS 사용
+        rule_total_max = 15.0
+        semantic_total_max = 70.0
+        ncs_total_max = 15.0
         scoring_mode = "RULE_15_SEMANTIC_70_NCS_15"
+
+    elif rule_evidence_count == 0:
+        # 룰 근거 없음 + 신뢰 가능한 NCS도 없음
+        # 사용 가능한 의미 유사도만 100점 기준으로 정규화
+        rule_total_max = 0.0
+        semantic_total_max = 100.0
+        ncs_total_max = 0.0
+        scoring_mode = "SEMANTIC_100"
+
     else:
-        rule_total_max = NO_NCS_RULE_WEIGHT
-        semantic_total_max = NO_NCS_SEMANTIC_WEIGHT
+        # 룰 근거 있음 + NCS 없음
+        rule_total_max = 30.0
+        semantic_total_max = 70.0
         ncs_total_max = 0.0
         scoring_mode = "RULE_30_SEMANTIC_70"
 
@@ -2112,17 +2384,21 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     confidence_score = calculate_confidence_score(job)
 
     match_badges = get_match_badges(
-        fit_score,
-        accessibility_score,
-        confidence_score,
-        has_blocking_unmet
+        fit_score=fit_score,
+        accessibility_score=accessibility_score,
+        confidence_score=confidence_score,
+        has_blocking_unmet=has_blocking_unmet,
+        rule_evidence_count=rule_evidence_count,
+        ncs_used=ncs_used,
     )
 
     recommend_type = get_recommend_type(
-        fit_score,
-        accessibility_score,
-        confidence_score,
-        has_blocking_unmet
+        fit_score=fit_score,
+        accessibility_score=accessibility_score,
+        confidence_score=confidence_score,
+        has_blocking_unmet=has_blocking_unmet,
+        rule_evidence_count=rule_evidence_count,
+        ncs_used=ncs_used,
     )
 
     resume_dictionary_features = extract_dictionary_features(raw_resume_full_text)

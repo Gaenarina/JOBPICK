@@ -509,23 +509,34 @@ function buildAiRecommendationSummary(jobs, meta, selectedResume) {
 function getRecommendationDistribution(jobs) {
   return (jobs || []).reduce(
     (counts, job) => {
-      const badges = job?.matchBadges || job?.match_badges || []
-      const recommendType = String(job?.recommendType || job?.recommend_type || '')
-      const text = `${recommendType} ${badges.join(' ')}`
-      const fitScore = toNumber(job?.fitScore ?? job?.finalScore ?? job?.matchRate)
-      const accessibilityScore = toNumber(job?.accessibilityScore)
-      const confidenceScore = toNumber(job?.confidenceScore)
+      const group =
+        getMatchResultGroup(
+          job
+        )
 
-      if (text.includes('AI 적합') || fitScore >= 70) {
+      if (
+        group ===
+        'aiSuitable'
+      ) {
         counts.aiFit += 1
-      } else if (text.includes('지원 가능') || accessibilityScore >= 70) {
+      } else if (
+        group ===
+        'accessible'
+      ) {
         counts.accessible += 1
-      } else if (text.includes('정보 부족') || confidenceScore < 45) {
+      } else if (
+        group ===
+        'infoLacking'
+      ) {
         counts.insufficientInfo += 1
-      } else {
+      } else if (
+        group ===
+        'normal'
+      ) {
         counts.needsReview += 1
       }
 
+      // unsuitable은 추천 공고 수에서 제외
       return counts
     },
     {
