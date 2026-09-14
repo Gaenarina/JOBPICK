@@ -198,7 +198,6 @@ def fix_basic_birth(text: str, basic: dict) -> dict:
             result["birthDate"] = raw
     return result
 
-
 def fix_basic_email(text: str, basic: dict) -> dict:
     result = dict(basic or {})
     current = clean_inline_text(result.get("email", ""))
@@ -298,7 +297,6 @@ def extract_major(school: str, context: str) -> str:
         if cand not in {"학", "재학", "학교명", "최종학력"}:
             return cand
     return ""
-
 
 def extract_gpa(text: str, degree: str = ""):
     if degree == "고졸":
@@ -1096,7 +1094,6 @@ def fix_core_competencies(self_intro: str, skills: dict, experience: list[dict])
             result.append(keyword)
     return result
 
-
 def fix_job_category(current: str, education: list[dict], skills: dict, experience: list[dict], self_intro: str) -> str:
     exp_text = " ".join(" ".join(x.get("responsibilities", [])) + " " + x.get("position", "") for x in experience or [])
     edu_text = " ".join(x.get("major", "") + " " + x.get("degree", "") for x in education or [])
@@ -1158,4 +1155,436 @@ def postprocess_resume_data(preprocessed_text: str, resume_data: dict) -> dict:
     data["coreCompetencies"] = fix_core_competencies(data.get("selfIntroduction", ""), data.get("skills", {}), data.get("experience", []))
     data["jobCategory"] = fix_job_category(data.get("jobCategory", ""), data.get("education", []), data.get("skills", {}), data.get("experience", []), data.get("selfIntroduction", ""))
     update_experience_summary(data)
+    return data
+
+
+# =============================================================================
+# JOBPICK resume parser compatibility patch (2026-09)
+# -----------------------------------------------------------------------------
+# 기존 후처리 로직은 그대로 두고, 실제 이력서에서 확인된 누락/오인식만 보완한다.
+# - 복수전공/부전공 보강
+# - 사전에 없는 일반 자격증명 보강
+# - 날짜 2개씩 구성된 경력표 보강 (학습관/복지관 등 기관명 포함)
+# - 직위보다 담당업무의 '강사' 같은 단어가 먼저 잡히는 문제 완화
+# - 표 내용이 자기소개서/활동으로 오염되는 문제 완화
+# - 지원자격(보훈/장애/취업지원/자립준비청년)을 True/False/None으로 보존
+# =============================================================================
+
+_legacy_fix_education = fix_education
+_legacy_fix_certifications = fix_certifications
+_legacy_fix_experience = fix_experience
+_legacy_find_self_intro = find_self_intro
+_legacy_fix_activities = fix_activities
+_legacy_postprocess_resume_data = postprocess_resume_data
+
+
+def _clean_major_candidate(value: str) -> str:
+    value = clean_inline_text(value)
+    value = re.sub(r"^(?:부전공|복수전공|전공)\s*[:/\-]?\s*", "", value)
+    value = re.sub(r"\s+(?:졸업|재학|수료)$", "", value)
+    value = value.replace("미디어커뮤니 케이션", "미디어커뮤니케이션")
+    value = value.replace("데이터사이언스스", "데이터사이언스")
+    if value in {"", "학", "과", "전공", "부전공", "복수전공", "학력", "성적"}:
+        return ""
+    # 학교명 조각이 전공으로 잘못 잡히는 것을 막는다.
+    if re.search(r"(?:대학교|대학원|고등학교|학교|대학|고등학)$", value):
+        return ""
+    if len(value) < 2 or len(value) > 40:
+        return ""
+    return value
+
+
+def extract_additional_majors(text: str) -> list[str]:
+    """OCR 순서가 뒤집혀도 복수전공/부전공명을 최대한 보존한다."""
+    inline = normalize_text(text)
+    candidates = []
+
+    # 예: 평생교육학 학 2024-02 복수전공
+    patterns = [
+        r"([가-힣A-Za-z0-9]+(?:학과|전공|학|과|사이언스))\s*(?:학\s*)?(?:20\d{2}-\d{2})?\s*(?:복수전공|부전공)",
+        r"(?:복수전공|부전공)\s*[:/\-]?\s*([가-힣A-Za-z0-9]+(?:학과|전공|학|과|사이언스))",
+    ]
+    for pattern in patterns:
+        for m in re.finditer(pattern, inline):
+            value = _clean_major_candidate(m.group(1))
+            if value and value not in candidates:
+                candidates.append(value)
+
+    # '복수전공' 앞 100자 안에서 가장 가까운 전공형 단어를 한 번 더 확인한다.
+    for marker in re.finditer(r"복수전공|부전공", inline):
+        before = inline[max(0, marker.start() - 100):marker.start()]
+        words = re.findall(r"([가-힣A-Za-z0-9]+(?:학과|전공|학|과|사이언스))", before)
+        for raw in reversed(words):
+            value = _clean_major_candidate(raw)
+            if value:
+                if value not in candidates:
+                    candidates.append(value)
+                break
+
+    return candidates
+
+
+def fix_education(text: str, current: list[dict]) -> list[dict]:
+    result = _legacy_fix_education(text, current)
+    additional = extract_additional_majors(text)
+    if not result:
+        return result
+
+    # 주전공과 같은 값은 추가전공에서 제외한다.
+    main_majors = {clean_inline_text(x.get("major", "")) for x in result if x.get("major")}
+    additional = [x for x in additional if x not in main_majors]
+
+    for item in result:
+        if "고등학교" in clean_inline_text(item.get("school", "")):
+            item.pop("additionalMajors", None)
+            continue
+
+        existing_minor = _clean_major_candidate(item.get("minor", ""))
+        merged = []
+        if existing_minor:
+            merged.append(existing_minor)
+        for value in additional:
+            if value not in merged:
+                merged.append(value)
+
+        if merged:
+            # 기존 코드/embeddingText 호환을 위해 minor도 유지한다.
+            item["minor"] = existing_minor or merged[0]
+            item["additionalMajors"] = merged
+        else:
+            item.setdefault("additionalMajors", [])
+    return result
+
+
+_SUPPLEMENTAL_CERT_PATTERN = re.compile(
+    r"(?<![가-힣A-Za-z0-9])"
+    r"([가-힣A-Za-z0-9]+(?:산업기사|정보관리사|운전기능사|기능사|기술사|기능장|기사|관리사|교육사|사회복지사|보육교사))"
+    r"(?:\s*([12]급|[12]종\s*보통))?"
+)
+
+
+def _supplemental_cert_area(text: str) -> str:
+    inline = normalize_text(text)
+    starts = []
+    for kw in ["자격증", "자격 및 면허", "자격사항", "컴퓨터사용능력", "컴퓨터 사용능력", "활용능력"]:
+        pos = inline.find(kw)
+        if pos >= 0:
+            starts.append(pos)
+    start = min(starts) if starts else 0
+    tail = inline[start:]
+    ends = []
+    for kw in ["보훈대상여부", "장애여부", "병역사항", "병역 ", "상벌", "회사연혁", "자기소개서"]:
+        pos = tail.find(kw)
+        if pos > 20:
+            ends.append(pos)
+    end = min(ends) if ends else min(len(tail), 1200)
+    return tail[:end]
+
+
+def _merge_certifications(base: list[dict], extras: list[dict]) -> list[dict]:
+    result = [dict(x) for x in base or []]
+    for extra in extras:
+        name = clean_inline_text(extra.get("name", ""))
+        if not name:
+            continue
+        grade = clean_inline_text(extra.get("grade", ""))
+        date = normalize_month_date(extra.get("date", ""))
+        matched = None
+        for item in result:
+            if clean_inline_text(item.get("name", "")).lower() == name.lower():
+                matched = item
+                break
+        if matched is None:
+            result.append({"name": name, "grade": grade, "date": date})
+        else:
+            if not matched.get("grade") and grade:
+                matched["grade"] = grade
+            if not matched.get("date") and date:
+                matched["date"] = date
+    return result
+
+
+def fix_certifications(text: str, current: list[dict]) -> list[dict]:
+    result = _legacy_fix_certifications(text, current)
+    area = _supplemental_cert_area(text)
+    extras = []
+    for m in _SUPPLEMENTAL_CERT_PATTERN.finditer(area):
+        name = canonical_cert_name(m.group(1))
+        grade = clean_inline_text(m.group(2) or "")
+        # 담당업무 문장에 우연히 등장한 자격명은 자격증 영역 밖에서는 수집하지 않는다.
+        if not name or name in LANGUAGE_CERT_NAMES:
+            continue
+        extras.append({"name": name, "grade": grade, "date": ""})
+    return _merge_certifications(result, extras)
+
+
+def _experience_table_area_v2(text: str) -> str:
+    inline = normalize_text(text)
+    starts = []
+    for pattern in [r"기간\s*직장명\s*부서/직위\s*담당업무\s*이직사유", r"기간\s*직장명", r"경력사항"]:
+        m = re.search(pattern, inline)
+        if m:
+            starts.append(m.start())
+    if not starts:
+        return ""
+    start = min(starts)
+    tail = inline[start:]
+    end = len(tail)
+    for kw in ["자기소개서상의", "자기소개서 상의", "사실임을 확인합니다", "작성자:", "작성자 :"]:
+        pos = tail.find(kw)
+        if pos > 80:
+            end = min(end, pos)
+    return tail[:end]
+
+
+def _infer_org_v2(row: str) -> str:
+    org = infer_org_from_row(row)
+    if org:
+        return re.sub(r"^\d{1,2}\s+", "", org).strip()
+
+    suffixes = (
+        "공단|공사|센터|학습관|복지관|문화원|회관|재단|진흥원|병원|의원|연구원|연구소|"
+        "대학교|대학|고등학교|학교|협회|위원회|기업|회사|본부|기관"
+    )
+    matches = list(re.finditer(rf"[가-힣A-Za-z0-9]+(?:\s+[가-힣A-Za-z0-9]+){{0,2}}(?:{suffixes})", clean_inline_text(row)))
+    if not matches:
+        return ""
+    value = clean_inline_text(matches[0].group(0))
+    value = re.sub(r"^\d{1,2}\s+", "", value)
+    return finalize_organization(value)
+
+
+def _infer_department_v2(row: str, org: str = "") -> str:
+    value = clean_inline_text(row)
+    for m in re.finditer(r"([가-힣A-Za-z0-9]+(?:팀|부|과|실))\s*/\s*([가-힣A-Za-z0-9 ]+)", value):
+        left = clean_inline_text(m.group(1))
+        right = clean_inline_text(m.group(2))
+        if org and org in right:
+            return left
+        if re.search(r"인턴|사원|보조|담당|매니저|연구원|개발자|간호사|기사", right):
+            return left
+    # 기관명 직후에 부서명이 나오는 평문형
+    if org:
+        pos = value.find(org)
+        if pos >= 0:
+            after = value[pos + len(org):pos + len(org) + 100]
+            m = re.search(r"([가-힣A-Za-z0-9]+(?:팀|부|과|실))", after)
+            if m:
+                return clean_inline_text(m.group(1))
+    return ""
+
+
+_EXPLICIT_POSITION_TERMS = [
+    "체험형 인턴", "채용형 인턴", "운영보조", "행정보조", "사무보조", "업무보조",
+    "연구보조", "시설보조", "교육보조", "계약직", "인턴", "사원", "주임", "대리",
+    "과장", "매니저", "연구원", "개발자", "엔지니어", "간호사", "간호조무사",
+]
+
+
+def _infer_position_v2(row: str, org: str = "", department: str = "") -> str:
+    value = clean_inline_text(row)
+
+    # 부서/직위 형식의 오른쪽 값을 최우선한다.
+    for m in re.finditer(r"([가-힣A-Za-z0-9]+(?:팀|부|과|실))\s*/\s*([가-힣A-Za-z0-9 ]{2,30})", value):
+        right = clean_inline_text(m.group(2))
+        right = re.split(r"20\d{2}-\d{2}|계약만료|퇴사|담당업무", right)[0].strip()
+        if org and org in right:
+            continue
+        for pos in _EXPLICIT_POSITION_TERMS:
+            if pos in right:
+                return pos
+
+    # 표가 뒤집혀 '부서/기관 ... 종료일 직위'가 된 경우도 처리한다.
+    for pos in _EXPLICIT_POSITION_TERMS:
+        if re.search(rf"(?<![가-힣A-Za-z]){re.escape(pos)}(?![가-힣A-Za-z])", value):
+            return pos
+
+    legacy = infer_position(value)
+    # '강사 일정 조율/강사 관리'는 직위 강사가 아니라 담당업무이므로 제외한다.
+    if legacy == "강사" and re.search(r"강사\s*(?:일정|관리|배정|조율|섭외)", value):
+        return ""
+    return legacy
+
+
+def _extract_reason_v2(row: str) -> str:
+    value = clean_inline_text(row)
+    for reason in ["계약만료", "계약 만료", "인턴 종료", "학업 복귀", "정규직 전환", "개인사유", "개인 사유", "퇴사"]:
+        if reason in value:
+            return reason
+    return ""
+
+
+def extract_experience_table_v2(text: str) -> list[dict]:
+    area = _experience_table_area_v2(text)
+    if not area:
+        return []
+    area = re.sub(r"기간\s*직장명\s*부서/직위\s*담당업무\s*이직사유", " ", area)
+    date_matches = list(re.finditer(r"20\d{2}-\d{2}|현재|재직중", area))
+    items = []
+    i = 0
+    while i + 1 < len(date_matches):
+        start_m, end_m = date_matches[i], date_matches[i + 1]
+        start = normalize_current_token(start_m.group(0))
+        end = normalize_current_token(end_m.group(0))
+        if not start or not end or not valid_range(start, end, 360):
+            i += 1
+            continue
+
+        row_end = date_matches[i + 2].start() if i + 2 < len(date_matches) else len(area)
+        row = clean_inline_text(area[start_m.start():row_end])
+        org = _infer_org_v2(row)
+        if not org:
+            i += 2
+            continue
+        department = _infer_department_v2(row, org)
+        position = _infer_position_v2(row, org, department)
+        reason = _extract_reason_v2(row)
+        responsibilities = extract_resp_from_row(row, org, position)
+        if department:
+            responsibilities = [x for x in responsibilities if department not in x]
+        if reason:
+            responsibilities = [x for x in responsibilities if reason not in x]
+
+        items.append({
+            "organization": org,
+            "department": department,
+            "position": position,
+            "startDate": start,
+            "endDate": end,
+            "responsibilities": responsibilities,
+            "reasonForLeaving": reason,
+            "source": "postprocess_experience_table_v2",
+        })
+        i += 2
+    return merge_experience(items)
+
+
+def _experience_coverage_months(items: list[dict]) -> int:
+    return calculate_total_months(items or [])
+
+
+def fix_experience(text: str, current: list[dict]) -> list[dict]:
+    legacy = _legacy_fix_experience(text, current)
+    v2 = extract_experience_table_v2(text)
+    if not v2:
+        return legacy
+
+    # 같은 기간의 기존 결과가 더 풍부한 필드를 가지고 있으면 보강한다.
+    legacy_by_range = {
+        (x.get("startDate", ""), x.get("endDate", "")): x for x in legacy or []
+    }
+    for item in v2:
+        old = legacy_by_range.get((item.get("startDate", ""), item.get("endDate", "")))
+        if not old:
+            continue
+        if not item.get("department") and old.get("department"):
+            item["department"] = old.get("department")
+        if not item.get("position") and old.get("position"):
+            item["position"] = old.get("position")
+        if not item.get("responsibilities") and old.get("responsibilities"):
+            item["responsibilities"] = old.get("responsibilities")
+
+    if len(v2) > len(legacy or []):
+        return v2
+    if _experience_coverage_months(v2) > _experience_coverage_months(legacy or []):
+        return v2
+    if experience_score(v2) > experience_score(legacy or []):
+        return v2
+    return legacy
+
+
+def _looks_like_table_pollution(value: str) -> bool:
+    value = clean_inline_text(value)
+    if not value:
+        return False
+    return bool(
+        re.search(r"기간\s*직장명|부서/직위|담당업무\s*이직사유", value)
+        or len(re.findall(r"20\d{2}-\d{2}", value)) >= 2
+    )
+
+
+def find_self_intro(text: str, current: str = "") -> str:
+    value = _legacy_find_self_intro(text, current)
+    if _looks_like_table_pollution(value):
+        # 잘못 구조화된 경력표를 자기소개서로 임베딩하는 것보다 빈 값이 안전하다.
+        return ""
+    return value
+
+
+def fix_activities(text: str, current: list[dict]) -> list[dict]:
+    values = _legacy_fix_activities(text, current)
+    cleaned = []
+    meaningful = re.compile(r"공모전|경진대회|해커톤|캡스톤|동아리|봉사|학생회|서포터즈|대외활동|수상")
+    for item in values or []:
+        name = clean_inline_text(item.get("name", ""))
+        org = clean_inline_text(item.get("organization", ""))
+        date = clean_inline_text(item.get("date", ""))
+        award = clean_inline_text(item.get("award", ""))
+        desc = clean_inline_text(item.get("description", ""))
+        if not name:
+            continue
+        if name in {"교육", "자료", "경력", "활동", "취미특기", "취미/특기"}:
+            continue
+        if _looks_like_table_pollution(" ".join([name, org, desc])):
+            continue
+        # 구조 근거가 전혀 없는 짧은 문장 조각은 활동으로 채택하지 않는다.
+        if not any([date, award]) and not meaningful.search(name) and len(name) < 12:
+            continue
+        if not any([date, award]) and not meaningful.search(name) and re.search(r"^(?:을|를|이|가|은|는)\s|체크리스트|관리하여|지원했습니다|진행되도록|담당했습니다|수행했습니다", name):
+            continue
+        if org and re.search(r"습니다|했습니다|하도록|하여|하면서", org):
+            org = ""
+        new_item = dict(item)
+        new_item["name"] = name
+        new_item["organization"] = org
+        cleaned.append(new_item)
+    return cleaned
+
+
+def _tri_state_from_block(block: str, positive_words: list[str], negative_words: list[str]):
+    value = clean_inline_text(block)
+    if not value:
+        return None
+    pos = any(x in value for x in positive_words)
+    neg = any(x in value for x in negative_words)
+    # 체크박스 OCR에서 '대상/비대상'이 동시에 읽히는 경우는 추측하지 않는다.
+    if pos and neg:
+        return None
+    if pos:
+        return True
+    if neg:
+        return False
+    return None
+
+
+def _field_context(text: str, label_pattern: str, width: int = 120) -> str:
+    inline = normalize_text(text)
+    m = re.search(label_pattern, inline)
+    if not m:
+        return ""
+    return inline[m.start():m.end() + width]
+
+
+def extract_eligibility(text: str) -> dict:
+    veteran_block = _field_context(text, r"보훈\s*대상(?:여부)?", 120)
+    disability_block = _field_context(text, r"장애(?:인)?\s*(?:대상|여부)?", 120)
+    support_block = _field_context(text, r"취업\s*지원\s*대상(?:자|여부)?", 120)
+    youth_block = _field_context(text, r"자립\s*준비\s*청년", 120)
+
+    veteran = _tri_state_from_block(veteran_block, ["대상", "해당", "예"], ["비대상", "비해당", "해당없음", "아니오"])
+    # 실제 보훈번호처럼 숫자 근거가 있으면 체크박스 OCR이 섞여도 대상 근거로 본다.
+    if veteran is None and re.search(r"보훈번호\s*[:\-]?\s*\d{4,}", veteran_block):
+        veteran = True
+
+    return {
+        "veteran": veteran,
+        "disability": _tri_state_from_block(disability_block, ["대상", "해당", "예", "장애인"], ["비대상", "비해당", "해당없음", "아니오"]),
+        "employmentSupport": _tri_state_from_block(support_block, ["대상", "해당", "예"], ["비대상", "비해당", "해당없음", "아니오"]),
+        "selfRelianceYouth": _tri_state_from_block(youth_block, ["대상", "해당", "예"], ["비대상", "비해당", "해당없음", "아니오"]),
+    }
+
+
+def postprocess_resume_data(preprocessed_text: str, resume_data: dict) -> dict:
+    data = _legacy_postprocess_resume_data(preprocessed_text, resume_data)
+    data["eligibility"] = extract_eligibility(preprocessed_text)
     return data

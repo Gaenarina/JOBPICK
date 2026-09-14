@@ -88,6 +88,12 @@ def get_score_semantic_texts(
             ),
             safe_str(
                 resume.get(
+                    "majors",
+                    [],
+                )
+            ),
+            safe_str(
+                resume.get(
                     "skills",
                     [],
                 )
@@ -1042,60 +1048,1137 @@ def is_scorable_required_qualification(text: Any) -> bool:
     return False
 
 
-def calculate_qualification_rule_score(required_quals: List[Any], resume: Dict[str, Any]) -> Tuple[float, List[str], int, bool]:
-    # [기존 방식]
-    # required = [clean_text(item) for item in as_list(required_quals)]
-    # required = [remove_stopwords(item) for item in required]
-    # required = [item for item in required if is_valid_required_qualification(item)]
+# ----------------------------------------------------------------------
+# 필수 자격요건 매칭 보강
+# ----------------------------------------------------------------------
+# 기존에는 qualification_tokens와 resume_tokens가 하나라도 겹치면
+# 전체 자격요건을 충족한 것으로 처리했다.
+#
+# 예:
+#   "전문의 자격증 + 임상강사 1년 이상"
+#   -> "의료", "경력" 같은 일반 토큰 하나만 겹쳐도 True가 될 수 있었음.
+#
+# 아래 로직에서는 자격/면허/학위/특정 역할 경력처럼
+# 반드시 직접 확인해야 하는 "강한 조건"을 먼저 검사하고,
+# 강한 조건이 없는 문장에만 일반 사전 토큰 매칭을 적용한다.
+# ----------------------------------------------------------------------
 
-    # [새 방식]
+HARD_QUALIFICATION_TERMS = [
+    # 의료/보건
+    "전문의",
+    "임상강사",
+    "군의관",
+    "간호사",
+    "간호조무사",
+    "약사",
+    "한약사",
+    "치과의사",
+    "한의사",
+    "수의사",
+    "물리치료사",
+    "작업치료사",
+    "방사선사",
+    "임상병리사",
+    "영양사",
+
+    # 법률/회계/전문자격
+    "공인노무사",
+    "노무사",
+    "변호사",
+    "공인회계사",
+    "회계사",
+    "세무사",
+    "법무사",
+    "감정평가사",
+    "건축사",
+    "사회복지사",
+]
+
+HARD_ROLE_TERMS = [
+    "임상강사",
+    "군의관",
+    "임상교수",
+    "진료교수",
+    "전담교수",
+    "진료전담교수",
+    "교수",
+    "전공의",
+]
+
+GENERIC_CREDENTIAL_WORDS = {
+    "해당",
+    "관련",
+    "필수",
+    "우대",
+    "소지",
+    "소지자",
+    "자격",
+    "자격증",
+    "면허",
+    "면허증",
+    "자격인정증",
+    "진료과",
+    "지원분야",
+    "지원 분야",
+    "직무",
+    "분야",
+}
+
+
+def normalize_qualification_match_text(value: Any) -> str:
+    """
+    자격요건의 직접 문자열 비교용 정규화.
+
+    예:
+    - "간호사 면허" -> "간호사면허"
+    - "공인 노무사" -> "공인노무사"
+    """
+    text = clean_text(value).lower()
+    text = re.sub(r"[\s·ㆍ,;:()\[\]{}<>/+_\-]", "", text)
+    return text
+
+
+def extract_degree_requirement(qualification: Any) -> str:
+    """
+    자격요건 문장에 명시된 최소 학위를 반환한다.
+    여러 학위가 동시에 잡히면 가장 높은 학위를 사용한다.
+    """
+    text = clean_text(qualification)
+
+    if "박사" in text:
+        return "박사"
+    if "석사" in text:
+        return "석사"
+    if "학사" in text:
+        return "학사"
+
+    return ""
+
+
+MAJOR_EXPLICIT_KEYS = {
+    "major",
+    "majorname",
+    "major_name",
+    "department",
+    "departmentname",
+    "department_name",
+    "field",
+    "fieldofstudy",
+    "field_of_study",
+    "specialization",
+    "minor",
+    "minorname",
+    "minor_name",
+    "doublemajor",
+    "double_major",
+    "secondmajor",
+    "second_major",
+    "submajor",
+    "sub_major",
+    "복수전공",
+    "부전공",
+    "전공",
+    "학과",
+}
+
+MAJOR_GENERIC_TERMS = {
+    "학",
+    "대학",
+    "전문대학",
+    "대학교",
+    "대학원",
+    "학부",
+    "학과",
+    "전공",
+    "관련학",
+}
+
+
+def normalize_major_name(value: Any) -> str:
+    """전공명 비교용 정규화.
+
+    핵심 원칙은 '부분문자열'이 아니라 전공명 자체를 비교하는 것이다.
+
+    예:
+      행정학과       -> 행정학
+      보건행정학     -> 보건행정학
+      의(료)공학     -> 의료공학
+      사회(복지)학   -> 사회복지학
+    """
+    text = clean_text(value).lower()
+
+    if not text:
+        return ""
+
+    # 의(료)공학, 사회(복지)학과 같은 표기를 하나의 전공명으로 만든다.
+    text = re.sub(r"[()\[\]{}<>'\"‘’“”]", "", text)
+    text = re.sub(r"[·ㆍ,;:/+_|\\\-]", "", text)
+    text = re.sub(r"\s+", "", text)
+
+    # 학과/학부/전공 표기는 비교에 필요 없는 후행 라벨이다.
+    if text.endswith("학과"):
+        text = text[:-1]  # 행정학과 -> 행정학
+    elif text.endswith("학부"):
+        text = text[:-2]
+    elif text.endswith("전공"):
+        text = text[:-2]
+
+    return text.strip()
+
+
+def extract_major_terms_from_text(value: Any) -> List[str]:
+    """문장 안에서 실제 전공명으로 볼 수 있는 표현을 추출한다.
+
+    보건행정학, 행정학과, 사회(복지)학, 의(료)공학 등을 잡되
+    '대학교', '학사' 같은 학력 표현은 전공명으로 보지 않는다.
+    """
+    text = clean_text(value)
+
+    if not text:
+        return []
+
+    result: List[str] = []
+
+    # 일반적인 한국어 전공명: 행정학, 간호학, 컴퓨터공학, 행정학과 등.
+    # 공백을 넘지 않게 잡아 학교명이나 앞 문장까지 함께 먹지 않도록 한다.
+    pattern = r"[가-힣A-Za-z]+(?:\([가-힣A-Za-z]+\))?[가-힣A-Za-z]*(?:학과|학부|학)"
+
+    for match in re.finditer(pattern, text):
+        candidate = normalize_major_name(match.group(0))
+
+        if not candidate:
+            continue
+
+        if candidate in MAJOR_GENERIC_TERMS:
+            continue
+
+        # '학사학위', '전문학사' 등의 학력 표현이 잘려 들어오는 경우 방지
+        if candidate in {"학사학", "전문학", "전문학사학", "석사학", "박사학"}:
+            continue
+
+        result.append(candidate)
+
+    return unique_preserve_order(result)
+
+
+def extract_resume_major_names(education_items: Any) -> List[str]:
+    """resumeData.education에서 전공/복수전공/부전공을 최대한 보존해 추출한다."""
+    result: List[str] = []
+
+    for item in as_list(education_items):
+        # 구조화된 교육 객체라면 전공 계열 키를 우선 사용한다.
+        if isinstance(item, dict):
+            for key, value in item.items():
+                normalized_key = str(key).replace(" ", "").lower()
+
+                if normalized_key in MAJOR_EXPLICIT_KEYS:
+                    for major_value in as_list(value):
+                        major_text = clean_text(major_value)
+                        if not major_text:
+                            continue
+
+                        extracted = extract_major_terms_from_text(major_text)
+
+                        if extracted:
+                            result.extend(extracted)
+                        else:
+                            normalized = normalize_major_name(major_text)
+                            if normalized and normalized not in MAJOR_GENERIC_TERMS:
+                                result.append(normalized)
+
+            # 키 이름을 모르는 구조도 있으므로 객체 전체 텍스트에서 한 번 더 추출한다.
+            result.extend(extract_major_terms_from_text(item))
+        else:
+            result.extend(extract_major_terms_from_text(item))
+
+    return unique_preserve_order(result)
+
+
+def extract_required_major_info(qualification: Any) -> Dict[str, Any]:
+    """자격요건에서 필수 전공 정보를 추출한다.
+
+    반환 예:
+      '보건학, 행정학, 법학 학사학위 이상'
+        -> exactMajors=['보건학', '행정학', '법학']
+
+      '행정 관련 전공 학사 이상'
+        -> relatedAnchors=['행정']
+
+      '학사(전공무관)'
+        -> used=False
+
+    전공 나열은 통상 OR 조건으로 해석한다.
+    """
+    text = clean_text(qualification)
+    compact = re.sub(r"\s+", "", text).lower()
+
+    if not text:
+        return {
+            "used": False,
+            "exactMajors": [],
+            "relatedAnchors": [],
+        }
+
+    if any(term in compact for term in ["전공무관", "학과무관", "전공제한없음"]):
+        return {
+            "used": False,
+            "exactMajors": [],
+            "relatedAnchors": [],
+        }
+
+    # 전공/학위/졸업 맥락이 없는 문장에서 우연히 '~학' 단어가 나온 것은
+    # 필수 전공으로 취급하지 않는다.
+    major_context = any(
+        keyword in text
+        for keyword in [
+            "전공",
+            "학과",
+            "학위",
+            "졸업",
+            "학사",
+            "전문학사",
+            "석사",
+            "박사",
+        ]
+    )
+
+    exact_majors = extract_major_terms_from_text(text) if major_context else []
+
+    # '행정 관련 전공', '전기 관련 학과'처럼 '~학'으로 끝나지 않는
+    # 포괄 분야 조건도 별도로 보존한다.
+    related_anchors = []
+    related_pattern = r"([가-힣A-Za-z0-9()]+)\s*관련\s*(?:전공|학과|분야)"
+
+    for match in re.finditer(related_pattern, text):
+        anchor = normalize_major_name(match.group(1))
+        if anchor and anchor not in MAJOR_GENERIC_TERMS:
+            related_anchors.append(anchor)
+
+    exact_majors = unique_preserve_order(exact_majors)
+    related_anchors = unique_preserve_order(related_anchors)
+
+    return {
+        "used": bool(exact_majors or related_anchors),
+        "exactMajors": exact_majors,
+        "relatedAnchors": related_anchors,
+    }
+
+
+def major_requirement_matches(
+    qualification: Any,
+    resume: Dict[str, Any],
+) -> Tuple[bool, bool, Dict[str, Any]]:
+    """필수 전공 조건을 이력서 전공과 비교한다.
+
+    정확한 전공 나열은 '완전 일치'만 허용한다.
+    따라서 행정학 != 보건행정학이다.
+
+    단, '행정 관련 전공'처럼 명시적으로 '관련'이라고 적힌 조건은
+    해당 분야명이 전공명에 독립적인 어근으로 포함되는 것을 허용한다.
+    """
+    info = extract_required_major_info(qualification)
+
+    if not info.get("used"):
+        return False, False, info
+
+    resume_majors = unique_preserve_order([
+        normalize_major_name(item)
+        for item in as_list(resume.get("majors", []))
+        if normalize_major_name(item)
+    ])
+
+    if not resume_majors:
+        return True, False, info
+
+    exact_required = set(info.get("exactMajors", []))
+    resume_major_set = set(resume_majors)
+
+    # 전공 나열은 OR. 정확한 정규화 이름이 하나라도 같아야 한다.
+    if exact_required and (exact_required & resume_major_set):
+        return True, True, info
+
+    # '관련 전공/관련 학과/관련 분야'라고 명시된 경우에만 포괄 매칭 허용.
+    for anchor in info.get("relatedAnchors", []):
+        if not anchor:
+            continue
+
+        for resume_major in resume_majors:
+            if (
+                resume_major == anchor
+                or resume_major.startswith(anchor)
+                or anchor.startswith(resume_major)
+            ):
+                return True, True, info
+
+    return True, False, info
+
+
+def extract_hard_qualification_terms(qualification: Any) -> List[str]:
+    """
+    일반적인 토큰 유사도로 대체하면 안 되는 핵심 자격/직종명을 추출한다.
+
+    1) 단어사전에서 자격증으로 잡힌 값
+    2) 의료/전문직처럼 직종명 자체가 필수자격인 값
+    3) '~기사', '~기능사', '~기술사'처럼 명칭 자체가 자격인 값
+    """
+    text = clean_text(qualification).lower()
+    result = []
+
+    features = extract_dictionary_features(text)
+
+    # 기존 단어사전에 등록된 자격증은 그대로 강한 조건으로 사용
+    result.extend(
+        clean_text(item)
+        for item in features.get("certifications", [])
+        if clean_text(item)
+    )
+
+    # 명시적인 전문직/직종 자격
+    for term in HARD_QUALIFICATION_TERMS:
+        if term.lower() in text:
+            result.append(term)
+
+    # 기사/산업기사/기능사/기술사/관리사 등 자격 명칭
+    suffix_pattern = (
+        r"([가-힣A-Za-z0-9]+"
+        r"(?:기사|산업기사|기능사|기술사|관리사|지도사))"
+    )
+
+    for match in re.finditer(suffix_pattern, text):
+        term = clean_text(match.group(1))
+        if term:
+            result.append(term)
+
+    # "OO 면허", "OO 자격증", "OO 자격인정증"에서 핵심 명칭 추출
+    # 너무 긴 문장을 통째로 자격명으로 잡지 않도록 바로 앞 1~4개 단어만 본다.
+    credential_phrase_pattern = (
+        r"((?:[가-힣A-Za-z0-9]+\s+){0,3}"
+        r"[가-힣A-Za-z0-9]+)"
+        r"\s*(?:면허증?|자격증|자격인정증)"
+    )
+
+    for match in re.finditer(credential_phrase_pattern, text):
+        phrase = clean_text(match.group(1))
+        tokens = [
+            token
+            for token in re.findall(r"[가-힣A-Za-z0-9]+", phrase)
+            if token not in GENERIC_CREDENTIAL_WORDS
+        ]
+
+        if not tokens:
+            continue
+
+        # "해당 진료과 전문의 자격증"처럼 앞부분이 일반 표현이면
+        # 가장 핵심적인 뒤쪽 명칭을 남긴다.
+        candidate = " ".join(tokens[-2:])
+
+        if candidate:
+            result.append(candidate)
+
+    # 긴 표현과 짧은 표현이 동시에 잡힌 경우
+    # 예: "해당 진료과 전문의", "전문의" -> "전문의"를 유지
+    normalized = unique_preserve_order(result)
+
+    cleaned = []
+    for term in normalized:
+        compact = normalize_qualification_match_text(term)
+
+        if not compact:
+            continue
+
+        # 자격명이라고 보기 어려운 일반 표현은 제외
+        if compact in {
+            "관련",
+            "해당",
+            "필수",
+            "자격",
+            "자격증",
+            "면허",
+            "소지자",
+        }:
+            continue
+
+        cleaned.append(term)
+
+    return unique_preserve_order(cleaned)
+
+
+def extract_hard_role_terms(qualification: Any) -> List[str]:
+    """
+    특정 역할/직급 경력이 반드시 필요한 조건을 추출한다.
+
+    예:
+    - 임상강사 1년 이상
+    - 군의관/군복무 관련 임상강사 경력
+    """
+    text = clean_text(qualification).lower()
+
+    return unique_preserve_order([
+        term
+        for term in HARD_ROLE_TERMS
+        if term.lower() in text
+    ])
+
+
+
+EXPERIENCE_FIELD_GENERIC_WORDS = {
+    "경력", "경험", "실무", "업무", "근무", "근무경력", "실무경력", "업무경력",
+    "관련", "해당", "지원", "지원분야", "지원 분야", "분야", "직무", "담당",
+    "이상", "이하", "내외", "년", "개월", "필수", "우대", "요건", "조건",
+    "자격", "자격증", "면허", "면허증", "자격인정증", "소지", "소지자",
+    "가능", "가능자", "등", "및", "또는", "혹은", "그리고",
+}
+
+EXPERIENCE_FIELD_COMPOUND_SUFFIXES = [
+    "간호", "개발", "연구", "교육", "관리", "행정", "회계", "조리", "정비",
+    "운전", "설계", "분석", "영업", "상담", "생산", "품질", "보안", "임상",
+]
+
+
+def _clean_experience_field_piece(value: Any) -> str:
+    """경력 분야 비교에 불필요한 표현을 제거한다."""
+    text = clean_text(value).lower()
+
+    if not text:
+        return ""
+
+    # 기간 표현 제거
+    text = re.sub(
+        r"\d+(?:\.\d+)?\s*(?:년|개월)\s*(?:이상|이하|내외|초과|미만)?",
+        " ",
+        text,
+    )
+
+    # 경력 자체를 뜻하는 표현과 자격 표현 제거
+    text = re.sub(
+        r"(?:근무\s*)?(?:실무\s*)?(?:업무\s*)?(?:경력|경험)",
+        " ",
+        text,
+    )
+    text = re.sub(
+        r"(?:자격인정증|자격증|면허증?|소지자|소지)",
+        " ",
+        text,
+    )
+
+    text = re.sub(r"\s+", " ", text).strip(" ,./;:()[]{}<>|\\\"'")
+    return text
+
+
+def extract_experience_field_groups(qualification: Any) -> List[List[str]]:
+    """
+    '특정 분야 + N년 이상' 조건을 AND/OR 그룹으로 분리한다.
+
+    예:
+      JSP PHP HTML 등 웹 개발 및 사업관리 경력 1년 이상
+        -> [[JSP, PHP, HTML, 웹 개발], [사업관리]]
+
+      교육 및 연구경력 4년 이상
+        -> [[교육], [연구]]
+
+      간호사 또는 간호조무사 경력 1년 이상
+        -> [[간호사, 간호조무사]]
+
+    바깥 리스트는 AND, 안쪽 리스트는 OR 의미로 사용한다.
+    '관련 분야 경력'처럼 구체 분야를 알 수 없는 문장은 빈 리스트를 반환한다.
+    """
+    raw = clean_text(qualification).lower()
+
+    if not raw:
+        return []
+
+    if extract_min_years(raw) <= 0 and not any(
+        keyword in raw
+        for keyword in ["경력", "경험"]
+    ):
+        return []
+
+    working = _clean_experience_field_piece(raw)
+
+    if not working:
+        return []
+
+    # '및', '+', '그리고'는 동시에 요구되는 그룹으로 본다.
+    and_groups = re.split(
+        r"\s*(?:및|그리고|\+)\s*",
+        working,
+    )
+
+    result: List[List[str]] = []
+
+    for group_text in and_groups:
+        group_text = clean_text(group_text)
+
+        if not group_text:
+            continue
+
+        # '또는', '/', ',', '등'은 같은 그룹 내 대안으로 본다.
+        alternative_chunks = re.split(
+            r"\s*(?:또는|혹은|/|,|;|\||등)\s*",
+            group_text,
+        )
+
+        alternatives: List[str] = []
+
+        for chunk in alternative_chunks:
+            chunk = _clean_experience_field_piece(chunk)
+
+            if not chunk:
+                continue
+
+            # 영어 기술명은 각각 독립 대안으로 분리한다.
+            english_terms = re.findall(
+                r"\b[a-z][a-z0-9+#.]{1,}\b",
+                chunk,
+            )
+
+            for term in english_terms:
+                if term not in {"and", "or", "etc"}:
+                    alternatives.append(term)
+
+            # 영어 토큰을 제거하고 남은 한국어/혼합 분야 표현을 보존한다.
+            korean_part = re.sub(
+                r"\b[a-z][a-z0-9+#.]{1,}\b",
+                " ",
+                chunk,
+            )
+            korean_part = re.sub(r"\s+", " ", korean_part).strip()
+
+            # 앞뒤의 일반 표현 제거
+            tokens = re.findall(r"[가-힣A-Za-z0-9+#.]+", korean_part)
+            tokens = [
+                token
+                for token in tokens
+                if token not in EXPERIENCE_FIELD_GENERIC_WORDS
+            ]
+
+            if tokens:
+                phrase = " ".join(tokens)
+                compact = normalize_qualification_match_text(phrase)
+
+                if len(compact) >= 2:
+                    alternatives.append(phrase)
+
+        alternatives = unique_preserve_order(alternatives)
+
+        # 구체적인 분야 신호가 없는 그룹은 평가에서 제외
+        meaningful = []
+        for term in alternatives:
+            compact = normalize_qualification_match_text(term)
+            if not compact:
+                continue
+            if compact in {
+                normalize_qualification_match_text(x)
+                for x in EXPERIENCE_FIELD_GENERIC_WORDS
+            }:
+                continue
+            meaningful.append(term)
+
+        meaningful = unique_preserve_order(meaningful)
+
+        if meaningful:
+            result.append(meaningful)
+
+    return result
+
+
+def experience_field_term_matches(
+    term: str,
+    resume_experience_text: str,
+    resume_feature_tokens: set,
+) -> bool:
+    """하나의 경력 분야/기술 신호가 이력서의 실제 경험 내용에 존재하는지 확인한다."""
+    term = clean_text(term).lower()
+
+    if not term:
+        return False
+
+    normalized_term = normalize_qualification_match_text(term)
+    normalized_resume = normalize_qualification_match_text(resume_experience_text)
+
+    if not normalized_term or not normalized_resume:
+        return False
+
+    # 1) 직접 문자열 일치
+    if normalized_term in normalized_resume:
+        return True
+
+    # 2) 단어사전 별칭/표준 토큰 일치
+    term_features = extract_dictionary_features(term)
+    term_feature_tokens = set()
+
+    for key in ["skills", "requirements", "categories", "tasks"]:
+        term_feature_tokens.update(term_features.get(key, []))
+
+    if term_feature_tokens and (term_feature_tokens & resume_feature_tokens):
+        return True
+
+    # 3) '웹 개발'처럼 공백이 있는 표현은 구성 단어를 모두 확인
+    phrase_tokens = [
+        token
+        for token in re.findall(r"[가-힣A-Za-z0-9+#.]+", term)
+        if token not in EXPERIENCE_FIELD_GENERIC_WORDS
+    ]
+
+    if len(phrase_tokens) >= 2:
+        if all(
+            normalize_qualification_match_text(token) in normalized_resume
+            for token in phrase_tokens
+        ):
+            return True
+
+    # 4) '외래간호'처럼 붙어 있는 한국어 복합어는
+    #    핵심 접미어와 앞부분이 모두 경험 텍스트에 있는지 확인한다.
+    if re.fullmatch(r"[가-힣]{3,}", term):
+        for suffix in EXPERIENCE_FIELD_COMPOUND_SUFFIXES:
+            if term.endswith(suffix) and len(term) > len(suffix):
+                prefix = term[:-len(suffix)]
+                if (
+                    normalize_qualification_match_text(prefix) in normalized_resume
+                    and normalize_qualification_match_text(suffix) in normalized_resume
+                ):
+                    return True
+
+    return False
+
+
+def experience_field_groups_match(
+    qualification: str,
+    resume: Dict[str, Any],
+) -> Tuple[bool, bool, List[List[str]]]:
+    """
+    특정 분야 경력 조건을 실제 경험 내용과 비교한다.
+
+    반환:
+      (field_condition_used, field_condition_matched, groups)
+
+    그룹 간에는 AND, 한 그룹 안에서는 OR로 평가한다.
+    """
+    groups = extract_experience_field_groups(qualification)
+
+    if not groups:
+        return False, False, []
+
+    resume_experience_text = clean_text(
+        " ".join(
+            as_list(
+                resume.get(
+                    "projects",
+                    [],
+                )
+            )
+        )
+    ).lower()
+
+    if not resume_experience_text:
+        return True, False, groups
+
+    resume_features = extract_dictionary_features(resume_experience_text)
+    resume_feature_tokens = set()
+
+    for key in ["skills", "requirements", "categories", "tasks"]:
+        resume_feature_tokens.update(resume_features.get(key, []))
+
+    # 모든 AND 그룹에서 최소 하나의 대안이 실제 경력 내용과 일치해야 한다.
+    for group in groups:
+        if not any(
+            experience_field_term_matches(
+                term,
+                resume_experience_text,
+                resume_feature_tokens,
+            )
+            for term in group
+        ):
+            return True, False, groups
+
+    return True, True, groups
+
+
+def qualification_term_in_resume(term: str, resume_text: str, resume_certs: List[Any]) -> bool:
+    """
+    강한 자격/직종명이 실제 이력서에 직접 존재하는지 검사한다.
+    일반 사전 토큰 교집합은 사용하지 않는다.
+    """
+    normalized_term = normalize_qualification_match_text(term)
+
+    if not normalized_term:
+        return False
+
+    normalized_resume = normalize_qualification_match_text(resume_text)
+
+    if normalized_term in normalized_resume:
+        return True
+
+    for cert in as_list(resume_certs):
+        normalized_cert = normalize_qualification_match_text(cert)
+
+        if not normalized_cert:
+            continue
+
+        if (
+            normalized_term == normalized_cert
+            or normalized_term in normalized_cert
+            or normalized_cert in normalized_term
+        ):
+            return True
+
+    return False
+
+
+def check_hard_qualification(
+    qualification: str,
+    resume: Dict[str, Any],
+    resume_text: str,
+) -> Tuple[bool, bool]:
+    """
+    자격요건 안에 강한 필수조건이 있는 경우 직접 검증한다.
+
+    반환:
+        (hard_condition_used, hard_condition_matched)
+
+    hard_condition_used=True인 문장은 이후 일반 토큰 매칭으로
+    우회해서 통과시키지 않는다.
+    """
+    hard_used = False
+
+    # --------------------------------------------------
+    # 1. 자격증 / 면허 / 전문직 자격
+    # --------------------------------------------------
+    hard_terms = extract_hard_qualification_terms(
+        qualification
+    )
+
+    if hard_terms:
+        hard_used = True
+
+        # 복합 필수조건은 모두 충족해야 한다.
+        for term in hard_terms:
+            if not qualification_term_in_resume(
+                term,
+                resume_text,
+                resume.get("certifications", []),
+            ):
+                return True, False
+
+    # --------------------------------------------------
+    # 2. 학위 + 필수 전공
+    # --------------------------------------------------
+    required_degree = extract_degree_requirement(
+        qualification
+    )
+
+    if required_degree:
+        hard_used = True
+
+        if education_level(
+            resume.get("education", "")
+        ) < education_level(
+            required_degree
+        ):
+            return True, False
+
+    # 학위 수준만 충족했다고 전공까지 충족한 것으로 보지 않는다.
+    # 예: 행정학 학사 != 보건행정학 학사
+    major_used, major_matched, _ = major_requirement_matches(
+        qualification,
+        resume,
+    )
+
+    if major_used:
+        hard_used = True
+
+        if not major_matched:
+            return True, False
+
+    # --------------------------------------------------
+    # 3. 최소 경력연수 + 경력 분야
+    # --------------------------------------------------
+    min_years = extract_min_years(
+        qualification
+    )
+
+    if min_years > 0:
+        hard_used = True
+
+        try:
+            resume_years = float(
+                resume.get(
+                    "experienceYears",
+                    0,
+                )
+                or 0
+            )
+        except Exception:
+            resume_years = 0.0
+
+        # 먼저 총 경력연수가 최소 연수를 충족해야 한다.
+        if resume_years < min_years:
+            return True, False
+
+        # '웹 개발 경력 1년', '교육 및 연구경력 4년'처럼
+        # 특정 분야가 함께 명시되어 있으면 총 경력만으로 통과시키지 않는다.
+        field_used, field_matched, _ = experience_field_groups_match(
+            qualification,
+            resume,
+        )
+
+        if field_used and not field_matched:
+            return True, False
+
+    # --------------------------------------------------
+    # 4. 특정 역할/직급 경력
+    # --------------------------------------------------
+    role_terms = extract_hard_role_terms(
+        qualification
+    )
+
+    if role_terms:
+        hard_used = True
+
+        resume_experience_text = clean_text(
+            " ".join(
+                as_list(
+                    resume.get(
+                        "projects",
+                        [],
+                    )
+                )
+            )
+        ).lower()
+
+        # 복합조건으로 적힌 역할은 모두 직접 확인한다.
+        # 예: "전문의 + 임상강사"에서 간호 경력만으로 통과 불가
+        for role in role_terms:
+            if (
+                normalize_qualification_match_text(
+                    role
+                )
+                not in
+                normalize_qualification_match_text(
+                    resume_experience_text
+                )
+            ):
+                return True, False
+
+    if hard_used:
+        return True, True
+
+    return False, False
+
+
+def calculate_qualification_rule_score(
+    required_quals: List[Any],
+    resume: Dict[str, Any],
+) -> Tuple[float, List[str], int, bool]:
     # 자격요건은 쉼표로 분리하지 않고 줄 단위로 유지하며,
     # 실제 이력서와 비교 가능한 조건만 룰 점수에 사용한다.
-    required = [clean_text(item) for item in as_qualification_list(required_quals)]
-    required = [remove_stopwords(item) for item in required]
-    required = [item for item in required if is_scorable_required_qualification(item)]
-    required = unique_preserve_order(required)
+    required = [
+        clean_text(item)
+        for item
+        in as_qualification_list(
+            required_quals
+        )
+    ]
+
+    required = [
+        remove_stopwords(item)
+        for item
+        in required
+    ]
+
+    required = [
+        item
+        for item
+        in required
+        if is_scorable_required_qualification(
+            item
+        )
+    ]
+
+    required = unique_preserve_order(
+        required
+    )
 
     if not required:
         return 0.0, [], 0, False
 
-    resume_text = clean_text(" ".join([
-        safe_str(resume.get("skills", [])),
-        safe_str(resume.get("certifications", [])),
-        safe_str(resume.get("projects", [])),
-        safe_str(resume.get("education", "")),
-    ])).lower()
+    resume_text = clean_text(
+        " ".join([
+            safe_str(
+                resume.get(
+                    "skills",
+                    [],
+                )
+            ),
+            safe_str(
+                resume.get(
+                    "certifications",
+                    [],
+                )
+            ),
+            safe_str(
+                resume.get(
+                    "projects",
+                    [],
+                )
+            ),
+            safe_str(
+                resume.get(
+                    "education",
+                    "",
+                )
+            ),
+            safe_str(
+                resume.get(
+                    "majors",
+                    [],
+                )
+            ),
+            safe_str(
+                resume.get(
+                    "educationDetails",
+                    [],
+                )
+            ),
+        ])
+    ).lower()
 
-    resume_features = extract_dictionary_features(resume_text)
+    resume_features = (
+        extract_dictionary_features(
+            resume_text
+        )
+    )
+
     resume_tokens = set()
 
-    for key in ["skills", "certifications", "requirements", "categories", "tasks"]:
-        resume_tokens.update(resume_features.get(key, []))
+    for key in [
+        "skills",
+        "certifications",
+        "requirements",
+        "categories",
+        "tasks",
+    ]:
+        resume_tokens.update(
+            resume_features.get(
+                key,
+                [],
+            )
+        )
 
     matched = []
 
     for qualification in required:
-        key = clean_text(qualification).lower()
-        qualification_features = extract_dictionary_features(key)
+        key = clean_text(
+            qualification
+        ).lower()
+
+        # ==================================================
+        # 1. 강한 필수조건 우선 검사
+        # ==================================================
+        hard_used, hard_matched = (
+            check_hard_qualification(
+                qualification,
+                resume,
+                resume_text,
+            )
+        )
+
+        if hard_used:
+            if hard_matched:
+                matched.append(
+                    qualification
+                )
+
+            # 강한 조건이 하나라도 있는 문장은
+            # 일반 토큰 교집합으로 우회하여 통과시키지 않는다.
+            continue
+
+        # ==================================================
+        # 2. 일반 조건
+        # ==================================================
+        qualification_features = (
+            extract_dictionary_features(
+                key
+            )
+        )
+
         qualification_tokens = set()
 
-        for feature_key in ["skills", "certifications", "requirements", "categories", "tasks"]:
-            qualification_tokens.update(qualification_features.get(feature_key, []))
+        for feature_key in [
+            "skills",
+            "certifications",
+            "requirements",
+            "categories",
+            "tasks",
+        ]:
+            qualification_tokens.update(
+                qualification_features.get(
+                    feature_key,
+                    [],
+                )
+            )
 
         is_matched = False
 
-        if qualification_tokens and resume_tokens:
-            is_matched = bool(qualification_tokens & resume_tokens)
+        # 기존:
+        #   bool(qualification_tokens & resume_tokens)
+        #
+        # 하나만 겹쳐도 전체 조건이 True가 되는 문제를 제거한다.
+        if (
+            qualification_tokens
+            and resume_tokens
+        ):
+            overlap = (
+                qualification_tokens
+                & resume_tokens
+            )
 
-        if not is_matched and key and key in resume_text:
+            if len(
+                qualification_tokens
+            ) == 1:
+                # 조건 신호가 하나뿐이면 그 신호가 직접 존재해야 한다.
+                is_matched = bool(
+                    overlap
+                )
+            else:
+                # 복수 신호 조건은 하나만 겹친다고 충족시키지 않는다.
+                # 최소 2개 이상 + 60% 이상 일치해야 일반 조건을 충족한 것으로 본다.
+                overlap_ratio = (
+                    len(overlap)
+                    / len(
+                        qualification_tokens
+                    )
+                )
+
+                is_matched = (
+                    len(overlap) >= 2
+                    and overlap_ratio >= 0.60
+                )
+
+        # 문장 자체가 이력서에 명확히 들어있는 경우
+        if (
+            not is_matched
+            and key
+            and key in resume_text
+        ):
             is_matched = True
 
         if is_matched:
-            matched.append(qualification)
+            matched.append(
+                qualification
+            )
 
-    score = (len(matched) / len(required)) * 10
+    score = (
+        len(matched)
+        / len(required)
+    ) * 10
 
-    return score, matched, len(required), True
+    return (
+        score,
+        matched,
+        len(required),
+        True,
+    )
 
 
 def calculate_semantic_score(resume_text: str, job_text: str, max_score: float) -> Tuple[float, float]:
@@ -1148,12 +2231,17 @@ def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
 
     education_list = data.get("education", []) or []
     education_candidates = []
+    education_details = []
 
     for education_item in as_list(education_list):
         normalized_education = normalize_education(education_item)
 
         if normalized_education:
             education_candidates.append(normalized_education)
+
+        raw_education_text = clean_text(education_item)
+        if raw_education_text:
+            education_details.append(raw_education_text)
 
     education = ""
 
@@ -1162,6 +2250,30 @@ def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
             education_candidates,
             key=education_level,
         )
+
+    # 기존에는 normalize_education() 결과(대졸/석사 등)만 남겨
+    # 실제 전공명이 사라졌다. 필수전공 검증을 위해 별도로 보존한다.
+    majors = extract_resume_major_names(education_list)
+
+    # 일부 분석 결과는 전공을 education이 아닌 별도 필드에 저장할 수 있으므로
+    # 흔한 전공 필드도 보조적으로 확인한다.
+    for extra_major_source in [
+        data.get("major", []),
+        data.get("majors", []),
+        data.get("fieldOfStudy", []),
+        data.get("doubleMajor", []),
+        data.get("minor", []),
+    ]:
+        for major_value in as_list(extra_major_source):
+            extracted = extract_major_terms_from_text(major_value)
+            if extracted:
+                majors.extend(extracted)
+            else:
+                normalized_major = normalize_major_name(major_value)
+                if normalized_major and normalized_major not in MAJOR_GENERIC_TERMS:
+                    majors.append(normalized_major)
+
+    majors = unique_preserve_order(majors)
 
     exp_summary = data.get("experienceSummary", {}) or {}
     experience_years = float(exp_summary.get("yearsFloat", 0) or exp_summary.get("years", 0) or 0)
@@ -1209,6 +2321,8 @@ def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
         safe_str(certifications),
         safe_str(projects),
         safe_str(education),
+        safe_str(majors),
+        safe_str(education_details),
     ]))
 
     dictionary_features = extract_dictionary_features(resume_text_for_dictionary)
@@ -1223,6 +2337,8 @@ def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "skills": skills,
         "education": normalize_education(education),
+        "educationDetails": unique_preserve_order(education_details),
+        "majors": majors,
         "experienceYears": experience_years,
         "certifications": certifications,
         "projects": unique_preserve_order(projects),
@@ -1530,6 +2646,8 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
     ncs_info = job.get("ncs", {}) or {}
 
     return {
+        # 복수 직종 공고 분리에서 제목을 함께 사용해야 하므로 보존한다.
+        "title": clean_text(job.get("title", "")),
         "skills": {
             "required": required_skills,
             "preferred": preferred_skills,
@@ -1614,10 +2732,679 @@ def build_job_full_text(job: Dict[str, Any]) -> str:
     ]))
 
 
+
+# ------------------------------------------------------------------
+# 복수 직종 통합공고의 자격요건을 지원자에게 가장 관련 있는 직종으로 한정
+# ------------------------------------------------------------------
+ROLE_SCOPE_LABEL_NOISE = {
+    "정규직", "계약직", "비정규직", "기간제", "무기계약직",
+    "상근직", "비상근직", "상근", "비상근", "신입", "경력",
+    "육아휴직대체", "휴직대체", "대체", "대체인력",
+    "직원", "채용", "모집", "공개채용", "분야", "직종", "직무",
+    "일반", "지원", "지원분야", "지원 분야",
+}
+
+ROLE_SCOPE_GENERIC_LABELS = {
+    "지원자격", "응시자격", "자격요건", "필수자격", "필수자격요건",
+    "필수요건", "필수조건", "공통자격", "공통자격요건", "공통요건",
+    "우대사항", "우대요건", "기타", "공통", "자격", "요건",
+}
+
+ROLE_SCOPE_ROOT_TERMS = {
+    "간호", "간호사", "간호직", "간호조무사", "보험심사", "조리", "조리사",
+    "취사", "취사원", "사무", "사무보조", "사무보조원", "행정",
+    "전산", "전산행정", "운전", "운전원", "기술", "기술직",
+    "연구", "연구원", "연구직", "교육", "강사", "교수",
+    "임상", "임상병리사", "방사선사", "물리치료사", "작업치료사",
+    "영양사", "약사", "의사", "치과의사", "한의사", "수의사",
+    "시설", "정비", "보안", "회계", "세무", "영업", "상담",
+    "개발", "개발자", "디자인", "마케팅", "생산", "품질",
+}
+
+ROLE_SCOPE_OCCUPATION_SUFFIXES = (
+    "사", "원", "직", "교수", "강사", "의사", "약사", "기사",
+    "기능사", "기술사", "연구원", "보조원", "운전원", "조리원",
+)
+
+# 제목의 직종명과 자격요건의 표현이 조금 달라도 같은 직종으로 묶기 위한 별칭.
+# 서로 혼동되기 쉬운 '간호사'와 '간호조무사'는 일반 '간호'를 공유하지 않는다.
+ROLE_SCOPE_MATCH_ALIASES = {
+    "간호사": ["간호사", "간호직"],
+    "간호직": ["간호직", "간호사"],
+    "간호조무사": ["간호조무사", "조무사"],
+    "보험심사": ["보험심사", "보험심사간호사"],
+    "조리사": ["조리사", "조리", "한식조리", "양식조리"],
+    "조리": ["조리", "조리사"],
+    "취사원": ["취사원", "취사"],
+    "취사": ["취사", "취사원"],
+    "사무보조원": ["사무보조원", "사무보조"],
+    "사무보조": ["사무보조", "사무보조원"],
+    "운전원": ["운전원", "운전", "운전면허"],
+    "운전": ["운전", "운전원", "운전면허"],
+    "임상병리사": ["임상병리사"],
+    "방사선사": ["방사선사"],
+    "물리치료사": ["물리치료사"],
+    "작업치료사": ["작업치료사"],
+    "연구원": ["연구원", "연구직"],
+    "연구직": ["연구직", "연구원"],
+    "전산행정": ["전산행정", "전산", "정보"],
+}
+
+ROLE_SCOPE_REQUIREMENT_HINTS = {
+    "자격", "자격증", "면허", "면허증", "소지", "소지자", "학위", "학사",
+    "석사", "박사", "전공", "졸업", "경력", "경험", "이상", "이하",
+    "필수", "우대", "가능", "요건", "조건",
+}
+
+
+def get_role_label_terms(label: Any) -> List[str]:
+    """직종 라벨에서 고용형태 같은 표현을 제거하고 실제 직종 단어만 남긴다."""
+    text = clean_text(label).lower()
+
+    if not text:
+        return []
+
+    text = re.sub(r"[()\[\]{}_/\\]+", " ", text)
+    tokens = re.findall(r"[가-힣A-Za-z0-9+#.]+", text)
+
+    result = []
+
+    for token in tokens:
+        token = clean_text(token).lower()
+
+        if not token or token in ROLE_SCOPE_LABEL_NOISE:
+            continue
+
+        if len(normalize_qualification_match_text(token)) < 2:
+            continue
+
+        result.append(token)
+
+    return unique_preserve_order(result)
+
+
+def get_role_match_aliases(role: Any) -> List[str]:
+    role_text = clean_text(role).lower()
+    aliases = [role_text]
+
+    aliases.extend(ROLE_SCOPE_MATCH_ALIASES.get(role_text, []))
+
+    # '정규직 간호사' 같이 들어온 라벨에서도 실제 직종 토큰의 별칭을 합친다.
+    for term in get_role_label_terms(role_text):
+        aliases.append(term)
+        aliases.extend(ROLE_SCOPE_MATCH_ALIASES.get(term, []))
+
+    return unique_preserve_order([
+        alias for alias in aliases
+        if normalize_qualification_match_text(alias)
+    ])
+
+
+def extract_known_role_terms(text: Any) -> List[str]:
+    """문장 안에서 알려진 직종 표현을 긴 표현 우선으로 찾는다."""
+    normalized = normalize_qualification_match_text(text)
+
+    if not normalized:
+        return []
+
+    found = []
+
+    for term in sorted(ROLE_SCOPE_ROOT_TERMS, key=len, reverse=True):
+        term_normalized = normalize_qualification_match_text(term)
+
+        if not term_normalized or term_normalized not in normalized:
+            continue
+
+        # 이미 더 긴 직종명이 잡혔으면 그 안에 포함되는 짧은 표현은 제거한다.
+        if any(term_normalized in normalize_qualification_match_text(existing) for existing in found):
+            continue
+
+        found.append(term)
+
+    return found
+
+
+def is_role_like_label(label: Any) -> bool:
+    """'지원자격:' 같은 일반 제목이 아니라 실제 모집 직종 라벨인지 판단한다."""
+    text = clean_text(label).lower()
+    compact = normalize_qualification_match_text(text)
+
+    if not text or not compact:
+        return False
+
+    generic_compacts = {
+        normalize_qualification_match_text(item)
+        for item in ROLE_SCOPE_GENERIC_LABELS
+    }
+
+    if compact in generic_compacts:
+        return False
+
+    # 연구원A / 연구원B처럼 문자 suffix가 붙은 라벨도 직종으로 인정한다.
+    if extract_known_role_terms(text):
+        return True
+
+    terms = get_role_label_terms(text)
+
+    if not terms:
+        return False
+
+    for term in terms:
+        if term in ROLE_SCOPE_ROOT_TERMS:
+            return True
+
+        if any(term.endswith(suffix) for suffix in ROLE_SCOPE_OCCUPATION_SUFFIXES):
+            return True
+
+        if any(hard.lower() in term for hard in HARD_QUALIFICATION_TERMS):
+            return True
+
+        if any(role.lower() in term for role in HARD_ROLE_TERMS):
+            return True
+
+    return False
+
+
+def split_role_labeled_qualification(value: Any) -> Tuple[str, str, str]:
+    """
+    자격요건을 (직종 key, 원래 라벨, 조건 본문)으로 분리한다.
+
+    예:
+      '정규직 간호사 : 간호사 면허증 소지자'
+        -> ('간호사', '정규직 간호사', '간호사 면허증 소지자')
+    """
+    text = clean_text(value)
+
+    if not text:
+        return "", "", ""
+
+    match = re.match(
+        r"^(.{1,60}?)\s*(?:[:：]|\s[-–—]\s)\s*(.+)$",
+        text,
+    )
+
+    if not match:
+        return "", "", text
+
+    label = clean_text(match.group(1))
+    body = clean_text(match.group(2))
+
+    if not label or not body or not is_role_like_label(label):
+        return "", "", text
+
+    known_terms = extract_known_role_terms(label)
+    terms = known_terms or get_role_label_terms(label)
+
+    if not terms:
+        return "", "", text
+
+    key = "|".join(
+        normalize_qualification_match_text(term)
+        for term in terms
+        if normalize_qualification_match_text(term)
+    )
+
+    return key, label, body
+
+
+def is_standalone_role_header(value: Any) -> bool:
+    """
+    '계약직 연구원A(인력지원교육팀'처럼 조건이 아니라 모집분야 제목만
+    별도 줄로 들어온 값을 감지한다. 이런 줄은 자격요건 자체로 점수화하지 않는다.
+    """
+    text = clean_text(value)
+
+    if not text or len(text) > 100:
+        return False
+
+    if not extract_known_role_terms(text):
+        return False
+
+    normalized = normalize_qualification_match_text(text)
+
+    # 실제 조건 문장은 header가 아니다.
+    if any(normalize_qualification_match_text(hint) in normalized for hint in ROLE_SCOPE_REQUIREMENT_HINTS):
+        return False
+
+    # 팀/센터/부서 또는 고용형태가 같이 있으면 standalone 모집분야일 가능성이 높다.
+    header_markers = [
+        "팀", "센터", "부서", "실", "본부",
+        "정규직", "계약직", "비정규직", "기간제", "직원",
+    ]
+
+    return any(marker in text for marker in header_markers)
+
+
+def make_standalone_role_header_key(value: Any) -> Tuple[str, str]:
+    text = clean_text(value)
+
+    if not is_standalone_role_header(text):
+        return "", ""
+
+    return f"header:{normalize_qualification_match_text(text)}", text
+
+
+def extract_title_role_candidates(title: Any) -> List[str]:
+    """
+    통합공고 제목에서 서로 다른 모집 직종 후보를 추출한다.
+
+    짧은 상위개념('사무', '조리', '간호')보다 제목에 실제로 등장한
+    구체 직종('사무보조원', '조리사', '간호사')을 우선한다.
+    """
+    title_text = clean_text(title)
+
+    if not title_text:
+        return []
+
+    candidates = extract_known_role_terms(title_text)
+
+    # 너무 일반적인 루트는 구체 직종이 함께 있으면 제외한다.
+    generic_roots = {"간호", "조리", "취사", "사무", "운전", "기술", "연구", "임상", "개발"}
+    result = []
+
+    for candidate in candidates:
+        candidate_norm = normalize_qualification_match_text(candidate)
+
+        if candidate in generic_roots:
+            if any(
+                candidate_norm in normalize_qualification_match_text(other)
+                and candidate_norm != normalize_qualification_match_text(other)
+                for other in candidates
+            ):
+                continue
+
+        result.append(candidate)
+
+    return unique_preserve_order(result)
+
+
+def qualification_role_match_score(qualification: Any, role: Any) -> float:
+    """자격요건 한 문장이 특정 직종에 얼마나 직접 연결되는지 계산한다."""
+    q_norm = normalize_qualification_match_text(qualification)
+
+    if not q_norm:
+        return 0.0
+
+    score = 0.0
+
+    for alias in get_role_match_aliases(role):
+        alias_norm = normalize_qualification_match_text(alias)
+
+        if alias_norm and alias_norm in q_norm:
+            score = max(score, 10.0 + min(len(alias_norm), 8) * 0.1)
+
+    # 자격/면허 명칭이 직종명과 일치하는 경우 추가 근거.
+    hard_terms = extract_hard_qualification_terms(qualification)
+    role_norm = normalize_qualification_match_text(role)
+
+    for hard_term in hard_terms:
+        hard_norm = normalize_qualification_match_text(hard_term)
+        if hard_norm and (
+            hard_norm == role_norm
+            or hard_norm in role_norm
+            or role_norm in hard_norm
+        ):
+            score += 6.0
+
+    return score
+
+
+def build_resume_role_scope_text(resume: Dict[str, Any]) -> str:
+    return clean_text(" ".join([
+        safe_str(resume.get("certifications", [])),
+        safe_str(resume.get("projects", [])),
+        safe_str(resume.get("skills", [])),
+        safe_str(resume.get("education", "")),
+    ])).lower()
+
+
+def score_role_group_for_resume(
+    role_label: str,
+    qualifications: List[str],
+    resume: Dict[str, Any],
+) -> float:
+    """직종 그룹과 이력서 사이의 직접적인 근거 강도를 계산한다."""
+    resume_text = build_resume_role_scope_text(resume)
+    normalized_resume = normalize_qualification_match_text(resume_text)
+    score = 0.0
+
+    # 1) 직종 라벨 자체/별칭이 이력서에 직접 존재하는지 확인
+    for alias in get_role_match_aliases(role_label):
+        normalized_alias = normalize_qualification_match_text(alias)
+
+        if normalized_alias and normalized_alias in normalized_resume:
+            score += 6.0
+
+    # 2) 직종 라벨의 사전 토큰과 이력서 토큰의 교집합
+    label_features = extract_dictionary_features(role_label)
+    resume_features = extract_dictionary_features(resume_text)
+
+    label_tokens = set()
+    resume_tokens = set()
+
+    for feature_key in ["skills", "certifications", "requirements", "categories", "tasks"]:
+        label_tokens.update(label_features.get(feature_key, []))
+        resume_tokens.update(resume_features.get(feature_key, []))
+
+    score += min(len(label_tokens & resume_tokens), 3) * 2.0
+
+    # 3) 해당 직종의 필수 자격/면허가 실제 이력서에 있는지 확인
+    for qualification in qualifications:
+        hard_terms = extract_hard_qualification_terms(qualification)
+
+        for hard_term in hard_terms:
+            if qualification_term_in_resume(
+                hard_term,
+                resume_text,
+                resume.get("certifications", []),
+            ):
+                score += 8.0
+
+        field_used, field_matched, _ = experience_field_groups_match(
+            qualification,
+            resume,
+        )
+
+        if field_used and field_matched:
+            score += 3.0
+
+        # 4) '간호학', '보험심사', '전산'처럼 자격요건 본문에 있는 직종 루트가
+        # 이력서에도 직접 나타나는지 본다. 연구원 A/B처럼 라벨 자체가 비슷한 경우에 유용하다.
+        q_norm = normalize_qualification_match_text(qualification)
+        for root in extract_known_role_terms(qualification):
+            root_norm = normalize_qualification_match_text(root)
+            if root_norm and root_norm in normalized_resume and root_norm in q_norm:
+                score += 4.0
+
+    return score
+
+
+def is_explicit_common_qualification(value: Any) -> bool:
+    text = clean_text(value)
+    normalized = normalize_qualification_match_text(text)
+
+    common_markers = [
+        "공통", "공통자격", "공통요건", "공통자격요건",
+        "전직종", "전 직종", "모든직종", "모든 직종",
+    ]
+
+    return any(normalize_qualification_match_text(marker) in normalized for marker in common_markers)
+
+
+def build_sequential_role_groups(required: List[str]) -> Tuple[Dict[str, Dict[str, Any]], List[str]]:
+    """라벨형 조건과 standalone 모집분야 header를 이용해 순서 기반 그룹을 만든다."""
+    groups: Dict[str, Dict[str, Any]] = {}
+    common = []
+    current_header_key = ""
+
+    for qualification in required:
+        if is_explicit_common_qualification(qualification):
+            common.append(qualification)
+            continue
+
+        key, label, _ = split_role_labeled_qualification(qualification)
+
+        if key:
+            group = groups.setdefault(key, {
+                "key": key,
+                "label": label,
+                "qualifications": [],
+                "source": "labeled_qualification",
+            })
+            group["qualifications"].append(qualification)
+            current_header_key = key
+            continue
+
+        header_key, header_label = make_standalone_role_header_key(qualification)
+
+        if header_key:
+            groups.setdefault(header_key, {
+                "key": header_key,
+                "label": header_label,
+                "qualifications": [],
+                "source": "standalone_header",
+            })
+            current_header_key = header_key
+            # header 자체는 자격요건이 아니므로 점수화 목록에는 넣지 않는다.
+            continue
+
+        if current_header_key and current_header_key in groups:
+            groups[current_header_key]["qualifications"].append(qualification)
+
+    # 실제 조건이 하나도 없는 빈 header 그룹은 제거한다.
+    groups = {
+        key: group for key, group in groups.items()
+        if group.get("qualifications")
+    }
+
+    return groups, unique_preserve_order(common)
+
+
+def build_title_role_groups(
+    required: List[str],
+    title: str,
+) -> Tuple[Dict[str, Dict[str, Any]], List[str], List[str]]:
+    """
+    라벨 구조가 없는 통합공고(영주적십자병원 유형)를 위해 제목의 직종 후보를
+    기준으로 자격요건을 귀속시킨다.
+    """
+    candidates = extract_title_role_candidates(title)
+    groups: Dict[str, Dict[str, Any]] = {
+        f"title:{normalize_qualification_match_text(role)}": {
+            "key": f"title:{normalize_qualification_match_text(role)}",
+            "label": role,
+            "qualifications": [],
+            "source": "title_inference",
+        }
+        for role in candidates
+    }
+    common = []
+    unassigned = []
+
+    if len(candidates) < 2:
+        return {}, common, required
+
+    for qualification in required:
+        if is_standalone_role_header(qualification):
+            # 제목 기반 fallback에서는 header 문장을 자격조건으로 쓰지 않는다.
+            continue
+
+        if is_explicit_common_qualification(qualification):
+            common.append(qualification)
+            continue
+
+        scored = []
+        for role in candidates:
+            score = qualification_role_match_score(qualification, role)
+            scored.append((score, role))
+
+        scored.sort(key=lambda item: item[0], reverse=True)
+        best_score, best_role = scored[0]
+        second_score = scored[1][0] if len(scored) > 1 else -1.0
+
+        # 직종명이 직접 드러나는 경우에만 귀속한다. 애매한 문장은 억지로 배정하지 않는다.
+        if best_score >= 10.0 and best_score > second_score:
+            key = f"title:{normalize_qualification_match_text(best_role)}"
+            groups[key]["qualifications"].append(qualification)
+        else:
+            unassigned.append(qualification)
+
+    groups = {
+        key: group for key, group in groups.items()
+        if group.get("qualifications")
+    }
+
+    return groups, unique_preserve_order(common), unique_preserve_order(unassigned)
+
+
+def filter_certifications_for_scoped_qualifications(
+    certifications: List[Any],
+    scoped_required_quals: List[str],
+) -> List[str]:
+    """선택 직종의 자격요건에 실제 등장하는 자격증만 전역 자격증 목록에서 남긴다."""
+    selected_text = normalize_qualification_match_text(" ".join(scoped_required_quals))
+
+    if not selected_text:
+        return []
+
+    result = []
+
+    for cert in as_list(certifications):
+        cert_text = clean_text(cert)
+        cert_normalized = normalize_qualification_match_text(cert_text)
+
+        if cert_normalized and cert_normalized in selected_text:
+            result.append(cert_text)
+            continue
+
+        # '간호사 면허증' vs '간호사'처럼 표현 차이가 있는 경우 hard term으로 확인한다.
+        for qualification in scoped_required_quals:
+            hard_terms = extract_hard_qualification_terms(qualification)
+            if any(
+                normalize_qualification_match_text(term)
+                and normalize_qualification_match_text(term) in cert_normalized
+                for term in hard_terms
+            ):
+                result.append(cert_text)
+                break
+
+    return unique_preserve_order(result)
+
+
+def scope_job_to_resume_role(
+    job: Dict[str, Any],
+    resume: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    복수 직종 통합공고에서 지원자의 이력서와 가장 직접적으로 연결되는 한 직종의
+    조건만 평가한다.
+
+    처리 순서:
+    1) '간호사 : ...' 또는 standalone 모집분야 header로 그룹화
+    2) 위 구조가 부족하면 공고 제목의 여러 직종을 이용해 자격요건을 귀속
+    3) 지원자와 직접 연결되는 근거가 가장 강한 그룹 하나만 선택
+
+    안전장치:
+    - 그룹이 2개 미만이면 적용하지 않음
+    - 최고 점수가 0이면 적용하지 않음
+    - 최고 점수가 동점이면 임의 선택하지 않음
+    - 제목 기반 추론에서 직종 귀속이 안 된 문장은 자동으로 다른 직종 조건에 넣지 않음
+    """
+    qualifications = job.get("qualifications", {}) or {}
+    required = as_qualification_list(qualifications.get("required", []))
+    preferred = as_qualification_list(qualifications.get("preferred", []))
+    title = clean_text(job.get("title", ""))
+
+    groups, common_required = build_sequential_role_groups(required)
+    source = "qualification_structure"
+    unassigned_required = []
+
+    # 라벨/헤더 구조만으로 두 직종 이상이 안 잡히면 제목을 사용한다.
+    if len(groups) < 2:
+        title_groups, title_common, title_unassigned = build_title_role_groups(required, title)
+
+        if len(title_groups) >= 2:
+            groups = title_groups
+            common_required = title_common
+            unassigned_required = title_unassigned
+            source = "title_inference"
+
+    info = {
+        "applied": False,
+        "source": source,
+        "title": title,
+        "selectedRole": "",
+        "selectedRoleKey": "",
+        "candidateRoleCount": len(groups),
+        "originalQualificationCount": len(required),
+        "scopedQualificationCount": len(required),
+        "originalCertificationCount": len(as_list(job.get("certifications", []))),
+        "scopedCertificationCount": len(as_list(job.get("certifications", []))),
+        "unassignedQualificationCount": len(unassigned_required),
+        "reason": "",
+    }
+
+    if len(groups) < 2:
+        if title and len(extract_title_role_candidates(title)) >= 2:
+            info["reason"] = "제목에는 복수 직종이 있으나 직종별 자격요건을 두 그룹 이상 연결하지 못했습니다."
+        else:
+            info["reason"] = "직종별로 분리 가능한 자격요건이 2개 이상 확인되지 않았습니다."
+        return job, info
+
+    scored_groups = []
+
+    for key, group in groups.items():
+        group_score = score_role_group_for_resume(
+            group["label"],
+            group["qualifications"],
+            resume,
+        )
+        scored_groups.append((group_score, key, group))
+
+    scored_groups.sort(key=lambda item: item[0], reverse=True)
+
+    best_score, best_key, best_group = scored_groups[0]
+    second_score = scored_groups[1][0] if len(scored_groups) > 1 else -1.0
+
+    if best_score <= 0:
+        info["reason"] = "이력서와 직접 연결되는 직종 근거를 찾지 못했습니다."
+        return job, info
+
+    if abs(best_score - second_score) < 1e-9:
+        info["reason"] = "복수 직종의 관련도 점수가 같아 임의로 직종을 선택하지 않았습니다."
+        return job, info
+
+    scoped_required = unique_preserve_order([
+        *best_group.get("qualifications", []),
+        *common_required,
+    ])
+
+    if not scoped_required:
+        info["reason"] = "선택 직종의 필수 자격요건을 분리하지 못했습니다."
+        return job, info
+
+    # preferred는 선택 직종명이 직접 나타나는 것 + 명시적 공통 우대만 남긴다.
+    scoped_preferred = []
+    for item in preferred:
+        if is_explicit_common_qualification(item):
+            scoped_preferred.append(clean_text(item))
+            continue
+
+        if qualification_role_match_score(item, best_group["label"]) >= 10.0:
+            scoped_preferred.append(clean_text(item))
+
+    scoped_job = dict(job)
+    scoped_job["qualifications"] = {
+        **qualifications,
+        "required": scoped_required,
+        "preferred": unique_preserve_order(scoped_preferred),
+    }
+
+    scoped_certs = filter_certifications_for_scoped_qualifications(
+        job.get("certifications", []),
+        scoped_required,
+    )
+    scoped_job["certifications"] = scoped_certs
+
+    info.update({
+        "applied": True,
+        "selectedRole": best_group["label"],
+        "selectedRoleKey": best_key,
+        "scopedQualificationCount": len(scoped_required),
+        "scopedCertificationCount": len(scoped_certs),
+        "reason": (
+            "공고 제목과 자격요건 구조를 함께 사용해 복수 직종 중 "
+            "이력서와 가장 관련 있는 직종의 조건만 평가했습니다."
+        ),
+    })
+
+    return scoped_job, info
+
 def calculate_accessibility_score(
     skill_used: bool,
     skill_match_count: int,
     skill_total_count: int,
+    edu_used: bool,
     edu_score_raw: float,
     exp_detail: Dict[str, Any],
     cert_used: bool,
@@ -1626,37 +3413,57 @@ def calculate_accessibility_score(
     qual_used: bool,
     qual_rule_score_raw: float,
 ) -> float:
-    score = 0.0
+    """
+    지원 가능성은 '공고에서 실제로 확인된 필수조건'만 기준으로 계산한다.
 
-    min_exp = float(exp_detail.get("min_exp", 0) or 0)
-    resume_exp = float(exp_detail.get("resume_exp", 0) or 0)
+    기존 방식은 조건이 없을 때도 해당 항목의 배점을 자동으로 모두 더해
+    룰 근거가 하나도 없는 공고가 accessibility=100이 되는 문제가 있었다.
 
-    if min_exp <= 0:
-        score += 30
-    elif resume_exp >= min_exp:
-        score += 30
-    else:
-        score += 10
+    새 방식:
+    - 실제 존재하는 조건만 분모/분자에 포함
+    - 확인 가능한 필수조건이 하나도 없으면 100이 아니라 중립값 50 반환
+    - 따라서 '조건을 찾지 못함'과 '조건을 모두 충족함'을 구분
+    """
+    weighted_scores = []
 
-    if edu_score_raw > 0:
-        score += 20
+    # 경력: 30
+    if exp_detail.get("exp_condition_used", False):
+        min_exp = float(exp_detail.get("min_exp", 0) or 0)
+        resume_exp = float(exp_detail.get("resume_exp", 0) or 0)
 
-    if not skill_used:
-        score += 20
-    elif skill_total_count > 0:
-        score += (skill_match_count / skill_total_count) * 20
+        if min_exp > 0:
+            ratio = max(0.0, min(resume_exp / min_exp, 1.0))
+            weighted_scores.append((30.0, ratio))
 
-    if not cert_used:
-        score += 15
-    elif cert_total_count > 0:
-        score += (cert_match_count / cert_total_count) * 15
+    # 학력: 20
+    if edu_used:
+        weighted_scores.append((20.0, 1.0 if edu_score_raw >= 10 else 0.0))
 
-    if not qual_used:
-        score += 15
-    else:
-        score += get_score_ratio(qual_rule_score_raw, 10) * 15
+    # 필수 기술: 20
+    if skill_used and skill_total_count > 0:
+        ratio = max(0.0, min(skill_match_count / skill_total_count, 1.0))
+        weighted_scores.append((20.0, ratio))
 
-    return round(min(score, 100.0), 2)
+    # 필수 자격증: 15
+    if cert_used and cert_total_count > 0:
+        ratio = max(0.0, min(cert_match_count / cert_total_count, 1.0))
+        weighted_scores.append((15.0, ratio))
+
+    # 필수 자격요건: 15
+    if qual_used:
+        weighted_scores.append((15.0, get_score_ratio(qual_rule_score_raw, 10)))
+
+    # 확인할 수 있는 필수조건이 하나도 없으면 '모두 충족'이 아니라 '판단 보류'.
+    if not weighted_scores:
+        return 50.0
+
+    total_weight = sum(weight for weight, _ in weighted_scores)
+    earned = sum(weight * ratio for weight, ratio in weighted_scores)
+
+    if total_weight <= 0:
+        return 50.0
+
+    return round(max(0.0, min((earned / total_weight) * 100.0, 100.0)), 2)
 
 
 def calculate_confidence_score(job: Dict[str, Any]) -> float:
@@ -2059,6 +3866,17 @@ def get_recommend_type(
 def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str = "매칭") -> Dict[str, Any]:
     print(f"\n=== {label} 계산 과정 ===")
 
+    # 복수 직종 통합공고라면 지원자의 이력서와 가장 관련 있는 직종 조건만 사용한다.
+    original_required_quals = (job.get("qualifications", {}) or {}).get("required", [])
+    job, role_scope_info = scope_job_to_resume_role(job, resume)
+
+    if role_scope_info.get("applied"):
+        print(
+            f"[복수 직종 분리] 선택 직종: {role_scope_info.get('selectedRole', '')} "
+            f"(자격요건 {role_scope_info.get('originalQualificationCount', 0)}개 → "
+            f"{role_scope_info.get('scopedQualificationCount', 0)}개)"
+        )
+
     skill_score_raw, skill_match_count, skill_total_count, skill_used, matched_skills = calculate_skill_score(
         job.get("skills", {}), resume.get("skills", [])
     )
@@ -2075,7 +3893,8 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     )
 
     required_quals = (job.get("qualifications", {}) or {}).get("required", [])
-    qual_original_count = len(as_qualification_list(required_quals))
+    qual_original_count = len(as_qualification_list(original_required_quals))
+    qual_scoped_count = len(as_qualification_list(required_quals))
 
     qual_rule_score_raw, matched_quals, qual_total_count, qual_used = calculate_qualification_rule_score(
         required_quals, resume
@@ -2386,6 +4205,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         skill_used=skill_used,
         skill_match_count=skill_match_count,
         skill_total_count=skill_total_count,
+        edu_used=edu_used,
         edu_score_raw=edu_score_raw,
         exp_detail=exp_detail,
         cert_used=cert_used,
@@ -2462,7 +4282,8 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         print(
             f"- 필수 자격요건: {qual_rule_score:.2f}/{rule_weights['qual']:.1f} "
             f"(일치 {len(matched_quals)}/{qual_total_count}, "
-            f"원문 {qual_original_count}개 중 평가대상 {qual_total_count}개)"
+            f"원문 {qual_original_count}개 / 직종선별 {qual_scoped_count}개 / "
+            f"평가대상 {qual_total_count}개)"
         )
     elif qual_original_count > 0:
         print(
@@ -2571,6 +4392,8 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "edu_raw_score_max": 10,
             "job_edu_level": job_edu_level,
             "resume_edu_level": resume_edu_level,
+            "resume_majors": as_list(resume.get("majors", [])),
+            "education_details": as_list(resume.get("educationDetails", [])),
             "edu_used": edu_used,
 
             **exp_detail,
@@ -2598,6 +4421,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "matched_quals": matched_quals,
             "qual_total_count": qual_total_count,
             "qual_original_count": qual_original_count,
+            "qual_scoped_count": qual_scoped_count,
             "qual_used": qual_used,
         },
         "semantic_details": {
@@ -2634,6 +4458,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "standardized_resume_text": resume_full_text,
             "standardized_job_text": job_full_text,
         },
+        "role_scope": role_scope_info,
         "score_details": {
             "fit_score": fit_score,
             "fit_score_max": 100,
