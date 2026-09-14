@@ -148,34 +148,9 @@ function getJobMatchScore(job) {
   return Math.round(numberScore)
 }
 
-function passesMatchScoreFilter(job, scoreFilter) {
-  if (scoreFilter === 'all') return true
-  return getJobMatchScore(job) >= Number(scoreFilter)
-}
-
-function passesMatchHiringFilter(job, hiringFilter) {
-  if (hiringFilter === 'all') return true
-
-  const career = String(job.career || '')
-  const title = String(job.title || '')
-
-  if (hiringFilter === 'entry') {
-    return (
-      career.includes('신입') ||
-      career.includes('무관') ||
-      career.includes('주니어')
-    )
-  }
-
-  if (hiringFilter === 'intern') {
-    return (
-      career.includes('인턴') ||
-      title.includes('인턴') ||
-      title.toLowerCase().includes('intern')
-    )
-  }
-
-  return true
+function passesMatchScoreRange(job, minScore, maxScore) {
+  const score = getJobMatchScore(job)
+  return score >= Number(minScore) && score <= Number(maxScore)
 }
 
 function getMatchBadges(job) {
@@ -270,14 +245,18 @@ export default function DashboardPage() {
   const [appliedMap, setAppliedMap] = useState({})
   const [resumes, setResumes] = useState([])
   const [matchedJobs, setMatchedJobs] = useState([])
-  const [matchScoreFilter, setMatchScoreFilter] = useState('all')
-  const [matchHiringFilter, setMatchHiringFilter] = useState('all')
+  const [matchMinScore, setMatchMinScore] = useState(0)
+  const [matchMaxScore, setMatchMaxScore] = useState(100)
+  const [matchRoleFilter, setMatchRoleFilter] = useState('all')
+  const [matchRegionFilter, setMatchRegionFilter] = useState('all')
+  const [isScoreFilterOpen, setIsScoreFilterOpen] = useState(false)
   const [matchSuccessBanner, setMatchSuccessBanner] = useState(null)
   const [matchSuccessBannerFading, setMatchSuccessBannerFading] = useState(false)
   const [lastAiAnalysisAt, setLastAiAnalysisAt] = useState('')
   const [loadingStepIndex, setLoadingStepIndex] = useState(0)
   const [scoreMap, setScoreMap] = useState({})
   const [scoringJobId, setScoringJobId] = useState(null)
+  const [visibleMatchCount, setVisibleMatchCount] = useState(10)
 
   const resumeUserId = isAuthenticated ? user?.uid || user?.id : null
 
@@ -358,6 +337,70 @@ export default function DashboardPage() {
   }, [jobs, matchedJobs.length])
 
   useEffect(() => {
+    if (!mounted || !isAuthenticated || !resumeUserId || !resumes.length) {
+      setScoreMap({})
+      return
+    }
+
+    const resumeId = getResumeDocId(resumes[0])
+
+    if (!resumeId) {
+      setScoreMap({})
+      return
+    }
+
+    let cancelled = false
+
+    const loadSavedManualMatches = async () => {
+      try {
+        const res = await fetch(
+          `http://localhost:8000/matching-results/${resumeId}`,
+          {
+            method: 'GET',
+            cache: 'no-store',
+          }
+        )
+
+        if (!res.ok) {
+          if (!cancelled) {
+            setScoreMap({})
+          }
+          return
+        }
+
+        const data = await res.json()
+        const manualMatches = normalizeJobs(data.manualMatches || [])
+
+        const savedScoreMap = {}
+
+        manualMatches.forEach((job) => {
+          const jobKey = getJobKey(job)
+
+          if (!jobKey) return
+
+          savedScoreMap[jobKey] = getJobMatchScore(job)
+        })
+
+        if (!cancelled) {
+          setScoreMap(savedScoreMap)
+        }
+      } catch (error) {
+        console.error('저장된 개별 매칭 결과 불러오기 실패:', error)
+
+        if (!cancelled) {
+          setScoreMap({})
+        }
+      }
+    }
+
+    loadSavedManualMatches()
+
+    return () => {
+      cancelled = true
+    }
+  }, [mounted, isAuthenticated, resumeUserId, resumes])
+
+  useEffect(() => {
     if (!matchSuccessBanner) return undefined
 
     const fadeTimer = setTimeout(() => {
@@ -418,18 +461,51 @@ export default function DashboardPage() {
 }, [jobs, selectedRegion, selectedCategory, searchQuery])
 
   const filteredMatchedJobs = useMemo(() => {
-    if (matchScoreFilter === 'all' && matchHiringFilter === 'all') {
-      return matchedJobs
-    }
+    return matchedJobs.filter((job) => {
+      const scoreMatched = passesMatchScoreRange(
+        job,
+        matchMinScore,
+        matchMaxScore
+      )
 
-    return matchedJobs.filter(
-      (job) =>
-        passesMatchScoreFilter(job, matchScoreFilter) &&
-        passesMatchHiringFilter(job, matchHiringFilter)
-    )
-  }, [matchedJobs, matchScoreFilter, matchHiringFilter])
+      const roleText = [
+        job.category,
+        job.jobCategory,
+        job.title,
+        job.role,
+        job.jobRole,
+        ...(Array.isArray(job.roles) ? job.roles : []),
+        ...(Array.isArray(job.jobRoles) ? job.jobRoles : []),
+      ]
+        .filter(Boolean)
+        .join(' ')
 
-  const shownJobs = aiMatched ? filteredMatchedJobs : filteredJobs
+      const locationText = String(job.location || '')
+
+      const roleMatched =
+        matchRoleFilter === 'all' ||
+        roleText.includes(matchRoleFilter)
+
+      const regionMatched =
+        matchRegionFilter === 'all' ||
+        locationText.startsWith(matchRegionFilter) ||
+        locationText.includes(matchRegionFilter)
+
+      return scoreMatched && roleMatched && regionMatched
+    })
+  }, [
+    matchedJobs,
+    matchMinScore,
+    matchMaxScore,
+    matchRoleFilter,
+    matchRegionFilter,
+  ])
+
+  const visibleMatchedJobs = useMemo(() => {
+    return filteredMatchedJobs.slice(0, visibleMatchCount)
+  }, [filteredMatchedJobs, visibleMatchCount])
+
+  const shownJobs = aiMatched ? visibleMatchedJobs : filteredJobs
 
   const matchResultStats = useMemo(
     () => getMatchResultStats(filteredMatchedJobs),
@@ -458,50 +534,107 @@ export default function DashboardPage() {
     }
 
     setIsMatching(true)
-    setMatchScoreFilter('all')
-    setMatchHiringFilter('all')
+    setMatchMinScore(0)
+    setMatchMaxScore(100)
+    setMatchRoleFilter('all')
+    setMatchRegionFilter('all')
+    setIsScoreFilterOpen(false)
+    setVisibleMatchCount(10)
     setMatchSuccessBanner(null)
     setMatchSuccessBannerFading(false)
 
     try {
-      const res = await fetch(MATCH_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          docId: resumeId,
-          userId,
-        }),
-      })
+      const res = await fetch(
+        `http://localhost:8000/matching-results/${resumeId}`,
+        {
+          method: 'GET',
+          cache: 'no-store',
+        }
+      )
 
       const data = await res.json()
 
       if (!res.ok) {
-        throw new Error(data.error || 'AI 매칭 실패')
+        throw new Error(
+          data.error || '저장된 AI 매칭 결과를 불러오지 못했습니다.'
+        )
       }
 
-      const matches = normalizeJobs(data.topFitMatches || data.matches || [])
+      const autoMatches = normalizeJobs(
+        data.matches || data.topFitMatches || []
+      )
 
-      if (!matches.length) {
+      const manualMatches = normalizeJobs(
+        data.manualMatches || []
+      )
+
+      const combinedMatches = [
+        ...manualMatches,
+        ...autoMatches,
+      ]
+
+      const seen = new Set()
+
+      const uniqueMatches = combinedMatches.filter((job) => {
+        const company = String(job.company || '').trim()
+        const title = String(job.title || '').trim()
+
+        const key =
+          company || title
+            ? `${company}__${title}`
+            : String(job.id || job.jobId || '')
+
+        if (!key || seen.has(key)) {
+          return false
+        }
+
+        seen.add(key)
+        return true
+      })
+
+      uniqueMatches.sort(
+        (a, b) => getJobMatchScore(b) - getJobMatchScore(a)
+      )
+
+      const fixedMatches = attachSourceUrlToMatches(
+        uniqueMatches,
+        jobs
+      )
+
+      if (!fixedMatches.length) {
         setMatchedJobs([])
         localStorage.removeItem('jobpick_matched_jobs')
         setAiMatched(true)
-        alert('매칭 결과가 비어 있습니다.')
+        alert('저장된 매칭 결과가 없습니다.')
         return
       }
 
-      setMatchedJobs(matches)
-      localStorage.setItem('jobpick_matched_jobs', JSON.stringify(matches))
+      setMatchedJobs(fixedMatches)
+
+      localStorage.setItem(
+        'jobpick_matched_jobs',
+        JSON.stringify(fixedMatches)
+      )
+
       const analyzedAt = formatAiAnalysisTime()
-      localStorage.setItem(LAST_AI_ANALYSIS_AT_KEY, analyzedAt)
+
+      localStorage.setItem(
+        LAST_AI_ANALYSIS_AT_KEY,
+        analyzedAt
+      )
+
       setLastAiAnalysisAt(analyzedAt)
       setAiMatched(true)
       setMatchSuccessBannerFading(false)
-      setMatchSuccessBanner({ count: matches.length })
+      setMatchSuccessBanner({
+        count: fixedMatches.length,
+      })
     } catch (error) {
       console.error(error)
-      alert(error.message || 'AI 매칭 중 오류가 발생했습니다.')
+      alert(
+        error.message ||
+        'AI 매칭 결과를 불러오는 중 오류가 발생했습니다.'
+      )
     } finally {
       setIsMatching(false)
     }
@@ -595,12 +728,23 @@ export default function DashboardPage() {
   const handleViewJob = (job) => {
     pushRecentJob(job)
 
+    // 1. 실제 원문 URL이 있으면 우선 사용
     if (job.sourceUrl) {
       window.open(job.sourceUrl, '_blank', 'noopener,noreferrer')
       return
     }
 
-    alert('원본 공고 링크를 찾을 수 없습니다.')
+    // 2. sourceUrl이 없으면 JOB-ALIO 공고 ID로 상세페이지 생성
+    const jobId = String(job.id || job.jobId || '')
+    const alioId = jobId.replace(/^moef_/, '')
+
+    if (/^\d+$/.test(alioId)) {
+      const alioUrl = `http://job.alio.go.kr/recruitview.do?idx=${alioId}`
+      window.open(alioUrl, '_blank', 'noopener,noreferrer')
+      return
+    }
+
+    alert('채용공고 상세 페이지를 찾을 수 없습니다.')
   }
 
   const handleToggleBookmark = (job) => {
@@ -675,8 +819,12 @@ export default function DashboardPage() {
     localStorage.removeItem('jobpick_matched_jobs')
     setMatchedJobs([])
     setAiMatched(false)
-    setMatchScoreFilter('all')
-    setMatchHiringFilter('all')
+    setMatchMinScore(0)
+    setMatchMaxScore(100)
+    setMatchRoleFilter('all')
+    setMatchRegionFilter('all')
+    setIsScoreFilterOpen(false)
+    setVisibleMatchCount(10)
   }
 
   const name = user?.name || user?.displayName || '회원'
@@ -871,31 +1019,188 @@ export default function DashboardPage() {
 
         {aiMatched && (
           <div className="flex flex-wrap gap-2 mb-4">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsScoreFilterOpen((prev) => !prev)}
+                className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm hover:bg-slate-200 transition-colors inline-flex items-center"
+              >
+                점수 범위
+
+                {(matchMinScore !== 0 || matchMaxScore !== 100) && (
+                  <span className="ml-1 font-semibold text-primary">
+                    ({matchMinScore}~{matchMaxScore}점)
+                  </span>
+                )}
+
+                <svg
+                  className={`ml-2 h-4 w-4 transition-transform ${
+                    isScoreFilterOpen ? 'rotate-180' : ''
+                  }`}
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M6 8L10 12L14 8"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+
+              {isScoreFilterOpen && (
+                <div className="absolute z-30 top-full left-0 mt-2 w-[320px] max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 bg-white p-4 shadow-lg">
+                  <div className="flex items-center justify-between mb-3 text-sm text-gray-600">
+                    <span className="font-medium">점수 범위</span>
+                    <span className="font-semibold text-gray-800">
+                      {matchMinScore}점 ~ {matchMaxScore}점
+                    </span>
+                  </div>
+
+                  <div className="relative h-8">
+                    <div className="absolute left-0 right-0 top-1/2 h-2 -translate-y-1/2 rounded-full bg-slate-200" />
+
+                    <div
+                      className="absolute top-1/2 h-2 -translate-y-1/2 rounded-full bg-blue-500"
+                      style={{
+                        left: `${matchMinScore}%`,
+                        right: `${100 - matchMaxScore}%`,
+                      }}
+                    />
+
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={matchMinScore}
+                      onChange={(e) => {
+                        const nextValue = Math.min(
+                          Number(e.target.value),
+                          matchMaxScore - 1
+                        )
+
+                        setMatchMinScore(nextValue)
+                        setVisibleMatchCount(10)
+                      }}
+                      className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-none
+                        [&::-webkit-slider-thumb]:appearance-none
+                        [&::-webkit-slider-thumb]:pointer-events-auto
+                        [&::-webkit-slider-thumb]:h-[18px]
+                        [&::-webkit-slider-thumb]:w-[18px]
+                        [&::-webkit-slider-thumb]:rounded-full
+                        [&::-webkit-slider-thumb]:bg-white
+                        [&::-webkit-slider-thumb]:border-[3px]
+                        [&::-webkit-slider-thumb]:border-blue-600
+                        [&::-webkit-slider-thumb]:shadow-md
+                        [&::-webkit-slider-thumb]:ring-2
+                        [&::-webkit-slider-thumb]:ring-blue-100
+                        [&::-moz-range-thumb]:pointer-events-auto
+                        [&::-moz-range-thumb]:h-[18px]
+                        [&::-moz-range-thumb]:w-[18px]
+                        [&::-moz-range-thumb]:rounded-full
+                        [&::-moz-range-thumb]:bg-white
+                        [&::-moz-range-thumb]:border-[3px]
+                        [&::-moz-range-thumb]:border-blue-600
+                        [&::-moz-range-thumb]:shadow-md"
+                    />
+
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={matchMaxScore}
+                      onChange={(e) => {
+                        const nextValue = Math.max(
+                          Number(e.target.value),
+                          matchMinScore + 1
+                        )
+
+                        setMatchMaxScore(nextValue)
+                        setVisibleMatchCount(10)
+                      }}
+                      className="absolute inset-0 w-full appearance-none bg-transparent pointer-events-none
+                        [&::-webkit-slider-thumb]:appearance-none
+                        [&::-webkit-slider-thumb]:pointer-events-auto
+                        [&::-webkit-slider-thumb]:h-[18px]
+                        [&::-webkit-slider-thumb]:w-[18px]
+                        [&::-webkit-slider-thumb]:rounded-full
+                        [&::-webkit-slider-thumb]:bg-white
+                        [&::-webkit-slider-thumb]:border-[3px]
+                        [&::-webkit-slider-thumb]:border-blue-600
+                        [&::-webkit-slider-thumb]:shadow-md
+                        [&::-webkit-slider-thumb]:ring-2
+                        [&::-webkit-slider-thumb]:ring-blue-100
+                        [&::-moz-range-thumb]:pointer-events-auto
+                        [&::-moz-range-thumb]:h-[18px]
+                        [&::-moz-range-thumb]:w-[18px]
+                        [&::-moz-range-thumb]:rounded-full
+                        [&::-moz-range-thumb]:bg-white
+                        [&::-moz-range-thumb]:border-[3px]
+                        [&::-moz-range-thumb]:border-blue-600
+                        [&::-moz-range-thumb]:shadow-md"
+                    />
+                  </div>
+
+                  <div className="mt-3 flex justify-between text-xs text-gray-400">
+                    <span>0점</span>
+                    <span>100점</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <select
-              value={matchScoreFilter}
-              onChange={(e) => setMatchScoreFilter(e.target.value)}
+              value={matchRoleFilter}
+              onChange={(e) => {
+                setMatchRoleFilter(e.target.value)
+                setVisibleMatchCount(10)
+              }}
               className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm"
             >
-              <option value="all">점수: 전체</option>
-              <option value="90">90점 이상</option>
-              <option value="80">80점 이상</option>
-              <option value="70">70점 이상</option>
-              <option value="60">60점 이상</option>
-              <option value="50">50점 이상</option>
-              <option value="40">40점 이상</option>
-              <option value="30">30점 이상</option>
-              <option value="20">20점 이상</option>
-              <option value="10">10점 이상</option>
+              <option value="all">희망 직무: 전체</option>
+              <option value="IT/개발">IT/개발</option>
+              <option value="디자인">디자인</option>
+              <option value="마케팅">마케팅</option>
+              <option value="영업·고객상담">영업·고객상담</option>
+              <option value="사무·총무">사무·총무</option>
+              <option value="교육">교육</option>
+              <option value="의료/바이오">의료/바이오</option>
+              <option value="운전/운송/배송">운전/운송/배송</option>
+              <option value="건축/시설">건축/시설</option>
             </select>
 
             <select
-              value={matchHiringFilter}
-              onChange={(e) => setMatchHiringFilter(e.target.value)}
+              value={matchRegionFilter}
+              onChange={(e) => {
+                setMatchRegionFilter(e.target.value)
+                setVisibleMatchCount(10)
+              }}
               className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm"
             >
-              <option value="all">채용형태: 전체</option>
-              <option value="entry">신입</option>
-              <option value="intern">인턴</option>
+              <option value="all">희망 지역: 전체</option>
+              <option value="서울">서울</option>
+              <option value="경기">경기</option>
+              <option value="인천">인천</option>
+              <option value="부산">부산</option>
+              <option value="대구">대구</option>
+              <option value="광주">광주</option>
+              <option value="대전">대전</option>
+              <option value="울산">울산</option>
+              <option value="세종">세종</option>
+              <option value="강원">강원</option>
+              <option value="충북">충북</option>
+              <option value="충남">충남</option>
+              <option value="전북">전북</option>
+              <option value="전남">전남</option>
+              <option value="경북">경북</option>
+              <option value="경남">경남</option>
+              <option value="제주">제주</option>
             </select>
           </div>
         )}
@@ -1006,6 +1311,24 @@ export default function DashboardPage() {
             {shownJobs.length === 0 && (
               <div className="bg-white rounded-2xl p-8 border border-gray-200 text-center text-gray-500">
                 표시할 공고가 없습니다.
+              </div>
+            )}
+
+            {aiMatched && shownJobs.length > 0 && (
+              <div className="mt-2 text-center">
+                {visibleMatchCount < filteredMatchedJobs.length ? (
+                  <button
+                    type="button"
+                    onClick={() => setVisibleMatchCount((prev) => prev + 10)}
+                    className="px-6 py-3 rounded-xl bg-slate-100 text-gray-700 font-medium hover:bg-slate-200 transition-colors"
+                  >
+                    더보기
+                  </button>
+                ) : (
+                  <p className="py-4 text-sm text-gray-500">
+                    더 이상 공고가 없습니다.
+                  </p>
+                )}
               </div>
             )}
           </div>

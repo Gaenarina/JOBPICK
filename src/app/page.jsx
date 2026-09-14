@@ -1665,16 +1665,26 @@ export default function LandingPage() {
 
   const handleGoJob = (job) => {
     pushRecentJob(job)
-    router.push(`/jobs/${job.id || job.jobId}`)
-  }
 
-  const handleGoPopularJob = (job) => {
-    pushRecentJob(job)
     if (job.sourceUrl) {
       window.open(job.sourceUrl, '_blank', 'noopener,noreferrer')
       return
     }
-    alert('원본 공고 링크를 찾을 수 없습니다.')
+
+    const jobId = String(job.id || job.jobId || '')
+    const alioId = jobId.replace(/^moef_/, '')
+
+    if (/^\d+$/.test(alioId)) {
+      const alioUrl = `http://job.alio.go.kr/recruitview.do?idx=${alioId}`
+      window.open(alioUrl, '_blank', 'noopener,noreferrer')
+      return
+    }
+
+    alert('채용공고 상세 페이지를 찾을 수 없습니다.')
+  }
+
+  const handleGoPopularJob = (job) => {
+    handleGoJob(job)
   }
 
   const handleToggleBookmark = (job) => {
