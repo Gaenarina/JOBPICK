@@ -966,6 +966,157 @@ SCORABLE_QUALIFICATION_HINTS = [
 ]
 
 
+# ----------------------------------------------------------------------
+# 사회형평/특수 지원자격(eligibility)
+# ----------------------------------------------------------------------
+# resume_postprocess.py에서 구조화한 eligibility를 그대로 사용한다.
+# 이 정보는 일반 텍스트 유사도로 추측하지 않는다.
+ELIGIBILITY_FIELDS = (
+    "veteran",
+    "disability",
+    "employmentSupport",
+    "selfRelianceYouth",
+)
+
+ELIGIBILITY_LABELS = {
+    "veteran": "보훈대상",
+    "disability": "장애인",
+    "employmentSupport": "취업지원대상",
+    "selfRelianceYouth": "자립준비청년",
+}
+
+
+def normalize_eligibility_value(value: Any):
+    """eligibility 값을 True / False / None으로만 정규화한다."""
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        if value == 1:
+            return True
+        if value == 0:
+            return False
+
+    text = clean_text(value).lower()
+
+    if not text or text in {"none", "null", "unknown", "확인불가", "미확인"}:
+        return None
+
+    true_values = {
+        "true", "yes", "y", "1", "대상", "해당", "예",
+        "등록", "등록됨", "해당함", "대상자",
+    }
+    false_values = {
+        "false", "no", "n", "0", "비대상", "미해당",
+        "해당없음", "해당 없음", "아니오", "비해당",
+    }
+
+    if text in true_values:
+        return True
+    if text in false_values:
+        return False
+
+    # 모호한 문자열은 억지로 True/False로 만들지 않는다.
+    return None
+
+
+def normalize_resume_eligibility(value: Any) -> Dict[str, Any]:
+    raw = value if isinstance(value, dict) else {}
+    return {
+        field: normalize_eligibility_value(raw.get(field))
+        for field in ELIGIBILITY_FIELDS
+    }
+
+
+def extract_eligibility_requirement_keys(value: Any) -> List[str]:
+    """
+    자격요건 문장에서 구조화된 eligibility로만 확인해야 하는 조건을 찾는다.
+
+    단순히 '장애인복지법'이 등장하는 결격사유 문장까지 장애인 전형으로
+    오인하지 않도록, 장애 항목은 긍정적인 지원자격 문맥을 함께 요구한다.
+    """
+    text = clean_text(value)
+    lowered = text.lower()
+
+    if not lowered:
+        return []
+
+    result = []
+
+    if any(keyword in lowered for keyword in [
+        "자립준비청년", "보호종료아동", "보호종료청년", "보호종료 청년",
+    ]):
+        result.append("selfRelianceYouth")
+
+    disability_positive = bool(re.search(
+        r"(?:장애인\s*(?:등록|전형|대상|해당|증명|채용)|"
+        r"장애\s*(?:전형|대상|해당)|"
+        r"사회형평.{0,40}장애|장애.{0,40}사회형평)",
+        lowered,
+    ))
+    if disability_positive:
+        result.append("disability")
+
+    if any(keyword in lowered for keyword in [
+        "보훈대상", "보훈 대상", "보훈전형", "보훈 전형",
+        "국가유공자", "보훈대상자",
+    ]) or bool(re.search(r"사회형평.{0,40}보훈|보훈.{0,40}사회형평", lowered)):
+        result.append("veteran")
+
+    if any(keyword in lowered for keyword in [
+        "취업지원대상자", "취업지원 대상자", "취업보호대상자",
+        "취업보호 대상자",
+    ]):
+        result.append("employmentSupport")
+
+    return unique_preserve_order(result)
+
+
+def eligibility_requirement_uses_or(value: Any) -> bool:
+    text = clean_text(value).lower()
+    return bool(re.search(
+        r"또는|혹은|어느\s*하나|중\s*(?:하나|1)|택\s*1|"
+        r"장애\s*[,/·]\s*보훈|보훈\s*[,/·]\s*장애",
+        text,
+    ))
+
+
+def evaluate_eligibility_qualification(
+    qualification: Any,
+    resume: Dict[str, Any],
+) -> Tuple[bool, str, List[str]]:
+    """
+    반환: (eligibility 조건 여부, 상태, 관련 필드)
+
+    상태:
+      matched   - 구조화 값으로 충족 확인
+      unmatched - 구조화 값으로 미충족 확인
+      unknown   - 이력서에 확인 가능한 정보가 없음
+      none      - eligibility 조건이 아님
+    """
+    keys = extract_eligibility_requirement_keys(qualification)
+
+    if not keys:
+        return False, "none", []
+
+    eligibility = normalize_resume_eligibility(resume.get("eligibility", {}))
+    values = [eligibility.get(key) for key in keys]
+
+    if eligibility_requirement_uses_or(qualification):
+        if any(value is True for value in values):
+            return True, "matched", keys
+        if values and all(value is False for value in values):
+            return True, "unmatched", keys
+        return True, "unknown", keys
+
+    # OR 표현이 없다면 여러 조건은 AND로 본다.
+    if any(value is False for value in values):
+        return True, "unmatched", keys
+    if values and all(value is True for value in values):
+        return True, "matched", keys
+    return True, "unknown", keys
+
+
 def is_valid_required_qualification(text: Any) -> bool:
     value = clean_text(text)
 
@@ -1009,6 +1160,11 @@ def is_valid_required_qualification(text: Any) -> bool:
     if any(keyword in value for keyword in QUALIFICATION_NOISE_KEYWORDS):
         return False
 
+    # 자립준비청년/장애/보훈/취업지원대상 등은 공통 법적 문구가 아니라
+    # 실제 지원 가능 여부를 결정하는 조건이므로 반드시 구조화 값으로 평가한다.
+    if extract_eligibility_requirement_keys(value):
+        return True
+
     # 공공기관 공통 법적/행정 자격조건은 이력서 적합도 룰 점수에서 제외한다.
     lowered = value.lower()
     if any(keyword.lower() in lowered for keyword in PUBLIC_INSTITUTION_NON_SCORABLE_QUAL_KEYWORDS):
@@ -1030,6 +1186,9 @@ def is_scorable_required_qualification(text: Any) -> bool:
 
     if not is_valid_required_qualification(value):
         return False
+
+    if extract_eligibility_requirement_keys(value):
+        return True
 
     features = extract_dictionary_features(value)
     feature_count = 0
@@ -1966,10 +2125,10 @@ def check_hard_qualification(
     return False, False
 
 
-def calculate_qualification_rule_score(
+def calculate_qualification_rule_score_detailed(
     required_quals: List[Any],
     resume: Dict[str, Any],
-) -> Tuple[float, List[str], int, bool]:
+) -> Tuple[float, List[str], int, bool, Dict[str, Any]]:
     # 자격요건은 쉼표로 분리하지 않고 줄 단위로 유지하며,
     # 실제 이력서와 비교 가능한 조건만 룰 점수에 사용한다.
     required = [
@@ -1999,8 +2158,15 @@ def calculate_qualification_rule_score(
         required
     )
 
+    empty_detail = {
+        "eligibility_matched": [],
+        "eligibility_unmatched": [],
+        "eligibility_unknown": [],
+        "eligibility_fields": {},
+    }
+
     if not required:
-        return 0.0, [], 0, False
+        return 0.0, [], 0, False, empty_detail
 
     resume_text = clean_text(
         " ".join([
@@ -2066,11 +2232,39 @@ def calculate_qualification_rule_score(
         )
 
     matched = []
+    eligibility_matched = []
+    eligibility_unmatched = []
+    eligibility_unknown = []
+    eligibility_fields = {}
 
     for qualification in required:
         key = clean_text(
             qualification
         ).lower()
+
+        # ==================================================
+        # 0. 사회형평/특수 지원자격
+        # ==================================================
+        eligibility_used, eligibility_state, eligibility_keys = (
+            evaluate_eligibility_qualification(
+                qualification,
+                resume,
+            )
+        )
+
+        if eligibility_used:
+            eligibility_fields[qualification] = eligibility_keys
+
+            if eligibility_state == "matched":
+                eligibility_matched.append(qualification)
+                matched.append(qualification)
+            elif eligibility_state == "unmatched":
+                eligibility_unmatched.append(qualification)
+            else:
+                eligibility_unknown.append(qualification)
+
+            # eligibility 조건은 일반 토큰 유사도로 우회 통과시키지 않는다.
+            continue
 
         # ==================================================
         # 1. 강한 필수조건 우선 검사
@@ -2120,9 +2314,6 @@ def calculate_qualification_rule_score(
 
         is_matched = False
 
-        # 기존:
-        #   bool(qualification_tokens & resume_tokens)
-        #
         # 하나만 겹쳐도 전체 조건이 True가 되는 문제를 제거한다.
         if (
             qualification_tokens
@@ -2136,13 +2327,10 @@ def calculate_qualification_rule_score(
             if len(
                 qualification_tokens
             ) == 1:
-                # 조건 신호가 하나뿐이면 그 신호가 직접 존재해야 한다.
                 is_matched = bool(
                     overlap
                 )
             else:
-                # 복수 신호 조건은 하나만 겹친다고 충족시키지 않는다.
-                # 최소 2개 이상 + 60% 이상 일치해야 일반 조건을 충족한 것으로 본다.
                 overlap_ratio = (
                     len(overlap)
                     / len(
@@ -2155,7 +2343,6 @@ def calculate_qualification_rule_score(
                     and overlap_ratio >= 0.60
                 )
 
-        # 문장 자체가 이력서에 명확히 들어있는 경우
         if (
             not is_matched
             and key
@@ -2173,12 +2360,32 @@ def calculate_qualification_rule_score(
         / len(required)
     ) * 10
 
+    detail = {
+        "eligibility_matched": unique_preserve_order(eligibility_matched),
+        "eligibility_unmatched": unique_preserve_order(eligibility_unmatched),
+        "eligibility_unknown": unique_preserve_order(eligibility_unknown),
+        "eligibility_fields": eligibility_fields,
+    }
+
     return (
         score,
         matched,
         len(required),
         True,
+        detail,
     )
+
+
+def calculate_qualification_rule_score(
+    required_quals: List[Any],
+    resume: Dict[str, Any],
+) -> Tuple[float, List[str], int, bool]:
+    """기존 호출부와 호환되는 4개 반환값 wrapper."""
+    score, matched, total, used, _ = calculate_qualification_rule_score_detailed(
+        required_quals,
+        resume,
+    )
+    return score, matched, total, used
 
 
 def calculate_semantic_score(resume_text: str, job_text: str, max_score: float) -> Tuple[float, float]:
@@ -2278,6 +2485,10 @@ def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
     exp_summary = data.get("experienceSummary", {}) or {}
     experience_years = float(exp_summary.get("yearsFloat", 0) or exp_summary.get("years", 0) or 0)
 
+    # 구조화 단계에서 만든 지원자격 정보는 일반 텍스트로 합치지 않고
+    # 별도 구조로 보존하여 필수 지원자격 판정에만 사용한다.
+    eligibility = normalize_resume_eligibility(data.get("eligibility", {}))
+
     certifications = []
 
     for cert in as_list(data.get("certifications", [])):
@@ -2341,6 +2552,7 @@ def flatten_resume(firebase_resume_doc: Dict[str, Any]) -> Dict[str, Any]:
         "majors": majors,
         "experienceYears": experience_years,
         "certifications": certifications,
+        "eligibility": eligibility,
         "projects": unique_preserve_order(projects),
         "dictionaryFeatures": dictionary_features,
     }
@@ -2607,7 +2819,9 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
         education = education_obj
 
     experience = requirements.get("experience", {}) or {}
-    certifications = requirements.get("certifications", []) or []
+    explicit_certifications = unique_preserve_order(
+        requirements.get("certifications", []) or []
+    )
 
     # [기존 방식]
     # required_quals = as_list(requirements.get("requiredQualifications", []))
@@ -2627,7 +2841,7 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
         safe_str(preferred_skills),
         safe_str(required_quals),
         safe_str(preferred_quals),
-        safe_str(certifications),
+        safe_str(explicit_certifications),
         safe_str(responsibilities),
         safe_str(job.get("embeddingText", {})),
     ]))
@@ -2636,10 +2850,13 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
 
     required_skills = unique_preserve_order(required_skills)
 
-    certifications = unique_preserve_order([
-        *certifications,
-        *dictionary_features.get("certifications", []),
-    ])
+    # 사전에서 발견된 자격증명은 의미 분석/디버깅용 신호일 뿐이다.
+    # 여러 직종의 문장을 합친 공고에서는 다른 직종의 자격증까지 잡힐 수 있으므로
+    # 이를 자동으로 '필수 자격증' 목록에 승격하지 않는다.
+    inferred_certifications = unique_preserve_order(
+        dictionary_features.get("certifications", [])
+    )
+    certifications = explicit_certifications
 
     job_category = extract_job_category(firebase_job_doc, job, job_text_for_dictionary)
     ncs_category = infer_ncs_category_from_job(job_category, job_text_for_dictionary)
@@ -2663,6 +2880,7 @@ def flatten_job(firebase_job_doc: Dict[str, Any]) -> Dict[str, Any]:
             "raw": experience,
         },
         "certifications": unique_preserve_order(certifications),
+        "inferredCertifications": inferred_certifications,
         "dictionaryFeatures": dictionary_features,
         "category": job_category,
         "ncsCategory": ncs_category,
@@ -3271,6 +3489,94 @@ def filter_certifications_for_scoped_qualifications(
     return unique_preserve_order(result)
 
 
+def job_has_multi_role_signals(job: Dict[str, Any]) -> bool:
+    """제목/자격요건에 서로 다른 모집직종이 둘 이상 섞였는지 보수적으로 확인한다."""
+    title = clean_text(job.get("title", ""))
+    required = as_qualification_list((job.get("qualifications", {}) or {}).get("required", []))
+
+    role_signals = []
+    role_signals.extend(extract_title_role_candidates(title))
+
+    for qualification in required:
+        role_signals.extend(extract_known_role_terms(qualification))
+        key, label, _ = split_role_labeled_qualification(qualification)
+        if key:
+            role_signals.append(label or key)
+
+    normalized = unique_preserve_order([
+        normalize_qualification_match_text(item)
+        for item in role_signals
+        if normalize_qualification_match_text(item)
+    ])
+
+    return len(normalized) >= 2
+
+
+def scope_certifications_for_scoring(
+    job: Dict[str, Any],
+    role_scope_info: Dict[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    필수 자격증을 실제로 어느 직종에 적용할 수 있는지 확인한다.
+
+    - 직종이 성공적으로 선택된 경우: 이미 선택 직종 자격요건에 등장하는 자격증만 남김
+    - 단일 직종 공고: 명시적 certifications를 그대로 사용
+    - 복수 직종인데 직종 귀속을 못 한 경우: 다른 직종 자격증으로 오판하지 않도록
+      명시적 공통 자격증만 남기고, 공통 여부도 확인할 수 없으면 자격증 룰 점수를 보류
+    """
+    result_job = dict(job)
+    certifications = unique_preserve_order(as_list(job.get("certifications", [])))
+    required = as_qualification_list((job.get("qualifications", {}) or {}).get("required", []))
+
+    info = {
+        "originalCount": len(certifications),
+        "scopedCount": len(certifications),
+        "skippedAmbiguous": False,
+        "reason": "",
+    }
+
+    if not certifications:
+        info["reason"] = "명시적으로 구조화된 필수 자격증이 없습니다."
+        return result_job, info
+
+    if role_scope_info.get("applied"):
+        # scope_job_to_resume_role()에서 이미 선택 직종 조건에 맞춰 필터링됨.
+        scoped = unique_preserve_order(as_list(result_job.get("certifications", [])))
+        info["scopedCount"] = len(scoped)
+        info["reason"] = "선택된 모집직종의 자격요건에 직접 연결되는 자격증만 평가합니다."
+        return result_job, info
+
+    if not job_has_multi_role_signals(job):
+        info["reason"] = "단일 직종 공고로 판단되어 명시적 필수 자격증을 그대로 평가합니다."
+        return result_job, info
+
+    common_required = [
+        qualification
+        for qualification in required
+        if is_explicit_common_qualification(qualification)
+    ]
+    common_certs = filter_certifications_for_scoped_qualifications(
+        certifications,
+        common_required,
+    )
+
+    if common_certs:
+        result_job["certifications"] = common_certs
+        info["scopedCount"] = len(common_certs)
+        info["reason"] = "복수 직종 공고에서 명시적 공통 자격요건에 연결되는 자격증만 평가합니다."
+        return result_job, info
+
+    # 어느 직종의 자격증인지 확인할 수 없으면 '모두 필수'로 간주하지 않는다.
+    result_job["certifications"] = []
+    info["scopedCount"] = 0
+    info["skippedAmbiguous"] = True
+    info["reason"] = (
+        "복수 직종 공고의 자격증이 어느 모집직종에 속하는지 확인할 수 없어 "
+        "필수 자격증 점수에서 제외했습니다."
+    )
+    return result_job, info
+
+
 def scope_job_to_resume_role(
     job: Dict[str, Any],
     resume: Dict[str, Any],
@@ -3775,6 +4081,7 @@ def get_match_badges(
     accessibility_score: float,
     confidence_score: float,
     has_blocking_unmet: bool = False,
+    has_blocking_unknown: bool = False,
     rule_evidence_count: int = 0,
     ncs_used: bool = False,
 ) -> List[str]:
@@ -3792,6 +4099,11 @@ def get_match_badges(
 
     if has_blocking_unmet:
         return ["부적합"]
+
+    # 필수 지원자격이 False가 아니라 None(확인 불가)인 경우에는
+    # 부적합으로 단정하지 않고 정보 부족으로 표시한다.
+    if has_blocking_unknown:
+        return ["정보 부족"]
 
     if confidence_score < 40:
         return ["정보 부족"]
@@ -3833,11 +4145,15 @@ def get_recommend_type(
     accessibility_score: float,
     confidence_score: float,
     has_blocking_unmet: bool = False,
+    has_blocking_unknown: bool = False,
     rule_evidence_count: int = 0,
     ncs_used: bool = False,
 ) -> str:
     if has_blocking_unmet:
         return "부적합"
+
+    if has_blocking_unknown:
+        return "정보 부족"
 
     if confidence_score < 40:
         return "정보 부족"
@@ -3847,6 +4163,7 @@ def get_recommend_type(
         accessibility_score=accessibility_score,
         confidence_score=confidence_score,
         has_blocking_unmet=has_blocking_unmet,
+        has_blocking_unknown=has_blocking_unknown,
         rule_evidence_count=rule_evidence_count,
         ncs_used=ncs_used,
     )
@@ -3877,6 +4194,14 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             f"{role_scope_info.get('scopedQualificationCount', 0)}개)"
         )
 
+    # 필수 자격증은 사전 추출값을 자동 필수로 쓰지 않고,
+    # 복수 직종 공고에서는 직종 귀속이 확인되는 경우에만 평가한다.
+    job, certification_scope_info = scope_certifications_for_scoring(
+        job,
+        role_scope_info,
+    )
+    role_scope_info["certificationScope"] = certification_scope_info
+
     skill_score_raw, skill_match_count, skill_total_count, skill_used, matched_skills = calculate_skill_score(
         job.get("skills", {}), resume.get("skills", [])
     )
@@ -3896,9 +4221,28 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     qual_original_count = len(as_qualification_list(original_required_quals))
     qual_scoped_count = len(as_qualification_list(required_quals))
 
-    qual_rule_score_raw, matched_quals, qual_total_count, qual_used = calculate_qualification_rule_score(
+    (
+        qual_rule_score_raw,
+        matched_quals,
+        qual_total_count,
+        qual_used,
+        qual_detail,
+    ) = calculate_qualification_rule_score_detailed(
         required_quals, resume
     )
+
+    eligibility_unknown = as_list(qual_detail.get("eligibility_unknown", []))
+    eligibility_unmatched = as_list(qual_detail.get("eligibility_unmatched", []))
+
+    # 확인 불가(None)는 미충족(False)과 구분한다. 지원 가능성 계산에서는
+    # 확인 불가 조건을 0점이 아니라 중립(50%)으로 반영한다.
+    if qual_used and qual_total_count > 0:
+        qual_accessibility_score_raw = (
+            (len(matched_quals) + 0.5 * len(eligibility_unknown))
+            / qual_total_count
+        ) * 10
+    else:
+        qual_accessibility_score_raw = 0.0
 
     unmet_conditions = []
 
@@ -3910,10 +4254,44 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         unmet_conditions.append("경력 연수 미충족")
     if cert_used and cert_match_count < cert_total_count:
         unmet_conditions.append("필수 자격증 미충족")
-    if qual_used and qual_rule_score_raw < 10:
+
+    certification_scope_unknown = bool(
+        certification_scope_info.get("skippedAmbiguous", False)
+    )
+    if certification_scope_unknown:
+        unmet_conditions.append("필수 자격증 직종 확인 필요")
+
+    if eligibility_unmatched:
+        unmet_conditions.append("필수 지원자격 미충족")
+    if eligibility_unknown:
+        unmet_conditions.append("필수 지원자격 확인 필요")
+
+    general_unmatched_qual_count = max(
+        0,
+        qual_total_count
+        - len(matched_quals)
+        - len(eligibility_unmatched)
+        - len(eligibility_unknown),
+    )
+    if qual_used and general_unmatched_qual_count > 0:
         unmet_conditions.append("필수 자격요건 미충족")
 
-    has_blocking_unmet = bool(unmet_conditions)
+    blocking_unmet_labels = {
+        "필수 기술 미충족",
+        "학력 조건 미충족",
+        "경력 연수 미충족",
+        "필수 자격증 미충족",
+        "필수 지원자격 미충족",
+        "필수 자격요건 미충족",
+    }
+    has_blocking_unmet = any(
+        item in blocking_unmet_labels
+        for item in unmet_conditions
+    )
+    has_blocking_unknown = bool(
+        eligibility_unknown
+        or certification_scope_unknown
+    ) and not has_blocking_unmet
 
     raw_resume_full_text = clean_text(" / ".join([
         safe_str(resume.get("education", "")),
@@ -3999,7 +4377,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         cert_match_count=cert_match_count,
         cert_total_count=cert_total_count,
         qual_used=qual_used,
-        qual_rule_score_raw=qual_rule_score_raw,
+        qual_rule_score_raw=qual_accessibility_score_raw,
         qual_total_count=qual_total_count,
     )
 
@@ -4212,7 +4590,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         cert_match_count=cert_match_count,
         cert_total_count=cert_total_count,
         qual_used=qual_used,
-        qual_rule_score_raw=qual_rule_score_raw,
+        qual_rule_score_raw=qual_accessibility_score_raw,
     )
 
     confidence_score = calculate_confidence_score(job)
@@ -4222,6 +4600,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         accessibility_score=accessibility_score,
         confidence_score=confidence_score,
         has_blocking_unmet=has_blocking_unmet,
+        has_blocking_unknown=has_blocking_unknown,
         rule_evidence_count=rule_evidence_count,
         ncs_used=ncs_used,
     )
@@ -4231,6 +4610,7 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         accessibility_score=accessibility_score,
         confidence_score=confidence_score,
         has_blocking_unmet=has_blocking_unmet,
+        has_blocking_unknown=has_blocking_unknown,
         rule_evidence_count=rule_evidence_count,
         ncs_used=ncs_used,
     )
@@ -4413,16 +4793,23 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "cert_total_count": cert_total_count,
             "cert_used": cert_used,
             "matched_certs": matched_certs,
+            "certification_scope": certification_scope_info,
 
             "qual_rule_score": round(qual_rule_score, 2),
             "qual_rule_score_max": rule_weights["qual"],
             "qual_raw_score": round(qual_rule_score_raw, 2),
             "qual_raw_score_max": 10,
+            "qual_accessibility_raw_score": round(qual_accessibility_score_raw, 2),
             "matched_quals": matched_quals,
             "qual_total_count": qual_total_count,
             "qual_original_count": qual_original_count,
             "qual_scoped_count": qual_scoped_count,
             "qual_used": qual_used,
+            "resume_eligibility": resume.get("eligibility", {}),
+            "eligibility_matched_quals": as_list(qual_detail.get("eligibility_matched", [])),
+            "eligibility_unmatched_quals": eligibility_unmatched,
+            "eligibility_unknown_quals": eligibility_unknown,
+            "eligibility_fields": qual_detail.get("eligibility_fields", {}),
         },
         "semantic_details": {
             "full_sim": full_sim,
