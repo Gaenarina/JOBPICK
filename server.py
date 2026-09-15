@@ -598,9 +598,9 @@ def return_cached_result(cached_result, user_id=""):
     )
 
     return jsonify({
-        "message": "??λ맂 留ㅼ묶 寃곌낵 議고쉶 ?꾨즺",
+        "message": "Cached matching result returned",
         "resumeId": cached_result["resumeId"],
-        "matches": groups["topFitMatches"],
+        "matches": groups["matches"],
         "topFitMatches": groups["topFitMatches"],
         "topAccessibleMatches": groups["topAccessibleMatches"],
         "topConfidenceMatches": groups["topConfidenceMatches"],
@@ -740,7 +740,7 @@ def read_matching_result(resume_id):
 
         if not result:
             return jsonify({
-                "error": "??λ맂 留ㅼ묶 寃곌낵媛 ?놁뒿?덈떎."
+                "error": "저장된 매칭 결과가 없습니다."
             }), 404
 
         groups = normalize_matching_groups({
@@ -754,23 +754,32 @@ def read_matching_result(resume_id):
             "aiSummary": result.get("aiSummary", {}),
         })
 
+        manual_matches = result.get("manualMatches", []) or []
+
         return jsonify({
             "resumeId": result["resumeId"],
-            "matches": groups["topFitMatches"],
+
+            # 자동 매칭
+            "matches": groups["matches"],
             "topFitMatches": groups["topFitMatches"],
             "topAccessibleMatches": groups["topAccessibleMatches"],
             "topConfidenceMatches": groups["topConfidenceMatches"],
+
+            # 개별 매칭
+            "manualMatches": manual_matches,
+
             "matchPreferences": groups.get("matchPreferences", {}),
             "totalJobCount": groups.get("totalJobCount"),
             "filteredJobCount": groups.get("filteredJobCount"),
             "aiSummary": groups.get("aiSummary", {}),
             "matchCount": len(groups["matches"] or []),
+            "manualMatchCount": len(manual_matches),
             "status": result.get("status", "DONE"),
             "updatedAt": result.get("updatedAt", ""),
         })
 
     except Exception as e:
-        print("\n[留ㅼ묶 寃곌낵 議고쉶 ?ㅽ뙣]")
+        print("\n[매칭 결과 조회 실패]")
         print(traceback.format_exc())
 
         return jsonify({
@@ -828,40 +837,155 @@ def process_one_match():
         job_id = data.get("jobId")
         user_id = data.get("userId")
 
+        # -----------------------------
+        # 1. 요청값 확인
+        # -----------------------------
         if not doc_id:
             return jsonify({
-                "error": "docId媛 ?꾩슂?⑸땲??"
+                "error": "docId가 필요합니다."
             }), 400
 
         if not job_id:
             return jsonify({
-                "error": "jobId媛 ?꾩슂?⑸땲??"
+                "error": "jobId가 필요합니다."
             }), 400
 
         if not user_id:
             return jsonify({
-                "error": "濡쒓렇?몄씠 ?꾩슂?⑸땲??",
-                "message": "濡쒓렇?몄씠 ?꾩슂?⑸땲??"
+                "error": "로그인이 필요합니다.",
+                "message": "로그인이 필요합니다."
             }), 401
 
-        result = process_matching_one_by_ids(doc_id, job_id)
-        result = fill_missing_company_names(db, [result])[0]
+        print("[process-one-match] request")
+        print("doc_id:", doc_id)
+        print("job_id:", job_id)
+        print("user_id:", user_id)
 
+        # -----------------------------
+        # 2. 1:1 매칭 실행
+        # -----------------------------
+        result = process_matching_one_by_ids(
+            doc_id,
+            job_id
+        )
+
+        if not result:
+            return jsonify({
+                "error": "매칭 결과를 생성하지 못했습니다."
+            }), 500
+
+        # -----------------------------
+        # 3. 회사명이 없는 경우 보완
+        # -----------------------------
+        fixed_results = fill_missing_company_names(
+            db,
+            [result]
+        )
+
+        if not fixed_results:
+            return jsonify({
+                "error": "매칭 결과를 정리하지 못했습니다."
+            }), 500
+
+        result = fixed_results[0]
+
+        # -----------------------------
+        # 4. 개별 매칭 결과 표시용 정보 추가
+        # -----------------------------
+        result["source"] = "manual"
+
+        # jobId가 결과에 없는 경우 보완
+        if not result.get("jobId"):
+            result["jobId"] = str(job_id)
+
+        if not result.get("id"):
+            result["id"] = str(job_id)
+
+        # -----------------------------
+        # 5. matching_results 문서 조회
+        # -----------------------------
+        result_ref = (
+            db
+            .collection("matching_results")
+            .document(str(doc_id))
+        )
+
+        result_snap = result_ref.get()
+
+        manual_matches = []
+
+        if result_snap.exists:
+            saved_data = result_snap.to_dict() or {}
+
+            saved_manual_matches = saved_data.get(
+                "manualMatches",
+                []
+            )
+
+            if isinstance(saved_manual_matches, list):
+                manual_matches = saved_manual_matches
+
+        # -----------------------------
+        # 6. 같은 공고의 기존 개별 매칭 결과 제거
+        # -----------------------------
+        filtered_manual_matches = []
+
+        for item in manual_matches:
+            if not isinstance(item, dict):
+                continue
+
+            saved_job_id = get_match_job_id(item)
+
+            if str(saved_job_id) == str(job_id):
+                continue
+
+            filtered_manual_matches.append(item)
+
+        # -----------------------------
+        # 7. 새 개별 매칭 결과 추가
+        # -----------------------------
+        filtered_manual_matches.insert(
+            0,
+            result
+        )
+
+        # -----------------------------
+        # 8. Firestore에 저장
+        # -----------------------------
+        result_ref.set({
+            "resumeId": str(doc_id),
+            "userId": str(user_id),
+            "manualMatches": filtered_manual_matches,
+        }, merge=True)
+
+        print(
+            "[process-one-match] manual match saved:",
+            job_id
+        )
+
+        print(
+            "[process-one-match] manual match count:",
+            len(filtered_manual_matches)
+        )
+
+        # -----------------------------
+        # 9. 프론트에 결과 반환
+        # -----------------------------
         return jsonify({
-            "message": "1:1 留ㅼ묶 ?꾨즺",
+            "message": "1:1 매칭 완료",
             "resumeId": doc_id,
             "jobId": job_id,
-            "match": result
+            "match": result,
+            "manualMatchCount": len(filtered_manual_matches)
         })
 
     except Exception as e:
-        print("\n[1:1 留ㅼ묶 泥섎━ ?ㅽ뙣]")
+        print("\n[1:1 매칭 처리 실패]")
         print(traceback.format_exc())
 
         return jsonify({
             "error": str(e)
         }), 500
-
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8000, debug=True)
