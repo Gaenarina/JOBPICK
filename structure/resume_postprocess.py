@@ -1184,7 +1184,10 @@ def _clean_major_candidate(value: str) -> str:
     value = re.sub(r"\s+(?:졸업|재학|수료)$", "", value)
     value = value.replace("미디어커뮤니 케이션", "미디어커뮤니케이션")
     value = value.replace("데이터사이언스스", "데이터사이언스")
-    if value in {"", "학", "과", "전공", "부전공", "복수전공", "학력", "성적"}:
+    if value in {
+        "", "학", "과", "전공", "부전공", "복수전공", "학력", "성적",
+        "휴학", "휴학기간", "휴학기간사유", "사유", "재학", "졸업", "수료",
+    }:
         return ""
     # 학교명 조각이 전공으로 잘못 잡히는 것을 막는다.
     if re.search(r"(?:대학교|대학원|고등학교|학교|대학|고등학)$", value):
@@ -1239,10 +1242,22 @@ def fix_education(text: str, current: list[dict]) -> list[dict]:
             item.pop("additionalMajors", None)
             continue
 
-        existing_minor = _clean_major_candidate(item.get("minor", ""))
+        raw_minor = clean_inline_text(item.get("minor", ""))
+        existing_minor = _clean_major_candidate(raw_minor)
+        # 표의 '휴학기간/사유' 같은 헤더 조각이 부전공/복수전공으로
+        # 오인식된 경우에는 기존 잘못된 minor 값도 비운다.
+        if raw_minor and not existing_minor:
+            item["minor"] = ""
         merged = []
         if existing_minor:
             merged.append(existing_minor)
+
+        # 기존 구조화 단계에서 들어온 additionalMajors도 다시 검증한다.
+        for raw_value in item.get("additionalMajors", []) or []:
+            value = _clean_major_candidate(raw_value)
+            if value and value not in main_majors and value not in merged:
+                merged.append(value)
+
         for value in additional:
             if value not in merged:
                 merged.append(value)
@@ -1252,7 +1267,8 @@ def fix_education(text: str, current: list[dict]) -> list[dict]:
             item["minor"] = existing_minor or merged[0]
             item["additionalMajors"] = merged
         else:
-            item.setdefault("additionalMajors", [])
+            item["minor"] = ""
+            item["additionalMajors"] = []
     return result
 
 
@@ -1338,12 +1354,24 @@ def _experience_table_area_v2(text: str) -> str:
 
 
 def _infer_org_v2(row: str) -> str:
-    org = infer_org_from_row(row)
+    value = clean_inline_text(row)
+
+    # 익명화된 예시 이력서처럼 기관명이 '의료원', '종합병원' 자체로만
+    # 남는 경우를 먼저 처리한다. 뒤의 '통합외래센터'를 기관명으로
+    # 잘못 선택하는 것을 방지한다.
+    generic_facility = re.search(
+        r"(?<![가-힣A-Za-z0-9])(종합병원|대학교병원|의료원|병원|의원)(?![가-힣A-Za-z0-9])",
+        value,
+    )
+    if generic_facility:
+        return generic_facility.group(1)
+
+    org = infer_org_from_row(value)
     if org:
         return re.sub(r"^\d{1,2}\s+", "", org).strip()
 
     suffixes = (
-        "공단|공사|센터|학습관|복지관|문화원|회관|재단|진흥원|병원|의원|연구원|연구소|"
+        "공단|공사|센터|학습관|복지관|문화원|회관|재단|진흥원|의료원|병원|의원|연구원|연구소|"
         "대학교|대학|고등학교|학교|협회|위원회|기업|회사|본부|기관"
     )
     matches = list(re.finditer(rf"[가-힣A-Za-z0-9]+(?:\s+[가-힣A-Za-z0-9]+){{0,2}}(?:{suffixes})", clean_inline_text(row)))
@@ -1356,7 +1384,7 @@ def _infer_org_v2(row: str) -> str:
 
 def _infer_department_v2(row: str, org: str = "") -> str:
     value = clean_inline_text(row)
-    for m in re.finditer(r"([가-힣A-Za-z0-9]+(?:팀|부|과|실))\s*/\s*([가-힣A-Za-z0-9 ]+)", value):
+    for m in re.finditer(r"([가-힣A-Za-z0-9]+(?:팀|부|과|실|센터))\s*/\s*([가-힣A-Za-z0-9 ]+)", value):
         left = clean_inline_text(m.group(1))
         right = clean_inline_text(m.group(2))
         if org and org in right:
@@ -1368,7 +1396,7 @@ def _infer_department_v2(row: str, org: str = "") -> str:
         pos = value.find(org)
         if pos >= 0:
             after = value[pos + len(org):pos + len(org) + 100]
-            m = re.search(r"([가-힣A-Za-z0-9]+(?:팀|부|과|실))", after)
+            m = re.search(r"([가-힣A-Za-z0-9]+(?:팀|부|과|실|센터))", after)
             if m:
                 return clean_inline_text(m.group(1))
     return ""
@@ -1385,7 +1413,7 @@ def _infer_position_v2(row: str, org: str = "", department: str = "") -> str:
     value = clean_inline_text(row)
 
     # 부서/직위 형식의 오른쪽 값을 최우선한다.
-    for m in re.finditer(r"([가-힣A-Za-z0-9]+(?:팀|부|과|실))\s*/\s*([가-힣A-Za-z0-9 ]{2,30})", value):
+    for m in re.finditer(r"([가-힣A-Za-z0-9]+(?:팀|부|과|실|센터))\s*/\s*([가-힣A-Za-z0-9 ]{2,30})", value):
         right = clean_inline_text(m.group(2))
         right = re.split(r"20\d{2}-\d{2}|계약만료|퇴사|담당업무", right)[0].strip()
         if org and org in right:
@@ -1493,6 +1521,268 @@ def fix_experience(text: str, current: list[dict]) -> list[dict]:
     return legacy
 
 
+
+# -----------------------------------------------------------------------------
+# 간호/의료 이력서 보완
+# -----------------------------------------------------------------------------
+def _debug_section_text(data: dict, *keys: str) -> str:
+    sections = data.get("debugSections", {}) or {}
+    values = []
+    for key in keys:
+        value = clean_inline_text(sections.get(key, ""))
+        if value:
+            values.append(value)
+    return " ".join(values)
+
+
+def _fix_basic_name_from_debug(data: dict, fallback_text: str = "") -> None:
+    basic = dict(data.get("basicInfo", {}) or {})
+    corpus = _debug_section_text(data, "basic") or normalize_text(fallback_text[:1600])
+
+    # '(한글) 이간호'처럼 이름 필드가 명시된 값은 직종/고용형태로 잘못
+    # 구조화된 기존 name보다 우선한다.
+    candidates = []
+    for pattern in [
+        r"\(한글\)\s*([가-힣]{2,4})",
+        r"작성자\s*:?\s*([가-힣]{2,4})",
+        r"성명\s*(?:\(한글\))?\s*([가-힣]{2,4})(?=\s|\(|회사|업종|품목|연령|생년월일)",
+    ]:
+        for m in re.finditer(pattern, corpus):
+            candidate = clean_inline_text(m.group(1))
+            if candidate and candidate not in BAD_NAME_WORDS and candidate not in {
+                "공무직", "정규직", "계약직", "간호사", "외래간호사", "사무직",
+            }:
+                candidates.append(candidate)
+
+    if candidates:
+        basic["name"] = candidates[0]
+    data["basicInfo"] = basic
+
+
+def _fix_birth_from_debug(data: dict, fallback_text: str = "") -> None:
+    basic = dict(data.get("basicInfo", {}) or {})
+    if basic.get("birthDate"):
+        data["basicInfo"] = basic
+        return
+    corpus = _debug_section_text(data, "basic") or normalize_text(fallback_text[:1800])
+    m = re.search(
+        r"생년월일\s*(19\d{2}|20\d{2})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일",
+        corpus,
+    )
+    if m:
+        basic["birthDate"] = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    data["basicInfo"] = basic
+
+
+def _extract_nursing_certifications_from_debug(data: dict) -> list[dict]:
+    block = _debug_section_text(data, "자격증")
+    if not block:
+        return []
+
+    names = []
+    cert_patterns = [
+        (r"간호사\s*면허(?:증)?", "간호사 면허"),
+        (r"\bBLS\s*Provider\b", "BLS Provider"),
+        (r"\bKALS\s*Provider\b", "KALS Provider"),
+    ]
+    for pattern, standard in cert_patterns:
+        m = re.search(pattern, block, flags=re.IGNORECASE)
+        if m:
+            names.append((m.start(), standard))
+    names.sort(key=lambda x: x[0])
+    if not names:
+        return []
+
+    # 해당 양식은 자격명과 취득일이 열 단위 OCR로 분리될 수 있다.
+    # 자격증 섹션 안의 날짜를 순서대로 대응시키는 것이 가장 안정적이다.
+    dates = [
+        normalize_month_date(m.group(0))
+        for m in re.finditer(r"20\d{2}[-./]\d{1,2}", block)
+    ]
+
+    result = []
+    for idx, (_, name) in enumerate(names):
+        result.append({
+            "name": name,
+            "grade": "",
+            "date": dates[idx] if idx < len(dates) else "",
+        })
+    return result
+
+
+def _merge_certifications_prefer(base: list[dict], extras: list[dict]) -> list[dict]:
+    result = [dict(x) for x in base or []]
+    for extra in extras or []:
+        name = clean_inline_text(extra.get("name", ""))
+        if not name:
+            continue
+        normalized_key = re.sub(r"\s+", "", name).lower()
+        matched = None
+        for item in result:
+            item_key = re.sub(r"\s+", "", clean_inline_text(item.get("name", ""))).lower()
+            if item_key == normalized_key:
+                matched = item
+                break
+        if matched is None:
+            result.append(dict(extra))
+        else:
+            if not matched.get("grade") and extra.get("grade"):
+                matched["grade"] = extra.get("grade")
+            if not matched.get("date") and extra.get("date"):
+                matched["date"] = extra.get("date")
+    return result
+
+
+def _looks_like_clinical_practicum(row: str) -> bool:
+    value = clean_inline_text(row)
+    return bool(re.search(r"임상\s*실습생|실습생|실습종료", value))
+
+
+def _extract_professional_experience_from_debug_section(section: str) -> list[dict]:
+    area = normalize_text(section)
+    if not area:
+        return []
+
+    area = re.sub(r"기간\s*직\s*장\s*명\s*부서/직위\s*담당업무\s*이직사유", " ", area)
+    matches = list(re.finditer(r"20\d{2}-\d{2}|현재|재직중", area))
+    items = []
+    i = 0
+
+    while i + 1 < len(matches):
+        first = matches[i]
+        second = matches[i + 1]
+        start = normalize_current_token(first.group(0))
+        end = normalize_current_token(second.group(0))
+
+        # 일반적인 start-end 쌍인지 확인한다. 학력/자격증 날짜가 섞인 경우는 건너뛴다.
+        if not start or not end or not valid_range(start, end, 360):
+            i += 1
+            continue
+
+        next_start = matches[i + 2].start() if i + 2 < len(matches) else len(area)
+        row = clean_inline_text(area[first.start():next_start])
+
+        # 임상실습은 경력 데이터/총 경력연수에서 제외한다.
+        if _looks_like_clinical_practicum(row):
+            i += 2
+            continue
+
+        # 실제 직위가 간호사인 경력만 이 보완 루틴에서 다룬다.
+        if not re.search(r"(?<!조무)간호사", row):
+            i += 2
+            continue
+
+        org = _infer_org_v2(row)
+        # '2025-03 ~ 의료원 2026-07 통합외래센터/간호사'처럼
+        # 기관명이 시작일과 종료일 사이에 있는 양식에서는 그 기관을 우선한다.
+        between = clean_inline_text(area[first.end():second.start()])
+        between_org = _infer_org_v2(between)
+        if between_org and re.search(r"의료원|병원|의원|공단|공사|재단|진흥원", between_org):
+            org = between_org
+        elif not org and between_org:
+            org = between_org
+
+        if not org:
+            i += 2
+            continue
+
+        department = _infer_department_v2(row, org)
+        position = _infer_position_v2(row, org, department) or "간호사"
+        reason = _extract_reason_v2(row)
+        responsibilities = extract_resp_from_row(row, org, position)
+
+        if department:
+            responsibilities = [x for x in responsibilities if department not in x]
+        if reason:
+            responsibilities = [x for x in responsibilities if reason not in x]
+
+        items.append({
+            "organization": org,
+            "department": department,
+            "position": position,
+            "startDate": start,
+            "endDate": end,
+            "responsibilities": responsibilities,
+            "reasonForLeaving": reason,
+            "source": "postprocess_experience_nursing_debug",
+        })
+        i += 2
+
+    return merge_experience(items)
+
+
+def _extract_nursing_experience_from_debug(data: dict) -> list[dict]:
+    sections = data.get("debugSections", {}) or {}
+    items = []
+    # 간호 샘플에서는 이전 경력표가 자기소개서 섹션으로 밀리고,
+    # 최신 경력은 경력사항 섹션에 남는 OCR 순서 뒤집힘이 확인되었다.
+    for key in ["자기소개서", "경력사항"]:
+        section = clean_inline_text(sections.get(key, ""))
+        if section:
+            items.extend(_extract_professional_experience_from_debug_section(section))
+    return merge_experience(items)
+
+
+def _experience_org_quality(item: dict) -> int:
+    org = clean_inline_text(item.get("organization", ""))
+    if not org:
+        return 0
+    score = 1
+    if not re.match(r"^\d{1,2}\s", org):
+        score += 1
+    if re.search(r"의료원|병원|의원|공단|공사|센터|학습관|복지관|재단|진흥원|회사|기업|연구원", org):
+        score += 2
+    return score
+
+
+def _merge_experience_by_range_prefer(base: list[dict], extras: list[dict]) -> list[dict]:
+    result = [dict(x) for x in base or []]
+    index_by_range = {
+        (clean_inline_text(x.get("startDate", "")), clean_inline_text(x.get("endDate", ""))): idx
+        for idx, x in enumerate(result)
+        if x.get("startDate") and x.get("endDate")
+    }
+
+    for extra in extras or []:
+        key = (clean_inline_text(extra.get("startDate", "")), clean_inline_text(extra.get("endDate", "")))
+        if not all(key):
+            continue
+        idx = index_by_range.get(key)
+        if idx is None:
+            index_by_range[key] = len(result)
+            result.append(dict(extra))
+            continue
+
+        current = result[idx]
+        # 같은 기간이면 더 정상적인 기관명을 가진 debug 기반 결과를 우선한다.
+        if _experience_org_quality(extra) > _experience_org_quality(current):
+            merged = dict(current)
+            merged.update({k: v for k, v in extra.items() if v not in (None, "", [])})
+            result[idx] = merged
+        else:
+            if not current.get("department") and extra.get("department"):
+                current["department"] = extra.get("department")
+            if not current.get("position") and extra.get("position"):
+                current["position"] = extra.get("position")
+            if not current.get("responsibilities") and extra.get("responsibilities"):
+                current["responsibilities"] = extra.get("responsibilities")
+
+    # 임상실습으로 명시된 항목은 직업 경력 합산에서 제외한다.
+    filtered = []
+    for item in result:
+        corpus = " ".join([
+            clean_inline_text(item.get("position", "")),
+            clean_inline_text(item.get("organization", "")),
+            " ".join(item.get("responsibilities", []) or []),
+        ])
+        if _looks_like_clinical_practicum(corpus):
+            continue
+        filtered.append(item)
+
+    filtered.sort(key=lambda x: (clean_inline_text(x.get("startDate", "")), clean_inline_text(x.get("endDate", ""))))
+    return merge_experience(filtered)
+
+
 def _looks_like_table_pollution(value: str) -> bool:
     value = clean_inline_text(value)
     if not value:
@@ -1586,5 +1876,28 @@ def extract_eligibility(text: str) -> dict:
 
 def postprocess_resume_data(preprocessed_text: str, resume_data: dict) -> dict:
     data = _legacy_postprocess_resume_data(preprocessed_text, resume_data)
+
+    # 기본정보: OCR 표 순서가 뒤집혀 직종/고용형태가 이름으로 들어간 경우 보정
+    _fix_basic_name_from_debug(data, preprocessed_text)
+    _fix_birth_from_debug(data, preprocessed_text)
+
+    # 자격증: 간호사 면허/BLS/KALS처럼 사전에 없거나 표 열이 분리된 항목 보강
+    nursing_certs = _extract_nursing_certifications_from_debug(data)
+    if nursing_certs:
+        data["certifications"] = _merge_certifications_prefer(
+            data.get("certifications", []),
+            nursing_certs,
+        )
+
+    # 경력: debugSections에 남은 실제 경력표를 이용해 누락된 간호 경력을 복원한다.
+    # 임상실습생 항목은 경력연수 계산에서 제외한다.
+    nursing_experience = _extract_nursing_experience_from_debug(data)
+    if nursing_experience:
+        data["experience"] = _merge_experience_by_range_prefer(
+            data.get("experience", []),
+            nursing_experience,
+        )
+        update_experience_summary(data)
+
     data["eligibility"] = extract_eligibility(preprocessed_text)
     return data
