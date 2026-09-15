@@ -1,4 +1,5 @@
 import re
+import time
 from collections import OrderedDict
 from typing import Any, Dict, List, Tuple
 
@@ -72,6 +73,31 @@ def get_text_embedding(text: str):
 
 def clear_embedding_cache():
     _embedding_cache.clear()
+
+
+# ============================================================
+# calculate_full_score 성능 측정용 누적 통계
+# ============================================================
+
+_FULL_SCORE_PERF_STATS = {}
+
+
+def reset_full_score_perf_stats():
+    """calculate_full_score() 내부 단계별 누적 시간을 초기화한다."""
+    _FULL_SCORE_PERF_STATS.clear()
+    _FULL_SCORE_PERF_STATS["calls"] = 0
+
+
+def get_full_score_perf_stats():
+    """calculate_full_score() 내부 단계별 누적 시간의 복사본을 반환한다."""
+    return dict(_FULL_SCORE_PERF_STATS)
+
+
+def _record_full_score_perf(key: str, elapsed: float):
+    _FULL_SCORE_PERF_STATS[key] = (
+        float(_FULL_SCORE_PERF_STATS.get(key, 0.0))
+        + float(elapsed)
+    )
 
 
 def get_score_semantic_texts(
@@ -252,15 +278,60 @@ def get_score_semantic_texts(
     )
 
 
-def preload_score_embeddings(jobs: List[Dict[str, Any]], resume: Dict[str, Any], batch_size: int = 32):
-    """Encode all semantic score inputs in batches before per-job scoring."""
+def get_similarity_cache_key(text: str) -> str:
+    """
+    기존 calculate_text_similarity()가 실제 임베딩 조회에 사용하는 최종 캐시 키를 만든다.
+
+    calculate_text_similarity()에서 prepare_semantic_text() 1회,
+    get_text_embedding() 내부에서 prepare_semantic_text() 1회가 더 적용되는
+    기존 동작을 그대로 재현한다.
+    """
+    first = prepare_semantic_text(text)
+
+    if not first:
+        return ""
+
+    return prepare_semantic_text(first)
+
+
+def preload_score_embeddings(
+    jobs: List[Dict[str, Any]],
+    resume: Dict[str, Any],
+    batch_size: int = 32,
+    extra_similarity_texts: List[str] | None = None,
+):
+    """
+    기존 점수 계산 경로는 그대로 유지하고,
+    실제 similarity 계산에서 쓰일 최종 임베딩만 미리 batch encode한다.
+
+    따라서 기존 점수 산정 결과를 유지하면서
+    공고별 개별 SBERT encode를 줄인다.
+    """
     texts = []
     seen = set()
+
+    def collect_similarity_text(text):
+        cache_key = get_similarity_cache_key(text)
+
+        if not cache_key:
+            return
+
+        if cache_key in seen or cache_key in _embedding_cache:
+            return
+
+        if get_vector(cache_key) is not None:
+            return
+
+        seen.add(cache_key)
+        texts.append(cache_key)
+
     for job in jobs:
         for text in get_score_semantic_texts(job, resume):
-            if text and text not in seen and text not in _embedding_cache and get_vector(text) is None:
-                seen.add(text)
-                texts.append(text)
+            collect_similarity_text(text)
+
+    for text in extra_similarity_texts or []:
+        collect_similarity_text(text)
+
     if not texts:
         return
 
@@ -270,8 +341,12 @@ def preload_score_embeddings(jobs: List[Dict[str, Any]], resume: Dict[str, Any],
         batch_size=batch_size,
         show_progress_bar=False,
     )
+
     for text, embedding in zip(texts, embeddings):
         _embedding_cache[text] = embedding
+
+    while len(_embedding_cache) > EMBEDDING_CACHE_LIMIT:
+        _embedding_cache.popitem(last=False)
 
 
 def safe_str(value: Any) -> str:
@@ -4181,11 +4256,24 @@ def get_recommend_type(
 
 
 def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str = "매칭") -> Dict[str, Any]:
+    full_score_total_start = time.perf_counter()
+
+    _FULL_SCORE_PERF_STATS["calls"] = int(
+        _FULL_SCORE_PERF_STATS.get("calls", 0)
+    ) + 1
+
     print(f"\n=== {label} 계산 과정 ===")
 
     # 복수 직종 통합공고라면 지원자의 이력서와 가장 관련 있는 직종 조건만 사용한다.
+    stage_start = time.perf_counter()
+
     original_required_quals = (job.get("qualifications", {}) or {}).get("required", [])
     job, role_scope_info = scope_job_to_resume_role(job, resume)
+
+    _record_full_score_perf(
+        "role_scope",
+        time.perf_counter() - stage_start,
+    )
 
     if role_scope_info.get("applied"):
         print(
@@ -4196,30 +4284,67 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
 
     # 필수 자격증은 사전 추출값을 자동 필수로 쓰지 않고,
     # 복수 직종 공고에서는 직종 귀속이 확인되는 경우에만 평가한다.
+    stage_start = time.perf_counter()
+
     job, certification_scope_info = scope_certifications_for_scoring(
         job,
         role_scope_info,
     )
     role_scope_info["certificationScope"] = certification_scope_info
 
+    _record_full_score_perf(
+        "certification_scope",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
+
     skill_score_raw, skill_match_count, skill_total_count, skill_used, matched_skills = calculate_skill_score(
         job.get("skills", {}), resume.get("skills", [])
     )
+
+    _record_full_score_perf(
+        "rule_skill",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
 
     edu_score_raw, edu_used, job_edu_level, resume_edu_level = calculate_education_score(
         job.get("education", ""), resume.get("education", "")
     )
 
+    _record_full_score_perf(
+        "rule_education",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
+
     exp_score_raw, exp_detail = calculate_experience_score(job, resume)
     exp_used = bool(exp_detail.get("exp_condition_used", True))
+
+    _record_full_score_perf(
+        "rule_experience",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
 
     cert_score_raw, cert_match_count, cert_total_count, cert_used, matched_certs = calculate_certification_score(
         job.get("certifications", []), resume.get("certifications", [])
     )
 
+    _record_full_score_perf(
+        "rule_certification",
+        time.perf_counter() - stage_start,
+    )
+
     required_quals = (job.get("qualifications", {}) or {}).get("required", [])
     qual_original_count = len(as_qualification_list(original_required_quals))
     qual_scoped_count = len(as_qualification_list(required_quals))
+
+    stage_start = time.perf_counter()
 
     (
         qual_rule_score_raw,
@@ -4230,6 +4355,13 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     ) = calculate_qualification_rule_score_detailed(
         required_quals, resume
     )
+
+    _record_full_score_perf(
+        "rule_qualification",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
 
     eligibility_unknown = as_list(qual_detail.get("eligibility_unknown", []))
     eligibility_unmatched = as_list(qual_detail.get("eligibility_unmatched", []))
@@ -4293,6 +4425,13 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         or certification_scope_unknown
     ) and not has_blocking_unmet
 
+    _record_full_score_perf(
+        "condition_processing",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
+
     raw_resume_full_text = clean_text(" / ".join([
         safe_str(resume.get("education", "")),
         safe_str(resume.get("skills", [])),
@@ -4317,6 +4456,11 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         job_resp_text,
         job_qual_text,
     ) = get_score_semantic_texts(job, resume)
+
+    _record_full_score_perf(
+        "semantic_text_prepare",
+        time.perf_counter() - stage_start,
+    )
 
     # ------------------------------------------------------------------
     # [기존 방식 - 고정 35/21/14 배점]
@@ -4345,11 +4489,20 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     # [새 방식]
     # 먼저 각 텍스트 쌍의 순수 유사도만 계산하고,
     # 실제 배점은 scoring_mode 결정 후 사용 가능한 항목끼리 재분배한다.
+    stage_start = time.perf_counter()
+
     raw_full_sim = (
         calculate_text_similarity(resume_full_text, job_full_text)
         if resume_full_text and job_full_text
         else 0.0
     )
+
+    _record_full_score_perf(
+        "semantic_similarity_full",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
 
     raw_resp_sim = (
         calculate_text_similarity(resume_exp_text, job_resp_text)
@@ -4357,11 +4510,25 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         else 0.0
     )
 
+    _record_full_score_perf(
+        "semantic_similarity_responsibility",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
+
     raw_qual_sim = (
         calculate_text_similarity(resume_exp_text, job_qual_text)
         if resume_exp_text and job_qual_text
         else 0.0
     )
+
+    _record_full_score_perf(
+        "semantic_similarity_qualification",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
 
     # 기존 응답 구조와 디버깅 값 호환을 위해
     # 고정 배점 기준의 raw score도 별도로 유지한다.
@@ -4422,6 +4589,13 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         )
     )
 
+    _record_full_score_perf(
+        "score_setup",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
+
     if should_try_ncs_score(
         rule_evidence_count
     ):
@@ -4471,6 +4645,13 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
                 "NCS 보완 점수를 적용하지 않았습니다."
             )
         )
+
+    _record_full_score_perf(
+        "ncs",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
 
     ncs_used = bool(ncs_result.get("ncs_used", False))
 
@@ -4615,9 +4796,23 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         ncs_used=ncs_used,
     )
 
+    _record_full_score_perf(
+        "score_finalize",
+        time.perf_counter() - stage_start,
+    )
+
+    stage_start = time.perf_counter()
+
     resume_dictionary_features = extract_dictionary_features(raw_resume_full_text)
     job_dictionary_features = extract_dictionary_features(raw_job_full_text)
     category_info = get_category_overlap(raw_resume_full_text, raw_job_full_text)
+
+    _record_full_score_perf(
+        "dictionary_features",
+        time.perf_counter() - stage_start,
+    )
+
+    debug_print_start = time.perf_counter()
 
     print("[단어사전 기반]")
     print(f"- 이력서 직무 카테고리: {category_info.get('resumeCategories', [])}")
@@ -4739,7 +4934,14 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
     else:
         print("- 없음")
 
-    return {
+    _record_full_score_perf(
+        "debug_output",
+        time.perf_counter() - debug_print_start,
+    )
+
+    result_build_start = time.perf_counter()
+
+    final_result = {
         "final_score": fit_score,
         "fit_score": fit_score,
         "accessibility_score": accessibility_score,
@@ -4859,3 +5061,15 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             "match_badges": match_badges,
         },
     }
+
+    _record_full_score_perf(
+        "result_build",
+        time.perf_counter() - result_build_start,
+    )
+
+    _record_full_score_perf(
+        "total",
+        time.perf_counter() - full_score_total_start,
+    )
+
+    return final_result
