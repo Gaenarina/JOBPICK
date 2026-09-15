@@ -3781,6 +3781,133 @@ def scope_job_to_resume_role(
 
     return scoped_job, info
 
+
+def prepare_job_score_context(
+    job: Dict[str, Any],
+    resume: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    calculate_full_score()에서 실제 사용하는 공고 상태를 한 번만 준비한다.
+
+    기존 calculate_full_score()의 순서와 동일하게:
+    1) 복수 직종 scope
+    2) 자격증 scope
+    3) scope 완료된 공고 기준 semantic text 생성
+
+    반환된 context는 preload와 calculate_full_score()가 함께 재사용한다.
+    점수 공식이나 조건 판정 방식은 변경하지 않는다.
+    """
+    total_start = time.perf_counter()
+
+    original_required_quals = (
+        (job.get("qualifications", {}) or {}).get("required", [])
+    )
+
+    role_start = time.perf_counter()
+    scoped_job, role_scope_info = scope_job_to_resume_role(
+        job,
+        resume,
+    )
+    role_scope_elapsed = time.perf_counter() - role_start
+
+    cert_start = time.perf_counter()
+    scoped_job, certification_scope_info = scope_certifications_for_scoring(
+        scoped_job,
+        role_scope_info,
+    )
+    certification_scope_elapsed = time.perf_counter() - cert_start
+
+    role_scope_info = dict(role_scope_info or {})
+    certification_scope_info = dict(certification_scope_info or {})
+    role_scope_info["certificationScope"] = certification_scope_info
+
+    semantic_start = time.perf_counter()
+    semantic_texts = get_score_semantic_texts(
+        scoped_job,
+        resume,
+    )
+    semantic_text_elapsed = time.perf_counter() - semantic_start
+
+    return {
+        "job": scoped_job,
+        "original_required_quals": original_required_quals,
+        "role_scope_info": role_scope_info,
+        "certification_scope_info": certification_scope_info,
+        "semantic_texts": semantic_texts,
+        "timings": {
+            "role_scope": role_scope_elapsed,
+            "certification_scope": certification_scope_elapsed,
+            "semantic_text_prepare": semantic_text_elapsed,
+            "total": time.perf_counter() - total_start,
+        },
+    }
+
+
+def preload_prepared_score_embeddings(
+    prepared_contexts: List[Dict[str, Any]],
+    batch_size: int = 32,
+    extra_similarity_texts: List[str] | None = None,
+):
+    """
+    prepare_job_score_context()에서 만든 '실제 최종 비교 텍스트'만 preload한다.
+
+    기존 preload_score_embeddings()는 scope 이전 공고 텍스트를 기준으로
+    preload할 수 있어, 실제 calculate_full_score()에서 다시 encode가 발생할 수 있었다.
+
+    이 함수는 실제 점수 계산에서 쓰일 semantic_texts를 그대로 사용하므로
+    preload와 정밀 계산의 입력을 일치시킨다.
+    """
+    texts = []
+    seen = set()
+
+    def collect_similarity_text(text):
+        cache_key = get_similarity_cache_key(text)
+
+        if not cache_key:
+            return
+
+        if cache_key in seen or cache_key in _embedding_cache:
+            return
+
+        if get_vector(cache_key) is not None:
+            return
+
+        seen.add(cache_key)
+        texts.append(cache_key)
+
+    for context in prepared_contexts or []:
+        semantic_texts = context.get("semantic_texts", ()) or ()
+
+        for text in semantic_texts:
+            collect_similarity_text(text)
+
+    for text in extra_similarity_texts or []:
+        collect_similarity_text(text)
+
+    if not texts:
+        return {
+            "encodedCount": 0,
+            "cacheCount": len(_embedding_cache),
+        }
+
+    embeddings = get_model().encode(
+        texts,
+        convert_to_tensor=True,
+        batch_size=batch_size,
+        show_progress_bar=False,
+    )
+
+    for text, embedding in zip(texts, embeddings):
+        _embedding_cache[text] = embedding
+
+    while len(_embedding_cache) > EMBEDDING_CACHE_LIMIT:
+        _embedding_cache.popitem(last=False)
+
+    return {
+        "encodedCount": len(texts),
+        "cacheCount": len(_embedding_cache),
+    }
+
 def calculate_accessibility_score(
     skill_used: bool,
     skill_match_count: int,
@@ -4255,7 +4382,12 @@ def get_recommend_type(
     return "보통"
 
 
-def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str = "매칭") -> Dict[str, Any]:
+def calculate_full_score(
+    job: Dict[str, Any],
+    resume: Dict[str, Any],
+    label: str = "매칭",
+    prepared_context: Dict[str, Any] | None = None,
+) -> Dict[str, Any]:
     full_score_total_start = time.perf_counter()
 
     _FULL_SCORE_PERF_STATS["calls"] = int(
@@ -4264,16 +4396,54 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
 
     print(f"\n=== {label} 계산 과정 ===")
 
-    # 복수 직종 통합공고라면 지원자의 이력서와 가장 관련 있는 직종 조건만 사용한다.
-    stage_start = time.perf_counter()
+    # 복수 직종/자격증 scope가 이미 준비되어 있으면 그대로 재사용한다.
+    # prepared_context가 없을 때는 기존 경로를 그대로 실행한다.
+    if prepared_context:
+        job = prepared_context.get("job", job)
+        original_required_quals = prepared_context.get(
+            "original_required_quals",
+            (job.get("qualifications", {}) or {}).get("required", []),
+        )
+        role_scope_info = dict(
+            prepared_context.get("role_scope_info", {})
+            or {}
+        )
+        certification_scope_info = dict(
+            prepared_context.get("certification_scope_info", {})
+            or {}
+        )
 
-    original_required_quals = (job.get("qualifications", {}) or {}).get("required", [])
-    job, role_scope_info = scope_job_to_resume_role(job, resume)
+        # 실제 scope 시간은 main_matching.py의 준비 단계에서 별도 측정한다.
+        _record_full_score_perf("role_scope", 0.0)
+        _record_full_score_perf("certification_scope", 0.0)
+    else:
+        # 복수 직종 통합공고라면 지원자의 이력서와 가장 관련 있는 직종 조건만 사용한다.
+        stage_start = time.perf_counter()
 
-    _record_full_score_perf(
-        "role_scope",
-        time.perf_counter() - stage_start,
-    )
+        original_required_quals = (
+            (job.get("qualifications", {}) or {}).get("required", [])
+        )
+        job, role_scope_info = scope_job_to_resume_role(job, resume)
+
+        _record_full_score_perf(
+            "role_scope",
+            time.perf_counter() - stage_start,
+        )
+
+        # 필수 자격증은 사전 추출값을 자동 필수로 쓰지 않고,
+        # 복수 직종 공고에서는 직종 귀속이 확인되는 경우에만 평가한다.
+        stage_start = time.perf_counter()
+
+        job, certification_scope_info = scope_certifications_for_scoring(
+            job,
+            role_scope_info,
+        )
+        role_scope_info["certificationScope"] = certification_scope_info
+
+        _record_full_score_perf(
+            "certification_scope",
+            time.perf_counter() - stage_start,
+        )
 
     if role_scope_info.get("applied"):
         print(
@@ -4281,21 +4451,6 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
             f"(자격요건 {role_scope_info.get('originalQualificationCount', 0)}개 → "
             f"{role_scope_info.get('scopedQualificationCount', 0)}개)"
         )
-
-    # 필수 자격증은 사전 추출값을 자동 필수로 쓰지 않고,
-    # 복수 직종 공고에서는 직종 귀속이 확인되는 경우에만 평가한다.
-    stage_start = time.perf_counter()
-
-    job, certification_scope_info = scope_certifications_for_scoring(
-        job,
-        role_scope_info,
-    )
-    role_scope_info["certificationScope"] = certification_scope_info
-
-    _record_full_score_perf(
-        "certification_scope",
-        time.perf_counter() - stage_start,
-    )
 
     stage_start = time.perf_counter()
 
@@ -4449,13 +4604,28 @@ def calculate_full_score(job: Dict[str, Any], resume: Dict[str, Any], label: str
         safe_str(job.get("certifications", [])),
     ]))
 
-    (
-        resume_full_text,
-        job_full_text,
-        resume_exp_text,
-        job_resp_text,
-        job_qual_text,
-    ) = get_score_semantic_texts(job, resume)
+    prepared_semantic_texts = (
+        prepared_context.get("semantic_texts")
+        if prepared_context
+        else None
+    )
+
+    if prepared_semantic_texts:
+        (
+            resume_full_text,
+            job_full_text,
+            resume_exp_text,
+            job_resp_text,
+            job_qual_text,
+        ) = prepared_semantic_texts
+    else:
+        (
+            resume_full_text,
+            job_full_text,
+            resume_exp_text,
+            job_resp_text,
+            job_qual_text,
+        ) = get_score_semantic_texts(job, resume)
 
     _record_full_score_perf(
         "semantic_text_prepare",

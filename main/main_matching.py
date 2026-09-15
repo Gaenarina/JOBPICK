@@ -19,6 +19,8 @@ from matching.matchtest import (
     calculate_full_embedding_similarity,
     clear_embedding_cache,
     preload_score_embeddings,
+    prepare_job_score_context,
+    preload_prepared_score_embeddings,
     reset_full_score_perf_stats,
     get_full_score_perf_stats,
 )
@@ -1291,6 +1293,7 @@ def build_match_result(
     resume_for_score,
     analysis_meta=None,
     job_for_score=None,
+    prepared_score_context=None,
     resume_embedding_text=None,
     job_embedding_text=None,
     perf_stats=None
@@ -1356,7 +1359,8 @@ def build_match_result(
         calculate_full_score(
             job_for_score,
             resume_for_score,
-            label=f"job {job_doc_id}"
+            label=f"job {job_doc_id}",
+            prepared_context=prepared_score_context,
         )
     )
 
@@ -2408,7 +2412,39 @@ def process_matching_groups_by_resume_id(
     )
 
     # ------------------------------------------------------------
-    # 5-1. 화면 표시용 공고 embedding text 일괄 준비
+    # 5-1. 실제 점수 계산용 직종 scope + semantic text 준비
+    # ------------------------------------------------------------
+    stage_start = time.perf_counter()
+
+    prepared_score_contexts = [
+        prepare_job_score_context(
+            job_for_score,
+            resume_for_score,
+        )
+        for job_for_score in flattened_jobs
+    ]
+
+    scoped_jobs = [
+        context.get("job", job_for_score)
+        for context, job_for_score
+        in zip(
+            prepared_score_contexts,
+            flattened_jobs,
+        )
+    ]
+
+    scope_prepare_elapsed = (
+        time.perf_counter()
+        - stage_start
+    )
+
+    print(
+        f"[matching-perf] 5-1. scope + semantic text 준비: "
+        f"{scope_prepare_elapsed:.2f}초"
+    )
+
+    # ------------------------------------------------------------
+    # 5-2. 화면 표시용 공고 embedding text 일괄 준비
     # ------------------------------------------------------------
     stage_start = time.perf_counter()
 
@@ -2423,7 +2459,7 @@ def process_matching_groups_by_resume_id(
     )
 
     print(
-        f"[matching-perf] 5-1. job embedding text 일괄 준비: "
+        f"[matching-perf] 5-2. job embedding text 일괄 준비: "
         f"{job_embedding_text_prepare_elapsed:.2f}초"
     )
 
@@ -2432,9 +2468,8 @@ def process_matching_groups_by_resume_id(
     # ------------------------------------------------------------
     stage_start = time.perf_counter()
 
-    preload_score_embeddings(
-        flattened_jobs,
-        resume_for_score,
+    preload_stats = preload_prepared_score_embeddings(
+        prepared_score_contexts,
         extra_similarity_texts=[
             resume_embedding_text,
             *job_embedding_texts,
@@ -2448,7 +2483,8 @@ def process_matching_groups_by_resume_id(
 
     print(
         f"[matching-perf] 6. 임베딩 preload: "
-        f"{preload_elapsed:.2f}초"
+        f"{preload_elapsed:.2f}초 "
+        f"(live encode {int((preload_stats or {}).get('encodedCount', 0))}개)"
     )
 
     # ------------------------------------------------------------
@@ -2471,10 +2507,12 @@ def process_matching_groups_by_resume_id(
     for (
         (job_doc_id, job_raw),
         job_for_score,
+        prepared_score_context,
         job_embedding_text,
     ) in zip(
         candidate_jobs,
-        flattened_jobs,
+        scoped_jobs,
+        prepared_score_contexts,
         job_embedding_texts
     ):
         final_result = (
@@ -2485,6 +2523,7 @@ def process_matching_groups_by_resume_id(
                 resume_for_score=resume_for_score,
                 analysis_meta=analysis_meta,
                 job_for_score=job_for_score,
+                prepared_score_context=prepared_score_context,
                 resume_embedding_text=resume_embedding_text,
                 job_embedding_text=job_embedding_text,
                 perf_stats=detail_perf,
@@ -2771,6 +2810,11 @@ def process_matching_groups_by_resume_id(
     print(
         f"후보 공고 flatten       : "
         f"{flatten_elapsed:.2f}초"
+    )
+
+    print(
+        f"scope + semantic 준비   : "
+        f"{scope_prepare_elapsed:.2f}초"
     )
 
     print(
