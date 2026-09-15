@@ -1034,6 +1034,141 @@ function ScoreDetailModal({ job, onClose }) {
   )
 }
 
+
+const MATCH_RESULT_GUIDE_ITEMS = [
+  {
+    name: 'AI 적합',
+    description:
+      '직무 적합도가 높고, 이를 뒷받침할 판단 근거도 충분한 공고입니다.',
+    cardClass: 'border-emerald-200 bg-emerald-50',
+    textClass: 'text-emerald-700',
+  },
+  {
+    name: '지원 가능',
+    description:
+      '필수 지원조건을 상당 부분 충족하여 실제 지원을 고려할 수 있는 공고입니다.',
+    cardClass: 'border-sky-200 bg-sky-50',
+    textClass: 'text-sky-700',
+  },
+  {
+    name: '보통',
+    description:
+      '일부 조건은 일치하지만 적극적인 추천 기준에는 아직 미치지 않은 공고입니다.',
+    cardClass: 'border-slate-200 bg-slate-50',
+    textClass: 'text-slate-700',
+  },
+  {
+    name: '정보 부족',
+    description:
+      '공고 또는 이력서 정보가 부족하여 정확한 판단이 어려운 경우입니다.',
+    cardClass: 'border-amber-200 bg-amber-50',
+    textClass: 'text-amber-700',
+  },
+  {
+    name: '부적합',
+    description:
+      '필수조건을 충족하지 못했거나 현재 이력서와의 매칭 수준이 낮은 공고입니다.',
+    cardClass: 'border-red-200 bg-red-50',
+    textClass: 'text-red-700',
+  },
+]
+
+function normalizeGuideBadge(badge) {
+  const text = String(badge || '')
+
+  if (text.includes('부적합')) return '부적합'
+  if (text.includes('정보') && text.includes('부족')) return '정보 부족'
+  if (text.includes('AI') && text.includes('적합')) return 'AI 적합'
+  if (text.includes('지원') && text.includes('가능')) return '지원 가능'
+  if (text.includes('보통')) return '보통'
+
+  return '보통'
+}
+
+function MatchResultGuideModal({ selectedBadge, onClose }) {
+  if (!selectedBadge) return null
+
+  const selectedName = normalizeGuideBadge(selectedBadge)
+  const selectedItem =
+    MATCH_RESULT_GUIDE_ITEMS.find((item) => item.name === selectedName) ||
+    MATCH_RESULT_GUIDE_ITEMS[2]
+  const otherItems = MATCH_RESULT_GUIDE_ITEMS.filter(
+    (item) => item.name !== selectedItem.name
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+      <div className="w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-5 md:p-6 shadow-xl">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-primary">JOBPICK GUIDE</p>
+            <h3 className="mt-1 text-xl font-bold text-gray-900">
+              매칭 결과 유형 안내
+            </h3>
+            <p className="mt-1 text-sm text-gray-500">
+              JOBPICK은 매칭 결과를 5가지 유형으로 구분합니다.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+            aria-label="매칭 결과 유형 안내 닫기"
+          >
+            <X className="h-5 w-5" aria-hidden />
+          </button>
+        </div>
+
+        <div className={`rounded-xl border-2 p-5 ${selectedItem.cardClass}`}>
+          <p className="text-xs font-semibold text-gray-500">현재 결과</p>
+          <div className="mt-2 flex items-center gap-2">
+            <span
+              className={`rounded-full border bg-white px-3 py-1 text-sm font-bold ${selectedItem.textClass}`}
+            >
+              {selectedItem.name}
+            </span>
+          </div>
+          <p
+            className={`mt-4 text-base font-medium leading-7 ${selectedItem.textClass}`}
+          >
+            {selectedItem.description}
+          </p>
+        </div>
+
+        <div className="mt-6">
+          <p className="mb-3 text-sm font-semibold text-gray-900">
+            다른 매칭 결과
+          </p>
+          <div className="overflow-hidden rounded-xl border border-gray-200">
+            {otherItems.map((item, index) => (
+              <div
+                key={item.name}
+                className={`flex flex-col gap-2 bg-white p-4 sm:flex-row sm:items-center ${
+                  index !== otherItems.length - 1
+                    ? 'border-b border-gray-100'
+                    : ''
+                }`}
+              >
+                <div className="w-28 shrink-0">
+                  <span
+                    className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${item.cardClass} ${item.textClass}`}
+                  >
+                    {item.name}
+                  </span>
+                </div>
+                <p className="text-sm leading-6 text-gray-600">
+                  {item.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function toggleSelectedValue(setter, value) {
   setter((prev) =>
     prev.includes(value)
@@ -1101,6 +1236,7 @@ export default function LandingPage() {
   const [selectedResume, setSelectedResume] = useState(null)
   const [bookmarkIds, setBookmarkIds] = useState([])
   const [scoreDetailJob, setScoreDetailJob] = useState(null)
+  const [resultGuideBadge, setResultGuideBadge] = useState(null)
   const [showAiSummary, setShowAiSummary] = useState(false)
   const [isGeneratingAiSummary, setIsGeneratingAiSummary] = useState(false)
   const [aiSummaryError, setAiSummaryError] = useState('')
@@ -2488,9 +2624,15 @@ export default function LandingPage() {
                         <div className="flex flex-row sm:flex-col items-start sm:items-end justify-between sm:justify-start gap-2 flex-shrink-0 sm:pt-7">
                           <div className="flex items-center gap-3">
                           {job.matchRate > 0 && (
-                            <span className="text-primary font-bold text-lg md:text-xl whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => setScoreDetailJob(job)}
+                              className="rounded-lg px-2 py-1 text-primary font-bold text-lg md:text-xl whitespace-nowrap transition-colors hover:bg-blue-50 hover:text-blue-700"
+                              aria-label={`${job.matchRate}점 매칭 상세 분석 보기`}
+                              title="점수 계산 과정 보기"
+                            >
                               {job.matchRate}점
-                            </span>
+                            </button>
                           )}
                           <button onClick={() => handleToggleBookmark(job)} aria-label="북마크">
                             <svg
@@ -2516,7 +2658,7 @@ export default function LandingPage() {
                                 <button
                                   key={`${jobKey}-${badge}`}
                                   type="button"
-                                  onClick={() => setScoreDetailJob(job)}
+                                  onClick={() => setResultGuideBadge(badge)}
                                   className={`text-xs md:text-sm px-2 py-1 rounded border font-medium transition-colors ${getBadgeClassName(badge)}`}
                                 >
                                   {badge}
@@ -2935,6 +3077,10 @@ export default function LandingPage() {
       )}
 
       <ScoreDetailModal job={scoreDetailJob} onClose={() => setScoreDetailJob(null)} />
+      <MatchResultGuideModal
+        selectedBadge={resultGuideBadge}
+        onClose={() => setResultGuideBadge(null)}
+      />
     </main>
   )
 }
