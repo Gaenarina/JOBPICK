@@ -275,7 +275,7 @@ function list(value) {
 
 
 const LIST_MARKER_PATTERN =
-  /^\s*(?:[-–—•·ㆍ※○?]+|[oOㅇ](?=\s|[가-힣])|[가-하][.)]|(?:\d+)[.)]|[①-⑳])\s*/
+  /^\s*(?:[-–—•·ㆍ※○?□■▪◆◇▶▷]+|[oOㅇ](?=\s|[가-힣])|[가-하][.)]|(?:\d+)[.)]|[①-⑳])\s*/
 
 
 function stripListMarker(value) {
@@ -539,7 +539,7 @@ function isConditionalQualification(
 
   const match =
     cleaned.match(
-      /^\(([^)]+)\)/
+      /^(?:\(([^)]+)\)|\[([^\]]+)\])/
     )
 
   if (!match) {
@@ -547,7 +547,7 @@ function isConditionalQualification(
   }
 
   const label =
-    match[1]
+    (match[1] || match[2])
       .replace(/\s+/g, '')
       .toLowerCase()
 
@@ -624,8 +624,235 @@ function splitRequiredQualifications(
 
 
 
-function parseApplicationRequirements(
+function requirementGroupKey(value) {
+  return text(value)
+    .replace(/[^0-9A-Za-z가-힣]+/g, '')
+    .toLowerCase()
+}
+
+const GROUP_HEADER_HINTS = [
+  '청년인턴',
+  '체험형인턴',
+  '채용형인턴',
+  '기간제',
+  '무기계약',
+  '계약직',
+]
+
+
+function requirementConditionKey(
   value
+) {
+  return text(value)
+    .replace(
+      /[^0-9A-Za-z가-힣]+/g,
+      ''
+    )
+    .toLowerCase()
+}
+
+
+function hasRequirementStructure(
+  followingText
+) {
+  const compact =
+    String(
+      followingText || ''
+    ).replace(
+      /\s+/g,
+      ''
+    )
+
+  return [
+    '담당업무',
+    '담당직무',
+    '자격요건',
+    '지원자격',
+    '응시자격',
+    '연령:',
+    '연령：',
+    '학력:',
+    '학력：',
+    '자격:',
+    '자격：',
+    '경력:',
+    '경력：',
+    '기타제한:',
+    '기타제한：',
+  ].some(
+    (marker) =>
+      compact.includes(
+        marker
+      )
+  )
+}
+
+
+function extractInlineGroupResponsibility(
+  cleanedLine,
+  followingText
+) {
+  if (
+    !hasRequirementStructure(
+      followingText
+    )
+  ) {
+    return {
+      group: '',
+      responsibility: '',
+    }
+  }
+
+  const match =
+    cleanedLine.match(
+      /^(.{2,160}?)\s+[-–—]\s+(.+)$/
+    )
+
+  if (!match) {
+    return {
+      group: '',
+      responsibility: '',
+    }
+  }
+
+  const group =
+    match[1].trim()
+
+  const responsibility =
+    match[2].trim()
+
+  const looksLikeGroup =
+    group.includes('/') ||
+    GROUP_HEADER_HINTS.some(
+      (hint) =>
+        group.includes(hint)
+    )
+
+  if (!looksLikeGroup) {
+    return {
+      group: '',
+      responsibility: '',
+    }
+  }
+
+  return {
+    group,
+    responsibility,
+  }
+}
+
+function extractRequirementGroupHeader(
+  rawLine,
+  cleanedLine,
+  followingText
+) {
+  // 모집 분야 : XXX
+  const explicitGroupMatch =
+    cleanedLine.match(
+      /^(?:모집\s*분야|모집분야)\s*[:：]\s*(.+)$/i
+    )
+
+  if (explicitGroupMatch) {
+    return explicitGroupMatch[1]
+      .trim()
+  }
+
+  // 모집분야 - 담당업무
+  const inline =
+    extractInlineGroupResponsibility(
+      cleanedLine,
+      followingText
+    )
+
+  if (inline.group) {
+    return inline.group
+  }
+
+  const hasStructuredFields =
+    hasRequirementStructure(
+      followingText
+    )
+
+  if (!hasStructuredFields) {
+    return ''
+  }
+
+  const bracketMatch =
+    cleanedLine.match(
+      /^\[([^\]]{1,120})\]$/
+    )
+
+  if (bracketMatch) {
+    const groupName =
+      bracketMatch[1].trim()
+
+    const groupKey =
+      requirementGroupKey(
+        groupName
+      )
+
+    if (
+      [
+        '공통',
+        '공통사항',
+        '공통자격',
+        '공통자격요건',
+      ].includes(groupKey)
+    ) {
+      return ''
+    }
+
+    return groupName
+  }
+
+  if (
+    /\d+\s*명\s*$/.test(
+      cleanedLine
+    )
+  ) {
+    const groupName =
+      cleanedLine
+        .replace(
+          /\s*[:：]?\s*\d+\s*명\s*$/,
+          ''
+        )
+        .replace(
+          /^[\[\]()\s]+|[\[\]()\s]+$/g,
+          ''
+        )
+        .trim()
+
+    if (groupName) {
+      return groupName
+    }
+  }
+
+  const looksLikeGroup =
+    GROUP_HEADER_HINTS.some(
+      (hint) =>
+        cleanedLine.includes(
+          hint
+        )
+    )
+
+  const isConditionLine =
+    /(?:연령|학력|자격|경력|기타제한)\s*[:：]/
+      .test(cleanedLine)
+
+  if (
+    looksLikeGroup &&
+    !isConditionLine
+  ) {
+    return cleanedLine
+  }
+
+  return ''
+}
+
+
+function parseApplicationRequirements(
+  value,
+  title = ''
 ) {
   if (
     value === null ||
@@ -647,12 +874,103 @@ function parseApplicationRequirements(
       )
       .filter(Boolean)
 
+  if (!rawLines.length) {
+    return {
+      required: [],
+      conditional: [],
+      responsibilities: [],
+    }
+  }
+
   const required = []
   const conditional = []
   const responsibilities = []
 
+  // --------------------------------------------------------
+  // 전체 모집분야 헤더 확인
+  // --------------------------------------------------------
+
+  const detectedGroups = []
+
+  for (
+    let index = 0;
+    index < rawLines.length;
+    index += 1
+  ) {
+    const rawLine =
+      rawLines[index]
+
+    const cleanedLine =
+      stripListMarker(
+        rawLine
+      )
+
+    if (!cleanedLine) {
+      continue
+    }
+
+    const followingText =
+      rawLines
+        .slice(
+          index + 1,
+          index + 4
+        )
+        .join(' ')
+
+    const groupName =
+      extractRequirementGroupHeader(
+        rawLine,
+        cleanedLine,
+        followingText
+      )
+
+    if (
+      groupName &&
+      !detectedGroups.includes(
+        groupName
+      )
+    ) {
+      detectedGroups.push(
+        groupName
+      )
+    }
+  }
+
+  const titleKey =
+    requirementGroupKey(
+      title
+    )
+
+  const groupIsRequired = (
+    groupName
+  ) => {
+    if (!groupName) {
+      return false
+    }
+
+    if (
+      detectedGroups.length <= 1
+    ) {
+      return true
+    }
+
+    const groupKey =
+      requirementGroupKey(
+        groupName
+      )
+
+    return Boolean(
+      titleKey &&
+      groupKey &&
+      titleKey.includes(
+        groupKey
+      )
+    )
+  }
+
   let currentScope = 'common'
   let currentGroup = ''
+  let currentGroupRequired = false
 
   const addRequired = (
     value
@@ -663,7 +981,9 @@ function parseApplicationRequirements(
       )
 
     if (cleaned) {
-      required.push(cleaned)
+      required.push(
+        cleaned
+      )
     }
   }
 
@@ -691,7 +1011,8 @@ function parseApplicationRequirements(
     value,
     group = ''
   ) => {
-    const cleaned = text(value)
+    const cleaned =
+      text(value)
 
     if (!cleaned) {
       return
@@ -703,6 +1024,10 @@ function parseApplicationRequirements(
         : cleaned
     )
   }
+
+  // --------------------------------------------------------
+  // 실제 파싱
+  // --------------------------------------------------------
 
   for (
     let index = 0;
@@ -726,19 +1051,31 @@ function parseApplicationRequirements(
         .replace(/\s+/g, '')
         .toLowerCase()
 
+    const sectionLabel =
+      compact
+        .replace(
+          /^[\[\]()]+|[\[\]()]+$/g,
+          ''
+        )
+
+    // 공통
     if (
       [
         '공통',
         '공통사항',
         '공통자격',
         '공통자격요건',
-      ].includes(compact)
+      ].includes(
+        sectionLabel
+      )
     ) {
       currentScope = 'common'
       currentGroup = ''
+      currentGroupRequired = false
       continue
     }
 
+    // 모집분야별 조건
     if (
       [
         '직종별자격',
@@ -748,77 +1085,109 @@ function parseApplicationRequirements(
         '분야별자격',
         '분야별자격요건',
       ].some((keyword) =>
-        compact.includes(keyword)
+        sectionLabel.includes(
+          keyword
+        )
       )
     ) {
       currentScope = 'conditional'
       currentGroup = ''
+      currentGroupRequired = false
       continue
     }
 
+    // 모집분야 제목
+    const followingText =
+      rawLines
+        .slice(
+          index + 1,
+          index + 4
+        )
+        .join(' ')
+
+    const groupName =
+      extractRequirementGroupHeader(
+        rawLine,
+        cleanedLine,
+        followingText
+      )
+
+    if (groupName) {
+      currentGroup =
+        groupName
+
+      if (
+        currentScope ===
+        'conditional'
+      ) {
+        currentGroupRequired =
+          false
+      } else {
+        currentScope = 'group'
+
+        currentGroupRequired =
+          groupIsRequired(
+            groupName
+          )
+      }
+
+      // "모집분야 - 담당업무" 형태 처리
+      const inline =
+        extractInlineGroupResponsibility(
+          cleanedLine,
+          followingText
+        )
+
+      if (
+        inline.group &&
+        inline.responsibility
+      ) {
+        addResponsibility(
+          inline.responsibility,
+          currentGroup
+        )
+      }
+
+      continue
+    }
+
+    // 직종별 자격 섹션 내부 번호
     const numberedHeader =
       /^\s*\d+[.)]\s*/.test(
         rawLine
       )
-
-    if (numberedHeader) {
-      const nextLines =
-        rawLines
-          .slice(
-            index + 1,
-            index + 4
-          )
-          .join(' ')
-
-      const hasStructuredFields =
-        nextLines.includes(
-          '담당업무'
-        ) ||
-        nextLines.includes(
-          '자격요건'
-        )
-
-      if (hasStructuredFields) {
-        currentScope =
-          'conditional'
-
-        currentGroup =
-          cleanedLine
-            .replace(
-              /\s+\d+\s*명\s*$/,
-              ''
-            )
-            .trim()
-
-        continue
-      }
-    }
 
     if (
       currentScope ===
         'conditional' &&
       numberedHeader
     ) {
+      const body =
+        cleanedLine
+
       if (
-        cleanedLine.includes(
-          ':'
-        ) ||
-        cleanedLine.includes(
-          '：'
-        )
+        body.includes(':') ||
+        body.includes('：')
       ) {
         const parts =
-          cleanedLine.split(
+          body.split(
             /[:：]/,
             2
           )
 
-        if (parts[0]?.trim()) {
+        if (
+          parts[0]?.trim()
+        ) {
           currentGroup =
             parts[0].trim()
         }
 
-        if (parts[1]?.trim()) {
+        currentGroupRequired =
+          false
+
+        if (
+          parts[1]?.trim()
+        ) {
           addConditional(
             parts[1].trim(),
             currentGroup
@@ -829,19 +1198,23 @@ function parseApplicationRequirements(
       }
 
       currentGroup =
-        cleanedLine
+        body
           .replace(
             /\s+\d+\s*명\s*$/,
             ''
           )
           .trim()
 
+      currentGroupRequired =
+        false
+
       continue
     }
 
+    // 담당업무 / 담당직무
     const responsibilityMatch =
       cleanedLine.match(
-        /(?:담당업무|담당 업무)\s*[:：]\s*(.+)$/i
+        /(?:담당업무|담당 업무|담당직무|담당 직무)\s*[:：]\s*(.+)$/i
       )
 
     if (responsibilityMatch) {
@@ -852,38 +1225,70 @@ function parseApplicationRequirements(
       continue
     }
 
+    // 계약기간 제외
     if (
       /(?:계약기간|근무기간)\s*[:：]/i
-        .test(cleanedLine)
+        .test(
+          cleanedLine
+        )
     ) {
       continue
     }
 
+    // 자격요건
     const qualificationMatch =
       cleanedLine.match(
-        /(?:자격요건|지원자격|응시자격)\s*[:：]\s*(.+)$/i
+        /(?:자격요건|지원자격|응시자격|자격)\s*[:：]\s*(.+)$/i
       )
 
     if (qualificationMatch) {
+      const qualificationText =
+        qualificationMatch[1]
+
       if (currentGroup) {
+        if (
+          currentGroupRequired
+        ) {
+          addRequired(
+            qualificationText
+          )
+        } else {
+          addConditional(
+            qualificationText,
+            currentGroup
+          )
+        }
+      } else if (
+        currentScope ===
+        'conditional'
+      ) {
         addConditional(
-          qualificationMatch[1],
-          currentGroup
+          qualificationText
         )
       } else {
         addRequired(
-          qualificationMatch[1]
+          qualificationText
         )
       }
 
       continue
     }
 
+    // 모집분야 내부 조건
     if (currentGroup) {
-      addConditional(
-        cleanedLine,
-        currentGroup
-      )
+      if (
+        currentGroupRequired
+      ) {
+        addRequired(
+          cleanedLine
+        )
+      } else {
+        addConditional(
+          cleanedLine,
+          currentGroup
+        )
+      }
+
       continue
     }
 
@@ -892,18 +1297,22 @@ function parseApplicationRequirements(
       'conditional'
     ) {
       addConditional(
-        cleanedLine,
-        currentGroup
+        cleanedLine
       )
       continue
     }
 
-    addRequired(cleanedLine)
+    // 일반 공통조건
+    addRequired(
+      cleanedLine
+    )
   }
 
   return {
     required: [
-      ...new Set(required),
+      ...new Set(
+        required
+      ),
     ],
 
     conditional: [
@@ -1375,7 +1784,8 @@ export function normalizeMoefRecruitment(
     responsibilities,
   } =
     parseApplicationRequirements(
-      item.aplyQlfcCn
+      item.aplyQlfcCn,
+      title
     )
 
 
