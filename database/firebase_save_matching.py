@@ -100,6 +100,7 @@ def get_matching_result(db, resume_id):
     top_fit_matches = data.get("topFitMatches", [])
     top_accessible_matches = data.get("topAccessibleMatches", [])
     top_confidence_matches = data.get("topConfidenceMatches", [])
+    manual_matches = data.get("manualMatches", [])
 
     return {
         "resumeId": data.get("resumeId", str(resume_id)),
@@ -110,19 +111,38 @@ def get_matching_result(db, resume_id):
         "topAccessibleMatches": top_accessible_matches,
         "topConfidenceMatches": top_confidence_matches,
 
+        # 개별 매칭 결과
+        "manualMatches": manual_matches,
+
         "matchCount": data.get("matchCount", len(matches)),
         "topFitCount": data.get("topFitCount", len(top_fit_matches)),
-        "topAccessibleCount": data.get("topAccessibleCount", len(top_accessible_matches)),
-        "topConfidenceCount": data.get("topConfidenceCount", len(top_confidence_matches)),
+        "topAccessibleCount": data.get(
+            "topAccessibleCount",
+            len(top_accessible_matches)
+        ),
+        "topConfidenceCount": data.get(
+            "topConfidenceCount",
+            len(top_confidence_matches)
+        ),
+        "manualMatchCount": data.get(
+            "manualMatchCount",
+            len(manual_matches)
+        ),
+
         "matchPreferences": data.get("matchPreferences", {}),
         "totalJobCount": data.get("totalJobCount"),
         "filteredJobCount": data.get("filteredJobCount"),
         "aiSummary": data.get("aiSummary", {}),
 
-        # 추가: 매칭 결과 기준 분석 정보 반환
         "analysisSource": data.get("analysisSource", "original"),
-        "resumeAnalysisVersion": data.get("resumeAnalysisVersion", 1),
-        "isAnalysisEdited": data.get("isAnalysisEdited", False),
+        "resumeAnalysisVersion": data.get(
+            "resumeAnalysisVersion",
+            1
+        ),
+        "isAnalysisEdited": data.get(
+            "isAnalysisEdited",
+            False
+        ),
 
         "status": data.get("status", "DONE"),
         "updatedAt": data.get("updatedAt", ""),
