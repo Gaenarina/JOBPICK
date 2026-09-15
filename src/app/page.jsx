@@ -2818,23 +2818,139 @@ export default function LandingPage() {
             </div>
 
             {/* 인기 커리어 전용 페이지네이션 */}
-            {totalPages > 1 && (
-              <div className="flex justify-center items-center gap-2 mt-6">
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => (
-                  <button
-                    key={page}
-                    onClick={() => setCurrentPage(page)}
-                    className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
-                      currentPage === page
-                        ? 'bg-primary text-white'
-                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    {page}
-                  </button>
-                ))}
-              </div>
-            )}
+{totalPages > 1 && (
+  <div className="flex justify-center items-center gap-2 mt-6">
+    {/* 이전 페이지 */}
+    <button
+      type="button"
+      onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+      disabled={currentPage === 1}
+      className="min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+    >
+      &lt;
+    </button>
+
+    {/* 첫 페이지 */}
+    <button
+      type="button"
+      onClick={() => setCurrentPage(1)}
+      className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
+        currentPage === 1
+          ? 'bg-primary text-white'
+          : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+      }`}
+    >
+      1
+    </button>
+
+    {/* 앞쪽 ... */}
+    {currentPage > 4 && (
+  <button
+    type="button"
+    onClick={() => {
+      const page = window.prompt(
+        `이동할 페이지 번호를 입력하세요. (1~${totalPages})`
+      );
+
+      if (page === null) return;
+
+      const targetPage = Number(page);
+
+      if (
+        Number.isInteger(targetPage) &&
+        targetPage >= 1 &&
+        targetPage <= totalPages
+      ) {
+        setCurrentPage(targetPage);
+      } else {
+        window.alert(`1부터 ${totalPages} 사이의 페이지 번호를 입력해주세요.`);
+      }
+    }}
+    className="px-1 text-gray-400 hover:text-gray-700 cursor-pointer"
+    title="페이지 번호 직접 입력"
+  >
+    ...
+  </button>
+)}
+
+    {/* 현재 페이지 주변 번호 */}
+    {Array.from({ length: totalPages }, (_, i) => i + 1)
+      .filter((page) => {
+        if (page === 1 || page === totalPages) return false
+        return Math.abs(page - currentPage) <= 2
+      })
+      .map((page) => (
+        <button
+          key={page}
+          type="button"
+          onClick={() => setCurrentPage(page)}
+          className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
+            currentPage === page
+              ? 'bg-primary text-white'
+              : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+          }`}
+        >
+          {page}
+        </button>
+      ))}
+
+    {/* 뒤쪽 ... */}
+    {currentPage < totalPages - 3 && (
+  <button
+    type="button"
+    onClick={() => {
+      const page = window.prompt(
+        `이동할 페이지 번호를 입력하세요. (1~${totalPages})`
+      );
+
+      if (page === null) return;
+
+      const targetPage = Number(page);
+
+      if (
+        Number.isInteger(targetPage) &&
+        targetPage >= 1 &&
+        targetPage <= totalPages
+      ) {
+        setCurrentPage(targetPage);
+      } else {
+        window.alert(`1부터 ${totalPages} 사이의 페이지 번호를 입력해주세요.`);
+      }
+    }}
+    className="px-1 text-gray-400 hover:text-gray-700 cursor-pointer"
+    title="페이지 번호 직접 입력"
+  >
+    ...
+  </button>
+)}
+    {/* 마지막 페이지 */}
+    {totalPages > 1 && (
+      <button
+        type="button"
+        onClick={() => setCurrentPage(totalPages)}
+        className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
+          currentPage === totalPages
+            ? 'bg-primary text-white'
+            : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+        }`}
+      >
+        {totalPages}
+      </button>
+    )}
+
+    {/* 다음 페이지 */}
+    <button
+      type="button"
+      onClick={() =>
+        setCurrentPage((prev) => Math.min(totalPages, prev + 1))
+      }
+      disabled={currentPage === totalPages}
+      className="min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+    >
+      &gt;
+    </button>
+  </div>
+)}
           </>
         )}
       </section>
