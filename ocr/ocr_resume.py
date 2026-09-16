@@ -12,10 +12,34 @@ from google.oauth2 import service_account
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KEY_PATH = os.path.join(BASE_DIR, "config", "vision_key.json")
 
-if not os.path.exists(KEY_PATH):
-    raise FileNotFoundError(f"Google Vision 키 파일을 찾을 수 없습니다: {KEY_PATH}")
+# 로컬에서는 기존 JSON 파일 사용
+if os.path.exists(KEY_PATH):
+    credentials = service_account.Credentials.from_service_account_file(KEY_PATH)
 
-credentials = service_account.Credentials.from_service_account_file(KEY_PATH)
+# Render 등 배포 환경에서는 환경변수 사용
+else:
+    project_id = os.getenv("VISION_PROJECT_ID")
+    client_email = os.getenv("VISION_CLIENT_EMAIL")
+    private_key = os.getenv("VISION_PRIVATE_KEY")
+
+    if not project_id or not client_email or not private_key:
+        raise RuntimeError(
+            "Google Vision 인증 정보가 없습니다. "
+            "vision_key.json 또는 Vision 환경변수를 확인하세요."
+        )
+
+    service_account_info = {
+        "type": "service_account",
+        "project_id": project_id,
+        "client_email": client_email,
+        "private_key": private_key.replace("\\n", "\n"),
+        "token_uri": "https://oauth2.googleapis.com/token",
+    }
+
+    credentials = service_account.Credentials.from_service_account_info(
+        service_account_info
+    )
+
 vision_client = vision.ImageAnnotatorClient(credentials=credentials)
 
 
