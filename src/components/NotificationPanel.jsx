@@ -56,28 +56,32 @@ export default function NotificationPanel({ isOpen, onClose }) {
           </div>
         </div>
         <div className="flex-1 overflow-y-auto">
-          <ul className="divide-y divide-gray-100">
-            {notifications.map((notification) => (
-              <li key={notification.id}>
-                <button
-                  onClick={() => !notification.read && markAsRead(notification.id)}
-                  className={`w-full text-left p-4 hover:bg-gray-50 transition-colors flex gap-3 ${
-                    !notification.read ? 'bg-blue-50/50' : ''
-                  }`}
-                >
-                  <span className="flex-shrink-0 mt-0.5">{renderIcon(notification.icon)}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 mb-0.5">{notification.title}</p>
-                    <p className="text-sm text-gray-500 line-clamp-2">{notification.content}</p>
-                    <p className="text-xs text-gray-400 mt-2">{notification.time}</p>
-                  </div>
-                  {!notification.read && (
-                    <span className="flex-shrink-0 w-2 h-2 mt-2 rounded-full bg-primary" />
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
+          {notifications.length === 0 ? (
+            <p className="p-8 text-sm text-gray-500 text-center">새로운 알림이 없습니다.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100">
+              {notifications.map((notification) => (
+                <li key={notification.id}>
+                  <button
+                    onClick={() => !notification.read && markAsRead(notification.id)}
+                    className={`w-full text-left p-4 hover:bg-gray-50 transition-colors flex gap-3 ${
+                      !notification.read ? 'bg-blue-50/50' : ''
+                    }`}
+                  >
+                    <span className="flex-shrink-0 mt-0.5">{renderIcon(notification.icon)}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-gray-800 mb-0.5">{notification.title}</p>
+                      <p className="text-sm text-gray-500 line-clamp-2">{notification.content}</p>
+                      <p className="text-xs text-gray-400 mt-2">{notification.time}</p>
+                    </div>
+                    {!notification.read && (
+                      <span className="flex-shrink-0 w-2 h-2 mt-2 rounded-full bg-primary" />
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
     </>

@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from firebase_admin import firestore
+
 
 def make_json_safe(value):
     if value is None:
@@ -85,6 +87,37 @@ def save_matching_result(
     )
 
     return str(resume_id)
+
+
+def create_matching_complete_notification(db, user_id, resume_id):
+    uid = str(user_id or "").strip()
+    rid = str(resume_id or "").strip()
+
+    if not uid or not rid:
+        return False
+
+    notification_id = f"ai-matching-{rid}"
+    notif_ref = (
+        db.collection("users")
+        .document(uid)
+        .collection("notifications")
+        .document(notification_id)
+    )
+
+    if notif_ref.get().exists:
+        return False
+
+    notif_ref.set({
+        "title": "AI 매칭 분석 완료",
+        "content": "이력서 AI 매칭 분석이 완료되었습니다. 새로운 매칭 공고를 확인해보세요.",
+        "category": "company",
+        "icon": "sparkles",
+        "read": False,
+        "resumeId": rid,
+        "createdAt": firestore.SERVER_TIMESTAMP,
+    })
+
+    return True
 
 
 def get_matching_result(db, resume_id):
