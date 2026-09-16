@@ -2,12 +2,11 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Home, Briefcase, GraduationCap, User } from 'lucide-react'
+import { Home, Briefcase, User } from 'lucide-react'
 
 const NAV_ITEMS = [
   { href: '/', label: '홈', icon: Home },
   { href: '/dashboard', label: '채용정보', icon: Briefcase },
-  { href: '/intern', label: '신입인턴', icon: GraduationCap },
   { href: '/mypage', label: '마이페이지', icon: User },
 ]
 
