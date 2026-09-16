@@ -15,6 +15,7 @@ import {
 
 const MATCH_API_URL = process.env.NEXT_PUBLIC_MATCH_API_URL || 'http://localhost:8000/process-resume'
 const ONE_MATCH_API_URL = process.env.NEXT_PUBLIC_ONE_MATCH_API_URL || 'http://localhost:8000/process-one-match'
+const BASIC_JOBS_PER_PAGE = 10
 
 const LAST_AI_ANALYSIS_AT_KEY = 'jobpick_last_ai_analysis_at'
 
@@ -257,6 +258,7 @@ export default function DashboardPage() {
   const [scoreMap, setScoreMap] = useState({})
   const [scoringJobId, setScoringJobId] = useState(null)
   const [visibleMatchCount, setVisibleMatchCount] = useState(10)
+  const [basicJobPage, setBasicJobPage] = useState(1)
 
   const resumeUserId = isAuthenticated ? user?.uid || user?.id : null
 
@@ -460,6 +462,10 @@ export default function DashboardPage() {
   })
 }, [jobs, selectedRegion, selectedCategory, searchQuery])
 
+  useEffect(() => {
+    setBasicJobPage(1)
+  }, [searchQuery, selectedRegion, selectedCategory])
+
   const filteredMatchedJobs = useMemo(() => {
     return matchedJobs.filter((job) => {
       const scoreMatched = passesMatchScoreRange(
@@ -505,7 +511,16 @@ export default function DashboardPage() {
     return filteredMatchedJobs.slice(0, visibleMatchCount)
   }, [filteredMatchedJobs, visibleMatchCount])
 
-  const shownJobs = aiMatched ? visibleMatchedJobs : filteredJobs
+  const basicJobTotalPages = Math.max(
+    1,
+    Math.ceil(filteredJobs.length / BASIC_JOBS_PER_PAGE)
+  )
+  const safeBasicJobPage = Math.min(basicJobPage, basicJobTotalPages)
+  const pagedBasicJobs = filteredJobs.slice(
+    (safeBasicJobPage - 1) * BASIC_JOBS_PER_PAGE,
+    safeBasicJobPage * BASIC_JOBS_PER_PAGE
+  )
+  const shownJobs = aiMatched ? visibleMatchedJobs : pagedBasicJobs
 
   const matchResultStats = useMemo(
     () => getMatchResultStats(filteredMatchedJobs),
@@ -825,6 +840,41 @@ export default function DashboardPage() {
     setMatchRegionFilter('all')
     setIsScoreFilterOpen(false)
     setVisibleMatchCount(10)
+    setBasicJobPage(1)
+  }
+
+  const goToBasicJobPage = (page) => {
+    const targetPage = Number(page)
+
+    if (
+      Number.isInteger(targetPage) &&
+      targetPage >= 1 &&
+      targetPage <= basicJobTotalPages
+    ) {
+      setBasicJobPage(targetPage)
+    }
+  }
+
+  const promptBasicJobPage = () => {
+    const page = window.prompt(
+      `이동할 페이지 번호를 입력하세요. (1~${basicJobTotalPages})`
+    )
+
+    if (page === null) return
+
+    const targetPage = Number(page)
+
+    if (
+      Number.isInteger(targetPage) &&
+      targetPage >= 1 &&
+      targetPage <= basicJobTotalPages
+    ) {
+      setBasicJobPage(targetPage)
+    } else {
+      window.alert(
+        `1부터 ${basicJobTotalPages} 사이의 페이지 번호를 입력해주세요.`
+      )
+    }
   }
 
   const name = user?.name || user?.displayName || '회원'
@@ -1329,6 +1379,96 @@ export default function DashboardPage() {
                     더 이상 공고가 없습니다.
                   </p>
                 )}
+              </div>
+            )}
+
+            {!aiMatched && basicJobTotalPages > 1 && (
+              <div className="flex justify-center items-center gap-2 mt-6">
+                <button
+                  type="button"
+                  onClick={() => goToBasicJobPage(safeBasicJobPage - 1)}
+                  disabled={safeBasicJobPage === 1}
+                  className="min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  &lt;
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => goToBasicJobPage(1)}
+                  className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
+                    safeBasicJobPage === 1
+                      ? 'bg-primary text-white'
+                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  1
+                </button>
+
+                {safeBasicJobPage > 4 && (
+                  <button
+                    type="button"
+                    onClick={promptBasicJobPage}
+                    className="px-1 text-gray-400 hover:text-gray-700 cursor-pointer"
+                    title="페이지 번호 직접 입력"
+                  >
+                    ...
+                  </button>
+                )}
+
+                {Array.from({ length: basicJobTotalPages }, (_, i) => i + 1)
+                  .filter((page) => {
+                    if (page === 1 || page === basicJobTotalPages) return false
+                    return Math.abs(page - safeBasicJobPage) <= 2
+                  })
+                  .map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() => goToBasicJobPage(page)}
+                      className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
+                        safeBasicJobPage === page
+                          ? 'bg-primary text-white'
+                          : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
+
+                {safeBasicJobPage < basicJobTotalPages - 3 && (
+                  <button
+                    type="button"
+                    onClick={promptBasicJobPage}
+                    className="px-1 text-gray-400 hover:text-gray-700 cursor-pointer"
+                    title="페이지 번호 직접 입력"
+                  >
+                    ...
+                  </button>
+                )}
+
+                {basicJobTotalPages > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => goToBasicJobPage(basicJobTotalPages)}
+                    className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
+                      safeBasicJobPage === basicJobTotalPages
+                        ? 'bg-primary text-white'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    {basicJobTotalPages}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => goToBasicJobPage(safeBasicJobPage + 1)}
+                  disabled={safeBasicJobPage === basicJobTotalPages}
+                  className="min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  &gt;
+                </button>
               </div>
             )}
           </div>

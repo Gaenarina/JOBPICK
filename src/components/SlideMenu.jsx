@@ -6,7 +6,6 @@ import { useNotifications } from '@/context/NotificationContext'
 import {
   Home,
   Briefcase,
-  GraduationCap,
   FileText,
   Eye,
   Building2,
@@ -24,7 +23,6 @@ export default function SlideMenu({ isOpen, onClose }) {
   const mainItems = [
     { href: '/', icon: Home, label: '홈' },
     { href: '/dashboard', icon: Briefcase, label: '채용정보' },
-    { href: '/intern', icon: GraduationCap, label: '신입·인턴' },
   ]
 
   const myPageItems = [
