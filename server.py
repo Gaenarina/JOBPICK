@@ -12,6 +12,7 @@ from database.firebase_init import init_firebase
 from database.firebase_save_matching import (
     save_matching_result,
     get_matching_result,
+    create_matching_complete_notification,
 )
 
 from main.main_resume import process_resume_by_doc_id
@@ -699,10 +700,16 @@ def process_resume():
 
         print("[process-resume] saving Firestore matching_results")
 
+        matching_user_id = (
+            latest_resume_data.get("userId")
+            or data.get("userId")
+            or ""
+        )
+
         save_matching_result(
             db=db,
             resume_id=resume_id,
-            user_id=latest_resume_data.get("userId", ""),
+            user_id=matching_user_id,
             matches=groups.get("matches", []),
             top_fit_matches=groups.get("topFitMatches", []),
             top_accessible_matches=groups.get("topAccessibleMatches", []),
@@ -717,6 +724,19 @@ def process_resume():
         )
 
         print("[process-resume] saved Firestore matching_results")
+
+        try:
+            created_notification = create_matching_complete_notification(
+                db=db,
+                user_id=matching_user_id,
+                resume_id=resume_id,
+            )
+            if created_notification:
+                print("[process-resume] created matching complete notification")
+            else:
+                print("[process-resume] skipped matching complete notification")
+        except Exception as notif_error:
+            print("[process-resume] notification create failed:", notif_error)
 
         return jsonify({
             "message": "Matching completed with latest data",

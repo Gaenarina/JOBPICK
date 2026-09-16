@@ -1,28 +1,135 @@
 'use client'
 
-import { createContext, useContext, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import {
+  collection,
+  doc,
+  onSnapshot,
+  updateDoc,
+  writeBatch,
+} from 'firebase/firestore'
+import { db } from '@/lib/firebase'
+import { useAuth } from '@/context/AuthContext'
 
 const NotificationContext = createContext(null)
 
-const INITIAL_NOTIFICATIONS = [
-  { id: 1, category: 'resume', icon: 'file', title: '토스 서류 합격', content: 'Product Designer 포지션 서류전형에 합격하셨습니다!', time: '1시간 전', read: false },
-  { id: 2, category: 'company', icon: 'sparkles', title: '새로운 매칭 공고', content: '지민님과 95% 일치하는 당근마켓 공고가 올라왔어요', time: '3시간 전', read: false },
-  { id: 3, category: 'application', icon: 'calendar', title: '면접 일정 안내', content: '우아한형제들 면접이 2024.02.15 14:00에 예정되어 있습니다', time: '5시간 전', read: true },
-  { id: 4, category: 'resume', icon: 'bell', title: '이력서 업데이트 추천', content: '이력서를 업데이트하면 더 정확한 매칭을 받을 수 있어요', time: '1일 전', read: true },
-]
+function toMillis(createdAt) {
+  if (!createdAt) return 0
+  if (typeof createdAt.toMillis === 'function') return createdAt.toMillis()
+  if (typeof createdAt.toDate === 'function') return createdAt.toDate().getTime()
+  if (typeof createdAt.seconds === 'number') return createdAt.seconds * 1000
+  const parsed = new Date(createdAt)
+  const time = parsed.getTime()
+  return Number.isNaN(time) ? 0 : time
+}
+
+function formatNotificationTime(createdAt) {
+  const createdAtMs = toMillis(createdAt)
+  if (!createdAtMs) return ''
+
+  const diffMs = Date.now() - createdAtMs
+  const minutes = Math.floor(diffMs / 60000)
+
+  if (minutes < 1) return '방금 전'
+  if (minutes < 60) return `${minutes}분 전`
+
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}시간 전`
+
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}일 전`
+
+  return new Date(createdAtMs).toLocaleDateString('ko-KR')
+}
+
+function mapNotificationDoc(docSnap) {
+  const data = docSnap.data() || {}
+
+  return {
+    id: docSnap.id,
+    category: data.category || 'company',
+    icon: data.icon || 'sparkles',
+    title: data.title || '',
+    content: data.content || '',
+    time: formatNotificationTime(data.createdAt),
+    read: Boolean(data.read),
+    createdAtMs: toMillis(data.createdAt),
+  }
+}
 
 export function NotificationProvider({ children }) {
-  const [notifications, setNotifications] = useState(INITIAL_NOTIFICATIONS)
+  const { user } = useAuth()
+  const [notifications, setNotifications] = useState([])
+  const uid = user?.uid || null
+
+  useEffect(() => {
+    if (!uid) {
+      setNotifications([])
+      return undefined
+    }
+
+    const notificationsRef = collection(db, 'users', uid, 'notifications')
+
+    const unsubscribe = onSnapshot(
+      notificationsRef,
+      (snapshot) => {
+        const next = snapshot.docs
+          .map(mapNotificationDoc)
+          .sort((a, b) => (b.createdAtMs || 0) - (a.createdAtMs || 0))
+          .map(({ createdAtMs, ...notification }) => notification)
+
+        setNotifications(next)
+      },
+      (error) => {
+        console.error('알림 구독 실패:', error)
+        setNotifications([])
+      }
+    )
+
+    return () => unsubscribe()
+  }, [uid])
 
   const unreadCount = notifications.filter((n) => !n.read).length
 
-  const markAsRead = (id) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)))
-  }
+  const markAsRead = useCallback(
+    async (id) => {
+      if (!uid || !id) return
 
-  const markAllAsRead = () => {
+      setNotifications((prev) =>
+        prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+      )
+
+      try {
+        await updateDoc(doc(db, 'users', uid, 'notifications', String(id)), {
+          read: true,
+        })
+      } catch (error) {
+        console.error('알림 읽음 처리 실패:', error)
+      }
+    },
+    [uid]
+  )
+
+  const markAllAsRead = useCallback(async () => {
+    if (!uid) return
+
+    const unread = notifications.filter((n) => !n.read)
+    if (!unread.length) return
+
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))
-  }
+
+    try {
+      const batch = writeBatch(db)
+      unread.forEach((n) => {
+        batch.update(doc(db, 'users', uid, 'notifications', String(n.id)), {
+          read: true,
+        })
+      })
+      await batch.commit()
+    } catch (error) {
+      console.error('알림 전체 읽음 처리 실패:', error)
+    }
+  }, [notifications, uid])
 
   const getBadgeByCategory = () => {
     const counts = { resume: 0, application: 0, company: 0 }
