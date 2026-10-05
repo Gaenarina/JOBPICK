@@ -479,25 +479,30 @@ def remove_stopwords(text):
     return result.strip()
 
 
-def contains_keyword(text, keyword):
-    normalized_text = normalize_text(text)
+def contains_keyword(normalized_text, keyword):
     normalized_keyword = normalize_text(keyword)
 
     if not normalized_keyword:
         return False
 
     if normalized_keyword == "c":
-        return bool(re.search(r"(^|[^a-zA-Z0-9가-힣])c([^a-zA-Z0-9가-힣]|$)", normalized_text))
+        return bool(
+            re.search(
+                r"(^|[^a-zA-Z0-9가-힣])c([^a-zA-Z0-9가-힣]|$)",
+                normalized_text
+            )
+        )
 
     return normalized_keyword in normalized_text
 
 
 def extract_from_alias_dict(text, alias_dict):
     found = set()
+    normalized_text = normalize_text(text)
 
     for standard_word, aliases in alias_dict.items():
         for alias in aliases:
-            if contains_keyword(text, alias):
+            if contains_keyword(normalized_text, alias):
                 found.add(standard_word)
                 break
 
@@ -506,10 +511,11 @@ def extract_from_alias_dict(text, alias_dict):
 
 def extract_job_categories(text):
     found = set()
+    normalized_text = normalize_text(text)
 
     for category, keywords in JOB_CATEGORY_KEYWORDS.items():
         for keyword in keywords:
-            if contains_keyword(text, keyword):
+            if contains_keyword(normalized_text, keyword):
                 found.add(category)
                 break
 
@@ -518,15 +524,15 @@ def extract_job_categories(text):
 
 def extract_task_keywords(text):
     found = set()
+    normalized_text = normalize_text(text)
 
     for task, keywords in TASK_KEYWORDS.items():
         for keyword in keywords:
-            if contains_keyword(text, keyword):
+            if contains_keyword(normalized_text, keyword):
                 found.add(task)
                 break
 
     return sorted(found)
-
 
 def extract_dictionary_features(text):
     cleaned_text = remove_stopwords(text)
@@ -542,8 +548,7 @@ def extract_dictionary_features(text):
 
 
 def standardize_text(text):
-    cleaned_text = remove_stopwords(text)
-    features = extract_dictionary_features(cleaned_text)
+    features = extract_dictionary_features(text)
 
     tokens = []
 

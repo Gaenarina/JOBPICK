@@ -17,7 +17,7 @@ from matching.matchtest import (
     get_resume_embedding_text,
     get_job_embedding_text,
     calculate_full_embedding_similarity,
-    clear_embedding_cache,
+    #clear_embedding_cache,
     preload_score_embeddings,
     prepare_job_score_context,
     preload_prepared_score_embeddings,
@@ -2189,7 +2189,7 @@ def process_matching_groups_by_resume_id(
     # ------------------------------------------------------------
     stage_start = time.perf_counter()
 
-    clear_embedding_cache()
+    #clear_embedding_cache()
     reset_full_score_perf_stats()
 
     db, _ = init_firebase(
