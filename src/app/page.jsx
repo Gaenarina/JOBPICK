@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
+import AiMatchingTipModal from '@/components/AiMatchingTipModal'
 import {
   addResumes,
   getBookmarks,
@@ -234,7 +235,6 @@ function getMatchResultGroup(job) {
     return 'infoLacking'
   }
 
-  // AI 적합을 지원 가능보다 먼저 확인
   if (text.includes('AI') && text.includes('적합')) {
     return 'aiSuitable'
   }
@@ -302,9 +302,21 @@ function extractMatchMetaFromResponse(data) {
   const groups = root?.groups || root?.matchingResults || root || {}
 
   return {
-    matchPreferences: groups.matchPreferences || root.matchPreferences || data?.matchPreferences || {},
-    totalJobCount: groups.totalJobCount ?? root.totalJobCount ?? data?.totalJobCount ?? null,
-    filteredJobCount: groups.filteredJobCount ?? root.filteredJobCount ?? data?.filteredJobCount ?? null,
+    matchPreferences:
+      groups.matchPreferences ||
+      root.matchPreferences ||
+      data?.matchPreferences ||
+      {},
+    totalJobCount:
+      groups.totalJobCount ??
+      root.totalJobCount ??
+      data?.totalJobCount ??
+      null,
+    filteredJobCount:
+      groups.filteredJobCount ??
+      root.filteredJobCount ??
+      data?.filteredJobCount ??
+      null,
     aiSummary: groups.aiSummary || root.aiSummary || data?.aiSummary || null,
   }
 }
@@ -323,10 +335,7 @@ function formatRolePreferenceList(items, fallback = '전체') {
 
   return items
     .map((value) => {
-      const option = ROLE_OPTIONS.find(
-        (item) => item.value === value
-      )
-
+      const option = ROLE_OPTIONS.find((item) => item.value === value)
       return option?.label || value
     })
     .join(', ')
@@ -362,7 +371,9 @@ function buildJobExplanation(job) {
 
   if (summary?.reason || summary?.statusReason || summary?.status_reason) {
     return {
-      reason: summary.reason || '이력서와 공고의 조건, 직무 내용, 자격요건을 종합해 계산',
+      reason:
+        summary.reason ||
+        '이력서와 공고의 조건, 직무 내용, 자격요건을 종합해 계산',
       statusReason:
         summary.statusReason ||
         summary.status_reason ||
@@ -386,16 +397,31 @@ function buildJobExplanation(job) {
     reasons.push(`기술 조건 ${skillTotal}개 중 ${skillMatches}개 일치`)
   }
 
-  if (experience.conditionUsed !== false && toNumber(experience.minExp) > 0) {
-    reasons.push(`요구 경력 ${experience.minExp}년 대비 이력서 경력 ${experience.resumeExp ?? 0}년`)
+  if (
+    experience.conditionUsed !== false &&
+    toNumber(experience.minExp) > 0
+  ) {
+    reasons.push(
+      `요구 경력 ${experience.minExp}년 대비 이력서 경력 ${
+        experience.resumeExp ?? 0
+      }년`
+    )
   }
 
   if (fullSimilarity !== undefined) {
-    reasons.push(`직무 내용 유사도 ${getExplanationSemanticLevel(fullSimilarity)} 평가`)
+    reasons.push(
+      `직무 내용 유사도 ${getExplanationSemanticLevel(fullSimilarity)} 평가`
+    )
   }
 
   if (ncs.used || job?.ncsTotal > 0) {
-    reasons.push(`${ncs.matchedUnitName || ncs.matched_unit_name || 'NCS 직무역량'} 기준 보완 평가`)
+    reasons.push(
+      `${
+        ncs.matchedUnitName ||
+        ncs.matched_unit_name ||
+        'NCS 직무역량'
+      } 기준 보완 평가`
+    )
   }
 
   const reason =
@@ -405,7 +431,9 @@ function buildJobExplanation(job) {
 
   let statusReason = `${getPrimaryBadge(job)} 판정은 적합도 ${Math.round(
     toNumber(job?.fitScore ?? job?.finalScore ?? job?.matchRate)
-  )}점, 지원 가능성 ${Math.round(toNumber(job?.accessibilityScore))}점, 판단 근거 충분도 ${Math.round(
+  )}점, 지원 가능성 ${Math.round(
+    toNumber(job?.accessibilityScore)
+  )}점, 판단 근거 충분도 ${Math.round(
     toNumber(job?.confidenceScore)
   )}점을 함께 반영했습니다.`
 
@@ -427,55 +455,91 @@ function buildAiRecommendationSummary(jobs, meta, selectedResume) {
   const preferences = hasMatchPreferences(meta?.matchPreferences)
     ? meta.matchPreferences
     : selectedResume?.matchPreferences || {}
+
   const desiredRoles = normalizePreferenceList(preferences.desiredRoles)
-  const desiredLocations = normalizePreferenceList(preferences.desiredLocations)
+  const desiredLocations = normalizePreferenceList(
+    preferences.desiredLocations
+  )
   const employmentTypes = normalizePreferenceList(preferences.employmentTypes)
-  const hasPreferences = desiredRoles.length > 0 || desiredLocations.length > 0 || employmentTypes.length > 0
-  const fitScores = matched.map((job) => toNumber(job.fitScore ?? job.finalScore ?? job.matchRate))
-  const accessibilityScores = matched.map((job) => toNumber(job.accessibilityScore))
-  const confidenceScores = matched.map((job) => toNumber(job.confidenceScore))
+  const hasPreferences =
+    desiredRoles.length > 0 ||
+    desiredLocations.length > 0 ||
+    employmentTypes.length > 0
+
+  const fitScores = matched.map((job) =>
+    toNumber(job.fitScore ?? job.finalScore ?? job.matchRate)
+  )
+  const accessibilityScores = matched.map((job) =>
+    toNumber(job.accessibilityScore)
+  )
+  const confidenceScores = matched.map((job) =>
+    toNumber(job.confidenceScore)
+  )
+
   const average = (items) =>
-    items.length ? Math.round(items.reduce((sum, value) => sum + value, 0) / items.length) : 0
+    items.length
+      ? Math.round(items.reduce((sum, value) => sum + value, 0) / items.length)
+      : 0
+
   const strongSignals = []
   const checkPoints = []
 
   const skillMatchedCount = matched.filter((job) => {
     const skills = job?.matchDetail?.skills || {}
-    return toNumber(skills.totalCount) > 0 && toNumber(skills.matchCount) > 0
+    return (
+      toNumber(skills.totalCount) > 0 &&
+      toNumber(skills.matchCount) > 0
+    )
   }).length
 
   const semanticHighCount = matched.filter((job) => {
     const semantic = job?.matchDetail?.semantic || {}
-    return toNumber(semantic.fullSimilarity ?? semantic.full_sim) >= 0.4
+    return (
+      toNumber(semantic.fullSimilarity ?? semantic.full_sim) >= 0.4
+    )
   }).length
 
   const unmetConditionCount = matched.reduce(
-    (count, job) => count + (job?.unmetConditions || job?.unmet_conditions || []).length,
+    (count, job) =>
+      count +
+      (job?.unmetConditions || job?.unmet_conditions || []).length,
     0
   )
 
   if (hasPreferences) {
-    strongSignals.push('이력서 등록 시 선택한 희망 조건에 맞는 공고를 먼저 선별했습니다.')
+    strongSignals.push(
+      '이력서 등록 시 선택한 희망 조건에 맞는 공고를 먼저 선별했습니다.'
+    )
   }
 
   if (skillMatchedCount > 0) {
-    strongSignals.push(`요구 기술과 보유 기술이 겹치는 공고 ${skillMatchedCount}개`)
+    strongSignals.push(
+      `요구 기술과 보유 기술이 겹치는 공고 ${skillMatchedCount}개`
+    )
   }
 
   if (semanticHighCount > 0) {
-    strongSignals.push(`직무 설명과 이력서 경험의 의미 유사도가 보통 이상인 공고 ${semanticHighCount}개`)
+    strongSignals.push(
+      `직무 설명과 이력서 경험의 의미 유사도가 보통 이상인 공고 ${semanticHighCount}개`
+    )
   }
 
   if (unmetConditionCount > 0) {
-    checkPoints.push(`미충족 조건 ${unmetConditionCount}건은 지원 전 확인 필요`)
+    checkPoints.push(
+      `미충족 조건 ${unmetConditionCount}건은 지원 전 확인 필요`
+    )
   }
 
   if (average(confidenceScores) < 50) {
-    checkPoints.push('일부 공고는 판단 근거가 부족해 원본 공고 상세 확인이 필요')
+    checkPoints.push(
+      '일부 공고는 판단 근거가 부족해 원본 공고 상세 확인이 필요'
+    )
   }
 
   if (average(accessibilityScores) < 60) {
-    checkPoints.push('지원 가능성 점수가 낮은 공고는 경력, 자격요건을 먼저 점검')
+    checkPoints.push(
+      '지원 가능성 점수가 낮은 공고는 경력, 자격요건을 먼저 점검'
+    )
   }
 
   return {
@@ -486,10 +550,16 @@ function buildAiRecommendationSummary(jobs, meta, selectedResume) {
       fitScores
     )}점입니다.`,
     preferenceText: hasPreferences
-      ? `희망 직무: ${formatRolePreferenceList(desiredRoles, '전체')} · 희망 지역: ${formatPreferenceList(
+      ? `희망 직무: ${formatRolePreferenceList(
+          desiredRoles,
+          '전체'
+        )} · 희망 지역: ${formatPreferenceList(
           desiredLocations,
           '전체'
-        )} · 채용 유형: ${formatPreferenceList(employmentTypes, '전체')}`
+        )} · 채용 유형: ${formatPreferenceList(
+          employmentTypes,
+          '전체'
+        )}`
       : '별도 희망 조건 없이 전체 공고를 기준으로 분석했습니다.',
     filterText:
       meta?.totalJobCount !== null && meta?.filteredJobCount !== null
@@ -498,45 +568,33 @@ function buildAiRecommendationSummary(jobs, meta, selectedResume) {
     strongSignals:
       strongSignals.length > 0
         ? strongSignals.slice(0, 3)
-        : ['이력서와 공고의 조건, 직무 내용, 자격요건을 종합해 추천했습니다.'],
+        : [
+            '이력서와 공고의 조건, 직무 내용, 자격요건을 종합해 추천했습니다.',
+          ],
     checkPoints:
       checkPoints.length > 0
         ? checkPoints.slice(0, 3)
-        : ['큰 미충족 조건은 발견되지 않았지만, 지원 전 원본 공고의 세부 조건을 확인해보세요.'],
+        : [
+            '큰 미충족 조건은 발견되지 않았지만, 지원 전 원본 공고의 세부 조건을 확인해보세요.',
+          ],
   }
 }
 
 function getRecommendationDistribution(jobs) {
   return (jobs || []).reduce(
     (counts, job) => {
-      const group =
-        getMatchResultGroup(
-          job
-        )
+      const group = getMatchResultGroup(job)
 
-      if (
-        group ===
-        'aiSuitable'
-      ) {
+      if (group === 'aiSuitable') {
         counts.aiFit += 1
-      } else if (
-        group ===
-        'accessible'
-      ) {
+      } else if (group === 'accessible') {
         counts.accessible += 1
-      } else if (
-        group ===
-        'infoLacking'
-      ) {
+      } else if (group === 'infoLacking') {
         counts.insufficientInfo += 1
-      } else if (
-        group ===
-        'normal'
-      ) {
+      } else if (group === 'normal') {
         counts.needsReview += 1
       }
 
-      // unsuitable은 추천 공고 수에서 제외
       return counts
     },
     {
@@ -551,37 +609,69 @@ function getRecommendationDistribution(jobs) {
 function buildOverallRecommendationSummary(jobs, meta, selectedResume) {
   const fallback = buildAiRecommendationSummary(jobs, meta, selectedResume)
   const matched = jobs || []
+
   const preferences = hasMatchPreferences(meta?.matchPreferences)
     ? meta.matchPreferences
     : selectedResume?.matchPreferences || {}
+
   const desiredRoles = normalizePreferenceList(preferences.desiredRoles)
-  const desiredLocations = normalizePreferenceList(preferences.desiredLocations)
+  const desiredLocations = normalizePreferenceList(
+    preferences.desiredLocations
+  )
   const employmentTypes = normalizePreferenceList(preferences.employmentTypes)
-  const hasPreferences = desiredRoles.length > 0 || desiredLocations.length > 0 || employmentTypes.length > 0
+
+  const hasPreferences =
+    desiredRoles.length > 0 ||
+    desiredLocations.length > 0 ||
+    employmentTypes.length > 0
+
   const totalJobCount = toNumber(meta?.totalJobCount, matched.length)
-  const filteredJobCount = toNumber(meta?.filteredJobCount, matched.length)
+  const filteredJobCount = toNumber(
+    meta?.filteredJobCount,
+    matched.length
+  )
+
   const distribution = getRecommendationDistribution(matched)
   const geminiSummary = meta?.aiSummary || null
+
   const recommendedTypes = [
-    distribution.aiFit > 0 ? `AI 적합 공고 ${distribution.aiFit}개` : '',
-    distribution.accessible > 0 ? `지원 가능 공고 ${distribution.accessible}개` : '',
-    distribution.insufficientInfo > 0 ? `정보 부족 공고 ${distribution.insufficientInfo}개` : '',
-    distribution.needsReview > 0 ? `검토 필요 공고 ${distribution.needsReview}개` : '',
+    distribution.aiFit > 0
+      ? `AI 적합 공고 ${distribution.aiFit}개`
+      : '',
+    distribution.accessible > 0
+      ? `지원 가능 공고 ${distribution.accessible}개`
+      : '',
+    distribution.insufficientInfo > 0
+      ? `정보 부족 공고 ${distribution.insufficientInfo}개`
+      : '',
+    distribution.needsReview > 0
+      ? `검토 필요 공고 ${distribution.needsReview}개`
+      : '',
   ].filter(Boolean)
+
   const distributionText =
     recommendedTypes.length > 0
-      ? `전체 공고를 분석한 결과, 최종적으로 ${recommendedTypes.join(', ')}가 추천되었습니다.`
+      ? `전체 공고를 분석한 결과, 최종적으로 ${recommendedTypes.join(
+          ', '
+        )}가 추천되었습니다.`
       : '전체 공고를 분석했지만 최종 추천 공고는 아직 없습니다.'
+
   const summaryCaption =
     matched.length === 1
       ? 'Gemini로 추천 공고의 추천 이유와 확인사항을 요약해보세요!'
       : 'Gemini로 추천 공고의 주요 근거와 확인사항을 요약해보세요!'
 
   const preferenceText = hasPreferences
-    ? `희망 직무: ${formatRolePreferenceList(desiredRoles, '전체')} · 희망 지역: ${formatPreferenceList(
+    ? `희망 직무: ${formatRolePreferenceList(
+        desiredRoles,
+        '전체'
+      )} · 희망 지역: ${formatPreferenceList(
         desiredLocations,
         '전체'
-      )} · 채용 유형: ${formatPreferenceList(employmentTypes, '전체')}`
+      )} · 채용 유형: ${formatPreferenceList(
+        employmentTypes,
+        '전체'
+      )}`
     : `별도의 희망 조건이 선택되지 않아 전체 ${totalJobCount}개 공고를 대상으로 분석했습니다.`
 
   const filterText = hasPreferences
@@ -605,11 +695,13 @@ function buildOverallRecommendationSummary(jobs, meta, selectedResume) {
     filterText,
     summaryCaption,
     strongSignals:
-      Array.isArray(geminiSummary.strongSignals) && geminiSummary.strongSignals.length > 0
+      Array.isArray(geminiSummary.strongSignals) &&
+      geminiSummary.strongSignals.length > 0
         ? geminiSummary.strongSignals.slice(0, 3)
         : fallback.strongSignals,
     checkPoints:
-      Array.isArray(geminiSummary.checkPoints) && geminiSummary.checkPoints.length > 0
+      Array.isArray(geminiSummary.checkPoints) &&
+      geminiSummary.checkPoints.length > 0
         ? geminiSummary.checkPoints.slice(0, 3)
         : fallback.checkPoints,
     nextAction: geminiSummary.nextAction || '',
@@ -617,8 +709,17 @@ function buildOverallRecommendationSummary(jobs, meta, selectedResume) {
   }
 }
 
-function buildAiRecommendationSummaryWithGemini(jobs, meta, selectedResume) {
-  const fallback = buildAiRecommendationSummary(jobs, meta, selectedResume)
+function buildAiRecommendationSummaryWithGemini(
+  jobs,
+  meta,
+  selectedResume
+) {
+  const fallback = buildAiRecommendationSummary(
+    jobs,
+    meta,
+    selectedResume
+  )
+
   const geminiSummary = meta?.aiSummary || null
 
   if (!geminiSummary?.description) {
@@ -629,11 +730,13 @@ function buildAiRecommendationSummaryWithGemini(jobs, meta, selectedResume) {
     ...fallback,
     description: geminiSummary.description,
     strongSignals:
-      Array.isArray(geminiSummary.strongSignals) && geminiSummary.strongSignals.length > 0
+      Array.isArray(geminiSummary.strongSignals) &&
+      geminiSummary.strongSignals.length > 0
         ? geminiSummary.strongSignals.slice(0, 3)
         : fallback.strongSignals,
     checkPoints:
-      Array.isArray(geminiSummary.checkPoints) && geminiSummary.checkPoints.length > 0
+      Array.isArray(geminiSummary.checkPoints) &&
+      geminiSummary.checkPoints.length > 0
         ? geminiSummary.checkPoints.slice(0, 3)
         : fallback.checkPoints,
     nextAction: geminiSummary.nextAction || '',
@@ -668,13 +771,28 @@ function getMatchBadges(job) {
 
 function getBadgeClassName(badge) {
   const text = String(badge || '')
+
   const isPositive =
     text.includes('AI') ||
     (text.includes('적합') && !text.includes('부적합')) ||
     (text.includes('?곹빀') && !text.includes('遺?곹빀'))
-  const isNegative = text.includes('부적합') || text.includes('미충족') || text.includes('遺?곹빀')
-  const isAccessible = text.includes('지원') || text.includes('가능') || text.includes('吏??') || text.includes('媛??')
-  const isInfoPoor = text.includes('정보') || text.includes('부족') || text.includes('?뺣낫') || text.includes('遺議?')
+
+  const isNegative =
+    text.includes('부적합') ||
+    text.includes('미충족') ||
+    text.includes('遺?곹빀')
+
+  const isAccessible =
+    text.includes('지원') ||
+    text.includes('가능') ||
+    text.includes('吏??') ||
+    text.includes('媛??')
+
+  const isInfoPoor =
+    text.includes('정보') ||
+    text.includes('부족') ||
+    text.includes('?뺣낫') ||
+    text.includes('遺議?')
 
   if (isPositive && !isNegative) {
     return 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
@@ -731,7 +849,12 @@ function getSummaryMessage(job, ncs) {
     return '이 공고는 일부 필수 조건이 이력서와 맞지 않아 추천 우선순위가 낮습니다.'
   }
 
-  if (text.includes('정보') || text.includes('부족') || text.includes('?뺣낫') || text.includes('遺議?')) {
+  if (
+    text.includes('정보') ||
+    text.includes('부족') ||
+    text.includes('?뺣낫') ||
+    text.includes('遺議?')
+  ) {
     return '공고에 세부 조건이 부족하여 제한된 정보로 보완 평가했습니다.'
   }
 
@@ -739,11 +862,20 @@ function getSummaryMessage(job, ncs) {
     return '공고에 세부 조건이 부족하여 NCS 직무 기준으로 보완 평가했습니다.'
   }
 
-  if (text.includes('AI') || text.includes('적합') || text.includes('?곹빀')) {
+  if (
+    text.includes('AI') ||
+    text.includes('적합') ||
+    text.includes('?곹빀')
+  ) {
     return '이력서와 공고의 조건 및 직무 내용이 전반적으로 잘 맞습니다.'
   }
 
-  if (text.includes('지원') || text.includes('가능') || text.includes('吏??') || text.includes('媛??')) {
+  if (
+    text.includes('지원') ||
+    text.includes('가능') ||
+    text.includes('吏??') ||
+    text.includes('媛??')
+  ) {
     return '기본 자격 조건 통과 가능성이 비교적 높지만 세부 조건은 추가 확인이 필요합니다.'
   }
 
@@ -752,7 +884,9 @@ function getSummaryMessage(job, ncs) {
 
 function formatRoundedScore(value) {
   const numberValue = Number(value ?? 0)
-  return Number.isFinite(numberValue) ? `${Math.round(numberValue)}점` : '0점'
+  return Number.isFinite(numberValue)
+    ? `${Math.round(numberValue)}점`
+    : '0점'
 }
 
 function formatPercent(value) {
@@ -776,7 +910,10 @@ function formatRuleDetail(score, maxScore, matched, total) {
     return '요구 조건 없음, 평가 제외'
   }
 
-  return `${formatScore(score)}/${formatScore(maxScore, 1)} (${describeConditionMatch(matched, total)})`
+  return `${formatScore(score)}/${formatScore(
+    maxScore,
+    1
+  )} (${describeConditionMatch(matched, total)})`
 }
 
 function getSemanticLevel(similarity) {
@@ -795,17 +932,26 @@ function buildReasonList(job, matchDetail, semantic, ncs) {
   const skillTotal = Number(skills.totalCount ?? 0)
   const skillMatches = Number(skills.matchCount ?? 0)
   const qualTotal = Number(qualifications.totalCount ?? 0)
-  const qualMatches =
-    Number(qualifications.matchedQuals?.length ?? qualifications.matchCount ?? 0)
+  const qualMatches = Number(
+    qualifications.matchedQuals?.length ??
+      qualifications.matchCount ??
+      0
+  )
 
   if (skillTotal > 0 && skillMatches === 0) {
-    reasons.push('필수 기술 조건과 일치하는 기술 스택이 확인되지 않았습니다.')
+    reasons.push(
+      '필수 기술 조건과 일치하는 기술 스택이 확인되지 않았습니다.'
+    )
   } else if (skillTotal > 0) {
-    reasons.push(`필수 기술 조건 ${skillTotal}개 중 ${skillMatches}개가 일치했습니다.`)
+    reasons.push(
+      `필수 기술 조건 ${skillTotal}개 중 ${skillMatches}개가 일치했습니다.`
+    )
   }
 
   if (qualTotal > 0) {
-    reasons.push(`필수 자격요건 ${qualTotal}개 중 ${qualMatches}개가 일치했습니다.`)
+    reasons.push(
+      `필수 자격요건 ${qualTotal}개 중 ${qualMatches}개가 일치했습니다.`
+    )
   }
 
   if ((job.ruleEvidenceCount ?? 0) < 2) {
@@ -814,6 +960,7 @@ function buildReasonList(job, matchDetail, semantic, ncs) {
 
   if (isNcsUsed(job, ncs)) {
     const unit = ncs.matchedUnitName || ncs.matched_unit_name || ''
+
     reasons.push(
       unit
         ? `이력서 내용은 ${unit} 능력단위와 일부 유사합니다.`
@@ -822,7 +969,10 @@ function buildReasonList(job, matchDetail, semantic, ncs) {
   }
 
   const semanticLevel = getSemanticLevel(semantic.fullSimilarity)
-  reasons.push(`이력서와 공고 전체 내용의 의미 유사도는 ${semanticLevel}입니다.`)
+
+  reasons.push(
+    `이력서와 공고 전체 내용의 의미 유사도는 ${semanticLevel}입니다.`
+  )
 
   return reasons.slice(0, 3)
 }
@@ -835,10 +985,18 @@ function ScoreDetailModal({ job, onClose }) {
   const ncs = matchDetail.ncs || job.ncsDetails || {}
   const badges = getMatchBadges(job)
   const primaryBadge = getPrimaryBadge(job)
-  const finalScore = job.fitScore ?? job.finalScore ?? job.matchRate ?? 0
+
+  const finalScore =
+    job.fitScore ?? job.finalScore ?? job.matchRate ?? 0
+
   const ruleTotalMax = job.ruleTotalMax ?? 25
   const semanticTotalMax = job.semanticTotalMax ?? 50
-  const ncsTotalMax = job.ncsTotalMax ?? ncs.maxScore ?? ncs.ncs_score_max ?? 25
+  const ncsTotalMax =
+    job.ncsTotalMax ??
+    ncs.maxScore ??
+    ncs.ncs_score_max ??
+    25
+
   const ncsApplied = isNcsUsed(job, ncs)
   const readableMode = getReadableScoringMode(job, ncs)
   const reasons = buildReasonList(job, matchDetail, semantic, ncs)
@@ -849,10 +1007,19 @@ function ScoreDetailModal({ job, onClose }) {
       <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-5 md:p-6 shadow-xl">
         <div className="flex items-start justify-between gap-4 mb-5">
           <div className="min-w-0">
-            <p className="text-sm text-gray-500 truncate">{job.company}</p>
-            <h3 className="text-xl font-bold text-gray-900 mt-1">AI 매칭 상세 분석</h3>
-            <p className="text-sm text-gray-500 mt-1 truncate">{job.title}</p>
+            <p className="text-sm text-gray-500 truncate">
+              {job.company}
+            </p>
+
+            <h3 className="text-xl font-bold text-gray-900 mt-1">
+              AI 매칭 상세 분석
+            </h3>
+
+            <p className="text-sm text-gray-500 mt-1 truncate">
+              {job.title}
+            </p>
           </div>
+
           <button
             type="button"
             onClick={onClose}
@@ -865,75 +1032,128 @@ function ScoreDetailModal({ job, onClose }) {
 
         <section className="rounded-xl border border-blue-100 bg-blue-50/70 p-4 mb-4">
           <div className="flex flex-wrap items-center gap-2 mb-3">
-            <span className={`px-3 py-1 rounded border text-sm font-semibold ${getBadgeClassName(primaryBadge)}`}>
+            <span
+              className={`px-3 py-1 rounded border text-sm font-semibold ${getBadgeClassName(
+                primaryBadge
+              )}`}
+            >
               {primaryBadge}
             </span>
-            <span className="text-sm text-gray-500">판단 방식: {readableMode}</span>
+
+            <span className="text-sm text-gray-500">
+              판단 방식: {readableMode}
+            </span>
           </div>
+
           <p className="text-sm md:text-base text-gray-700 mb-4">
             {getSummaryMessage(job, ncs)}
           </p>
+
           <div className="grid grid-cols-3 gap-2">
             <div className="rounded-lg bg-white/80 p-3">
               <p className="text-xs text-gray-500">적합도</p>
-              <p className="text-lg font-bold text-gray-900">{formatRoundedScore(finalScore)}</p>
+              <p className="text-lg font-bold text-gray-900">
+                {formatRoundedScore(finalScore)}
+              </p>
             </div>
+
             <div className="rounded-lg bg-white/80 p-3">
-              <p className="text-xs text-gray-500">자격 통과 가능성</p>
-              <p className="text-lg font-bold text-gray-900">{formatRoundedScore(job.accessibilityScore)}</p>
+              <p className="text-xs text-gray-500">
+                자격 통과 가능성
+              </p>
+              <p className="text-lg font-bold text-gray-900">
+                {formatRoundedScore(job.accessibilityScore)}
+              </p>
             </div>
+
             <div className="rounded-lg bg-white/80 p-3">
-              <p className="text-xs text-gray-500">판단 근거 충분도</p>
-              <p className="text-lg font-bold text-gray-900">{formatRoundedScore(job.confidenceScore)}</p>
+              <p className="text-xs text-gray-500">
+                판단 근거 충분도
+              </p>
+              <p className="text-lg font-bold text-gray-900">
+                {formatRoundedScore(job.confidenceScore)}
+              </p>
             </div>
           </div>
         </section>
 
         <div className="space-y-4 text-sm text-gray-700">
           <section className="rounded-xl border border-gray-200 p-4">
-            <h4 className="font-semibold text-gray-900 mb-3">점수 구성</h4>
+            <h4 className="font-semibold text-gray-900 mb-3">
+              점수 구성
+            </h4>
+
             <div className="grid gap-3 md:grid-cols-3">
               <div className="rounded-lg bg-slate-50 p-3">
-                <p className="font-medium text-gray-900">룰 기반 점수</p>
+                <p className="font-medium text-gray-900">
+                  룰 기반 점수
+                </p>
+
                 {ruleTotalMax > 0 ? (
                   <p className="text-xl font-bold text-primary mt-2">
-                    {formatScore(job.ruleTotal)} / {formatScore(ruleTotalMax, 0)}
+                    {formatScore(job.ruleTotal)} /{' '}
+                    {formatScore(ruleTotalMax, 0)}
                   </p>
                 ) : (
-                  <p className="text-xl font-bold text-gray-500 mt-2">미적용</p>
+                  <p className="text-xl font-bold text-gray-500 mt-2">
+                    미적용
+                  </p>
                 )}
+
                 <p className="text-xs text-gray-500 mt-2">
                   {ruleTotalMax > 0
                     ? '공고에 명시된 조건과 이력서 정보를 비교했습니다.'
                     : '공고에 명확한 조건이 없어 룰 기반 평가를 제외했습니다.'}
                 </p>
               </div>
+
               <div className="rounded-lg bg-slate-50 p-3">
-                <p className="font-medium text-gray-900">의미 유사도 점수</p>
-                <p className="text-xl font-bold text-primary mt-2">
-                  {formatScore(job.semanticTotal)} / {formatScore(semanticTotalMax, 0)}
+                <p className="font-medium text-gray-900">
+                  의미 유사도 점수
                 </p>
+
+                <p className="text-xl font-bold text-primary mt-2">
+                  {formatScore(job.semanticTotal)} /{' '}
+                  {formatScore(semanticTotalMax, 0)}
+                </p>
+
                 <p className="text-xs text-gray-500 mt-2">
-                  이력서 내용과 공고의 업무·자격요건 간 의미적 유사도를 계산했습니다.
+                  이력서 내용과 공고의 업무·자격요건 간 의미적
+                  유사도를 계산했습니다.
                 </p>
               </div>
+
               <div className="rounded-lg bg-slate-50 p-3">
-                <p className="font-medium text-gray-900">NCS 직무역량 점수</p>
+                <p className="font-medium text-gray-900">
+                  NCS 직무역량 점수
+                </p>
+
                 {ncsApplied ? (
                   <>
                     <p className="text-xl font-bold text-primary mt-2">
-                      {formatScore(job.ncsTotal ?? ncs.score)} / {formatScore(ncsTotalMax, 0)}
+                      {formatScore(job.ncsTotal ?? ncs.score)} /{' '}
+                      {formatScore(ncsTotalMax, 0)}
                     </p>
+
                     <p className="text-xs text-gray-500 mt-2">
-                      {(ncs.matchedDutyName || ncs.matched_duty_name || 'NCS 직무')}{' '}
-                      {(ncs.matchedUnitName || ncs.matched_unit_name || '능력단위')}와 가장 유사하게 판단되었습니다.
+                      {ncs.matchedDutyName ||
+                        ncs.matched_duty_name ||
+                        'NCS 직무'}{' '}
+                      {ncs.matchedUnitName ||
+                        ncs.matched_unit_name ||
+                        '능력단위'}
+                      와 가장 유사하게 판단되었습니다.
                     </p>
                   </>
                 ) : (
                   <>
-                    <p className="text-xl font-bold text-gray-500 mt-2">미적용</p>
+                    <p className="text-xl font-bold text-gray-500 mt-2">
+                      미적용
+                    </p>
+
                     <p className="text-xs text-gray-500 mt-2">
-                      {ncs.reason || '공고에 명시된 조건이 충분하여 NCS 보완 점수를 적용하지 않았습니다.'}
+                      {ncs.reason ||
+                        '공고에 명시된 조건이 충분하여 NCS 보완 점수를 적용하지 않았습니다.'}
                     </p>
                   </>
                 )}
@@ -942,7 +1162,10 @@ function ScoreDetailModal({ job, onClose }) {
           </section>
 
           <section className="rounded-xl border border-gray-200 p-4">
-            <h4 className="font-semibold text-gray-900 mb-2">주요 판단 근거</h4>
+            <h4 className="font-semibold text-gray-900 mb-2">
+              주요 판단 근거
+            </h4>
+
             <ul className="list-disc pl-5 space-y-1">
               {reasons.map((reason, index) => (
                 <li key={index}>{reason}</li>
@@ -958,6 +1181,7 @@ function ScoreDetailModal({ job, onClose }) {
             }`}
           >
             <h4 className="font-semibold mb-2">미충족 조건</h4>
+
             {unmetConditions.length ? (
               <ul className="list-disc pl-5 space-y-1">
                 {unmetConditions.map((condition, index) => (
@@ -973,33 +1197,60 @@ function ScoreDetailModal({ job, onClose }) {
             <summary className="cursor-pointer font-semibold text-gray-900">
               상세 계산 보기
             </summary>
+
             <div className="mt-4 space-y-3 text-gray-700">
               <div>
-                <h5 className="font-medium text-gray-900 mb-1">룰 기반 세부 점수</h5>
+                <h5 className="font-medium text-gray-900 mb-1">
+                  룰 기반 세부 점수
+                </h5>
+
                 <p>
-                  - 기술 스택: {formatRuleDetail(
+                  - 기술 스택:{' '}
+                  {formatRuleDetail(
                     matchDetail.skills?.score,
                     matchDetail.skills?.maxScore ?? 10,
                     matchDetail.skills?.matchCount,
                     matchDetail.skills?.totalCount
                   )}
                 </p>
+
                 <p>
-                  - 학력: {matchDetail.education?.used === false ? '학력 조건 없음, 평가 제외' : `${formatScore(matchDetail.education?.score)}/${formatScore(matchDetail.education?.maxScore ?? 2.5, 1)}`}
+                  - 학력:{' '}
+                  {matchDetail.education?.used === false
+                    ? '학력 조건 없음, 평가 제외'
+                    : `${formatScore(
+                        matchDetail.education?.score
+                      )}/${formatScore(
+                        matchDetail.education?.maxScore ?? 2.5,
+                        1
+                      )}`}
                 </p>
+
                 <p>
-                  - 경력: {matchDetail.experience?.conditionUsed === false ? '경력 조건 없음, 평가 제외' : `${formatScore(matchDetail.experience?.score)}/${formatScore(matchDetail.experience?.maxScore ?? 5, 1)}`}
+                  - 경력:{' '}
+                  {matchDetail.experience?.conditionUsed === false
+                    ? '경력 조건 없음, 평가 제외'
+                    : `${formatScore(
+                        matchDetail.experience?.score
+                      )}/${formatScore(
+                        matchDetail.experience?.maxScore ?? 5,
+                        1
+                      )}`}
                 </p>
+
                 <p>
-                  - 자격증: {formatRuleDetail(
+                  - 자격증:{' '}
+                  {formatRuleDetail(
                     matchDetail.certifications?.score,
                     matchDetail.certifications?.maxScore ?? 2.5,
                     matchDetail.certifications?.matchCount,
                     matchDetail.certifications?.totalCount
                   )}
                 </p>
+
                 <p>
-                  - 필수 자격요건: {formatRuleDetail(
+                  - 필수 자격요건:{' '}
+                  {formatRuleDetail(
                     matchDetail.qualifications?.score,
                     matchDetail.qualifications?.maxScore ?? 5,
                     matchDetail.qualifications?.matchedQuals?.length,
@@ -1007,22 +1258,67 @@ function ScoreDetailModal({ job, onClose }) {
                   )}
                 </p>
               </div>
+
               <div>
-                <h5 className="font-medium text-gray-900 mb-1">의미 유사도 세부 값</h5>
-                <p>- 전체 유사도: {formatPercent(semantic.fullSimilarity)}</p>
-                <p>- 담당업무 유사도: {formatPercent(semantic.responsibilitySimilarity)}</p>
-                <p>- 자격요건 유사도: {formatPercent(semantic.qualificationSimilarity)}</p>
-                <p>- 필수조건 충족률: {formatPercent(semantic.requiredConditionRatio)}</p>
+                <h5 className="font-medium text-gray-900 mb-1">
+                  의미 유사도 세부 값
+                </h5>
+                <p>
+                  - 전체 유사도:{' '}
+                  {formatPercent(semantic.fullSimilarity)}
+                </p>
+                <p>
+                  - 담당업무 유사도:{' '}
+                  {formatPercent(
+                    semantic.responsibilitySimilarity
+                  )}
+                </p>
+                <p>
+                  - 자격요건 유사도:{' '}
+                  {formatPercent(
+                    semantic.qualificationSimilarity
+                  )}
+                </p>
+                <p>
+                  - 필수조건 충족률:{' '}
+                  {formatPercent(
+                    semantic.requiredConditionRatio
+                  )}
+                </p>
               </div>
+
               <div>
-                <h5 className="font-medium text-gray-900 mb-1">NCS 세부 값</h5>
-                <p>- NCS 보완 평가: {ncsApplied ? '적용' : '미적용'}</p>
+                <h5 className="font-medium text-gray-900 mb-1">
+                  NCS 세부 값
+                </h5>
+                <p>
+                  - NCS 보완 평가: {ncsApplied ? '적용' : '미적용'}
+                </p>
+
                 {ncsApplied && (
                   <>
-                    <p>- NCS 분야: {ncs.category || ncs.ncs_category || '미적용'}</p>
-                    <p>- 매칭 직무: {ncs.matchedDutyName || ncs.matched_duty_name || '없음'}</p>
-                    <p>- 매칭 능력단위: {ncs.matchedUnitName || ncs.matched_unit_name || '없음'}</p>
-                    <p>- NCS 유사도: {formatPercent(ncs.similarity ?? ncs.ncs_similarity)}</p>
+                    <p>
+                      - NCS 분야:{' '}
+                      {ncs.category || ncs.ncs_category || '미적용'}
+                    </p>
+                    <p>
+                      - 매칭 직무:{' '}
+                      {ncs.matchedDutyName ||
+                        ncs.matched_duty_name ||
+                        '없음'}
+                    </p>
+                    <p>
+                      - 매칭 능력단위:{' '}
+                      {ncs.matchedUnitName ||
+                        ncs.matched_unit_name ||
+                        '없음'}
+                    </p>
+                    <p>
+                      - NCS 유사도:{' '}
+                      {formatPercent(
+                        ncs.similarity ?? ncs.ncs_similarity
+                      )}
+                    </p>
                   </>
                 )}
               </div>
@@ -1033,7 +1329,6 @@ function ScoreDetailModal({ job, onClose }) {
     </div>
   )
 }
-
 
 const MATCH_RESULT_GUIDE_ITEMS = [
   {
@@ -1089,9 +1384,12 @@ function MatchResultGuideModal({ selectedBadge, onClose }) {
   if (!selectedBadge) return null
 
   const selectedName = normalizeGuideBadge(selectedBadge)
+
   const selectedItem =
-    MATCH_RESULT_GUIDE_ITEMS.find((item) => item.name === selectedName) ||
-    MATCH_RESULT_GUIDE_ITEMS[2]
+    MATCH_RESULT_GUIDE_ITEMS.find(
+      (item) => item.name === selectedName
+    ) || MATCH_RESULT_GUIDE_ITEMS[2]
+
   const otherItems = MATCH_RESULT_GUIDE_ITEMS.filter(
     (item) => item.name !== selectedItem.name
   )
@@ -1101,10 +1399,14 @@ function MatchResultGuideModal({ selectedBadge, onClose }) {
       <div className="w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-5 md:p-6 shadow-xl">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-medium text-primary">JOBPICK GUIDE</p>
+            <p className="text-sm font-medium text-primary">
+              JOBPICK GUIDE
+            </p>
+
             <h3 className="mt-1 text-xl font-bold text-gray-900">
               매칭 결과 유형 안내
             </h3>
+
             <p className="mt-1 text-sm text-gray-500">
               JOBPICK은 매칭 결과를 5가지 유형으로 구분합니다.
             </p>
@@ -1120,8 +1422,13 @@ function MatchResultGuideModal({ selectedBadge, onClose }) {
           </button>
         </div>
 
-        <div className={`rounded-xl border-2 p-5 ${selectedItem.cardClass}`}>
-          <p className="text-xs font-semibold text-gray-500">현재 결과</p>
+        <div
+          className={`rounded-xl border-2 p-5 ${selectedItem.cardClass}`}
+        >
+          <p className="text-xs font-semibold text-gray-500">
+            현재 결과
+          </p>
+
           <div className="mt-2 flex items-center gap-2">
             <span
               className={`rounded-full border bg-white px-3 py-1 text-sm font-bold ${selectedItem.textClass}`}
@@ -1129,6 +1436,7 @@ function MatchResultGuideModal({ selectedBadge, onClose }) {
               {selectedItem.name}
             </span>
           </div>
+
           <p
             className={`mt-4 text-base font-medium leading-7 ${selectedItem.textClass}`}
           >
@@ -1140,6 +1448,7 @@ function MatchResultGuideModal({ selectedBadge, onClose }) {
           <p className="mb-3 text-sm font-semibold text-gray-900">
             다른 매칭 결과
           </p>
+
           <div className="overflow-hidden rounded-xl border border-gray-200">
             {otherItems.map((item, index) => (
               <div
@@ -1157,6 +1466,7 @@ function MatchResultGuideModal({ selectedBadge, onClose }) {
                     {item.name}
                   </span>
                 </div>
+
                 <p className="text-sm leading-6 text-gray-600">
                   {item.description}
                 </p>
@@ -1218,18 +1528,28 @@ export default function LandingPage() {
   const router = useRouter()
   const { user, isAuthenticated, mounted } = useAuth()
   const resumeUserId = user?.uid || user?.id || ''
-  const [jobs, setJobs] = useState([])
 
+  const [jobs, setJobs] = useState([])
   const [matchedJobs, setMatchedJobs] = useState([])
   const [matchPage, setMatchPage] = useState(1)
+
   const matchItemsPerPage = 10
+
   const [isLoadingJobs, setIsLoadingJobs] = useState(false)
-  const [selectedPopularCategory, setSelectedPopularCategory] = useState('전체')
+
+  const [
+    selectedPopularCategory,
+    setSelectedPopularCategory,
+  ] = useState('전체')
+
   const [currentPage, setCurrentPage] = useState(1)
+
   const itemsPerPage = 10
 
   const [resumes, setResumes] = useState([])
+
   const fileInputRef = useRef(null)
+
   const [showSavedResumes, setShowSavedResumes] = useState(true)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [analysisDone, setAnalysisDone] = useState(false)
@@ -1238,33 +1558,73 @@ export default function LandingPage() {
   const [scoreDetailJob, setScoreDetailJob] = useState(null)
   const [resultGuideBadge, setResultGuideBadge] = useState(null)
   const [showAiSummary, setShowAiSummary] = useState(false)
-  const [isGeneratingAiSummary, setIsGeneratingAiSummary] = useState(false)
+
+  const [
+    isGeneratingAiSummary,
+    setIsGeneratingAiSummary,
+  ] = useState(false)
+
   const [aiSummaryError, setAiSummaryError] = useState('')
   const [typedAiSummary, setTypedAiSummary] = useState('')
-  const [showAiSummaryDetails, setShowAiSummaryDetails] = useState(false)
+
+  const [
+    showAiSummaryDetails,
+    setShowAiSummaryDetails,
+  ] = useState(false)
+
   const [matchMeta, setMatchMeta] = useState({
     matchPreferences: {},
     totalJobCount: null,
     filteredJobCount: null,
   })
+
   const [desiredRoles, setDesiredRoles] = useState([])
   const [desiredLocations, setDesiredLocations] = useState([])
   const [employmentTypes, setEmploymentTypes] = useState([])
   const [desiredKeywords, setDesiredKeywords] = useState([])
   const [pendingFile, setPendingFile] = useState(null)
-  const [showPreferenceModal, setShowPreferenceModal] = useState(false)
 
-  // 등록된 이력서의 희망 채용 조건 수정
+  const [
+    showPreferenceModal,
+    setShowPreferenceModal,
+  ] = useState(false)
+
   const [editingResume, setEditingResume] = useState(null)
   const [editDesiredRoles, setEditDesiredRoles] = useState([])
-  const [editDesiredLocations, setEditDesiredLocations] = useState([])
-  const [editEmploymentTypes, setEditEmploymentTypes] = useState([])
-  const [editDesiredKeywords, setEditDesiredKeywords] = useState([])
-  const [isUpdatingPreferences, setIsUpdatingPreferences] = useState(false)
+
+  const [
+    editDesiredLocations,
+    setEditDesiredLocations,
+  ] = useState([])
+
+  const [
+    editEmploymentTypes,
+    setEditEmploymentTypes,
+  ] = useState([])
+
+  const [
+    editDesiredKeywords,
+    setEditDesiredKeywords,
+  ] = useState([])
+
+  const [
+    isUpdatingPreferences,
+    setIsUpdatingPreferences,
+  ] = useState(false)
+
   const [matchScoreFilter, setMatchScoreFilter] = useState('all')
   const [matchHiringFilter, setMatchHiringFilter] = useState('all')
-  const [matchSuccessBanner, setMatchSuccessBanner] = useState(null)
-  const [matchSuccessBannerFading, setMatchSuccessBannerFading] = useState(false)
+
+  const [
+    matchSuccessBanner,
+    setMatchSuccessBanner,
+  ] = useState(null)
+
+  const [
+    matchSuccessBannerFading,
+    setMatchSuccessBannerFading,
+  ] = useState(false)
+
   const [lastAiAnalysisAt, setLastAiAnalysisAt] = useState('')
   const [loadingStepIndex, setLoadingStepIndex] = useState(0)
 
@@ -1277,6 +1637,7 @@ export default function LandingPage() {
       router.push('/login')
       return
     }
+
     setShowSavedResumes((prev) => !prev)
   }
 
@@ -1294,7 +1655,9 @@ export default function LandingPage() {
     const resumeId = getResumeDocId(selectedResume)
 
     if (!resumeId) {
-      setAiSummaryError('요약을 생성할 이력서를 찾을 수 없습니다.')
+      setAiSummaryError(
+        '요약을 생성할 이력서를 찾을 수 없습니다.'
+      )
       setShowAiSummary(true)
       return
     }
@@ -1303,37 +1666,62 @@ export default function LandingPage() {
     setAiSummaryError('')
 
     try {
-      const res = await fetch(`/api/resume/${resumeId}/ai-summary`, {
-        method: 'POST',
-      })
+      const res = await fetch(
+        `/api/resume/${resumeId}/ai-summary`,
+        {
+          method: 'POST',
+        }
+      )
+
       const data = await res.json().catch(() => ({}))
 
       if (!res.ok || !data?.aiSummary?.description) {
-        throw new Error(data.error || 'Gemini 요약 생성에 실패했습니다.')
+        throw new Error(
+          data.error || 'Gemini 요약 생성에 실패했습니다.'
+        )
       }
 
-      setMatchMeta((prev) => ({ ...prev, aiSummary: data.aiSummary }))
+      setMatchMeta((prev) => ({
+        ...prev,
+        aiSummary: data.aiSummary,
+      }))
 
       const userId = user?.uid || user?.id || ''
-      const storageKey = getMatchedJobsStorageKey(userId, resumeId)
+
+      const storageKey = getMatchedJobsStorageKey(
+        userId,
+        resumeId
+      )
+
       try {
         const savedValue = localStorage.getItem(storageKey)
 
         if (savedValue) {
           const savedResult = JSON.parse(savedValue)
+
           localStorage.setItem(
             storageKey,
-            JSON.stringify({ ...savedResult, aiSummary: data.aiSummary })
+            JSON.stringify({
+              ...savedResult,
+              aiSummary: data.aiSummary,
+            })
           )
         }
       } catch (storageError) {
-        console.error('Gemini 요약 로컬 저장 실패:', storageError)
+        console.error(
+          'Gemini 요약 로컬 저장 실패:',
+          storageError
+        )
       }
 
       setShowAiSummary(true)
     } catch (error) {
       console.error('Gemini 요약 생성 실패:', error)
-      setAiSummaryError(error?.message || 'Gemini 요약 생성에 실패했습니다.')
+
+      setAiSummaryError(
+        error?.message || 'Gemini 요약 생성에 실패했습니다.'
+      )
+
       setShowAiSummary(true)
     } finally {
       setIsGeneratingAiSummary(false)
@@ -1361,14 +1749,20 @@ export default function LandingPage() {
 
   const fetchJobs = async () => {
     setIsLoadingJobs(true)
+
     try {
       const res = await fetch('/api/job-postings', {
         cache: 'no-store',
       })
+
       const data = await res.json()
+
       if (!res.ok) {
-        throw new Error(data.error || '공고 목록 불러오기 실패')
+        throw new Error(
+          data.error || '공고 목록 불러오기 실패'
+        )
       }
+
       setJobs(normalizeJobs(data.jobs || []))
     } catch (error) {
       console.error(error)
@@ -1384,14 +1778,25 @@ export default function LandingPage() {
 
       if (!resumeId) return false
 
-      const storageKey = getMatchedJobsStorageKey(userId, resumeId)
+      const storageKey = getMatchedJobsStorageKey(
+        userId,
+        resumeId
+      )
+
       const savedMatchedJobs = localStorage.getItem(storageKey)
 
       if (!savedMatchedJobs) return false
 
       const parsed = JSON.parse(savedMatchedJobs)
-      const savedJobs = Array.isArray(parsed) ? parsed : parsed.jobs || []
-      const normalized = getTopMatches(normalizeJobs(savedJobs), 5)
+
+      const savedJobs = Array.isArray(parsed)
+        ? parsed
+        : parsed.jobs || []
+
+      const normalized = getTopMatches(
+        normalizeJobs(savedJobs),
+        5
+      )
 
       if (normalized.length > 0) {
         setSelectedResume(resume)
@@ -1399,28 +1804,45 @@ export default function LandingPage() {
         setShowAiSummary(false)
         setIsGeneratingAiSummary(false)
         setAiSummaryError('')
+
         setMatchMeta({
-          matchPreferences: parsed.matchPreferences || resume?.matchPreferences || {},
+          matchPreferences:
+            parsed.matchPreferences ||
+            resume?.matchPreferences ||
+            {},
           totalJobCount: parsed.totalJobCount ?? null,
           filteredJobCount: parsed.filteredJobCount ?? null,
           aiSummary: parsed.aiSummary || null,
         })
+
         setAnalysisDone(true)
+
         setLastAiAnalysisAt(
-          typeof parsed === 'object' && !Array.isArray(parsed) && parsed.analyzedAt
+          typeof parsed === 'object' &&
+            !Array.isArray(parsed) &&
+            parsed.analyzedAt
             ? parsed.analyzedAt
             : ''
         )
+
         return true
       }
+
       return false
     } catch (error) {
-      console.error('저장된 매칭 결과 불러오기 실패:', error)
+      console.error(
+        '저장된 매칭 결과 불러오기 실패:',
+        error
+      )
+
       return false
     }
   }
 
-  const runAiMatchingByResume = async (resume, forceRefresh = false) => {
+  const runAiMatchingByResume = async (
+    resume,
+    forceRefresh = false
+  ) => {
     const resumeId = getResumeDocId(resume)
 
     if (!resumeId) {
@@ -1437,11 +1859,13 @@ export default function LandingPage() {
     setShowAiSummary(false)
     setIsGeneratingAiSummary(false)
     setAiSummaryError('')
+
     setMatchMeta({
       matchPreferences: resume?.matchPreferences || {},
       totalJobCount: null,
       filteredJobCount: null,
     })
+
     setMatchPage(1)
     setMatchScoreFilter('all')
     setMatchHiringFilter('all')
@@ -1450,26 +1874,34 @@ export default function LandingPage() {
 
     try {
       if (forceRefresh) {
-        const storageKey = getMatchedJobsStorageKey(userId, resumeId)
+        const storageKey = getMatchedJobsStorageKey(
+          userId,
+          resumeId
+        )
+
         localStorage.removeItem(storageKey)
       }
 
-      const res = await fetch(`/api/resume/${resumeId}/process`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          docId: resumeId,
-          resumeId,
-          userId,
-          forceRefresh,
-          force: forceRefresh,
-          matchPreferences: resume?.matchPreferences || {},
-        }),
-      })
+      const res = await fetch(
+        `/api/resume/${resumeId}/process`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            docId: resumeId,
+            resumeId,
+            userId,
+            forceRefresh,
+            force: forceRefresh,
+            matchPreferences: resume?.matchPreferences || {},
+          }),
+        }
+      )
 
       const data = await res.json().catch(() => ({}))
+
       console.log('메인 AI 매칭 응답:', data)
 
       if (!res.ok) {
@@ -1487,7 +1919,11 @@ export default function LandingPage() {
       setAiSummaryError('')
       setMatchMeta(nextMatchMeta)
 
-      const storageKey = getMatchedJobsStorageKey(userId, resumeId)
+      const storageKey = getMatchedJobsStorageKey(
+        userId,
+        resumeId
+      )
+
       localStorage.setItem(
         storageKey,
         JSON.stringify({
@@ -1534,11 +1970,15 @@ export default function LandingPage() {
 
       if (topMatches.length > 0) {
         setMatchSuccessBannerFading(false)
-        setMatchSuccessBanner({ count: topMatches.length })
+        setMatchSuccessBanner({
+          count: topMatches.length,
+        })
       }
 
       if (!topMatches.length) {
-        alert('매칭 결과가 비어 있습니다. 백엔드 matches 반환값을 확인해주세요.')
+        alert(
+          '매칭 결과가 비어 있습니다. 백엔드 matches 반환값을 확인해주세요.'
+        )
       }
     } catch (error) {
       console.error(error)
@@ -1551,15 +1991,22 @@ export default function LandingPage() {
         )
       )
 
-      alert(error.message || 'AI 매칭 중 오류가 발생했습니다.')
+      alert(
+        error.message || 'AI 매칭 중 오류가 발생했습니다.'
+      )
+
       setAnalysisDone(false)
     } finally {
       setIsAnalyzing(false)
     }
   }
 
-  const checkResumeStatus = async (resume, shouldRunMatching = false) => {
+  const checkResumeStatus = async (
+    resume,
+    shouldRunMatching = false
+  ) => {
     const resumeId = getResumeDocId(resume)
+
     if (!resumeId) return null
 
     try {
@@ -1593,7 +2040,13 @@ export default function LandingPage() {
 
       if (latestStatus === 'DONE') {
         if (shouldRunMatching) {
-          await runAiMatchingByResume({ ...resume, status: latestStatus }, false)
+          await runAiMatchingByResume(
+            {
+              ...resume,
+              status: latestStatus,
+            },
+            false
+          )
         } else {
           setIsAnalyzing(false)
           setAnalysisDone(false)
@@ -1618,8 +2071,14 @@ export default function LandingPage() {
 
     const timer = setInterval(async () => {
       count += 1
+
       const status = await checkResumeStatus(resume, true)
-      if (status === 'DONE' || status === 'FAILED' || count >= maxCount) {
+
+      if (
+        status === 'DONE' ||
+        status === 'FAILED' ||
+        count >= maxCount
+      ) {
         clearInterval(timer)
       }
     }, 2000)
@@ -1633,11 +2092,19 @@ export default function LandingPage() {
     }
 
     const files = Array.from(e.target.files || [])
+
     if (!files.length) return
 
     const validTypes = ['.pdf', '.doc', '.docx']
+
     const validFiles = files.filter((file) => {
-      const ext = '.' + file.name.split('.').pop().toLowerCase()
+      const ext =
+        '.' +
+        file.name
+          .split('.')
+          .pop()
+          .toLowerCase()
+
       return validTypes.includes(ext)
     })
 
@@ -1649,6 +2116,7 @@ export default function LandingPage() {
 
     setPendingFile(validFiles[0])
     setShowPreferenceModal(true)
+
     e.target.value = ''
   }
 
@@ -1670,6 +2138,7 @@ export default function LandingPage() {
     }
 
     const file = pendingFile
+
     const matchPreferences = {
       desiredRoles,
       desiredLocations,
@@ -1684,16 +2153,26 @@ export default function LandingPage() {
       setShowAiSummary(false)
       setIsGeneratingAiSummary(false)
       setAiSummaryError('')
+
       setMatchMeta({
-        matchPreferences: matchPreferences,
+        matchPreferences,
         totalJobCount: null,
         filteredJobCount: null,
       })
 
       const formData = new FormData()
+
       formData.append('file', file)
-      formData.append('userId', user?.uid || user?.id || 'anonymous')
-      formData.append('matchPreferences', JSON.stringify(matchPreferences))
+
+      formData.append(
+        'userId',
+        user?.uid || user?.id || 'anonymous'
+      )
+
+      formData.append(
+        'matchPreferences',
+        JSON.stringify(matchPreferences)
+      )
 
       const res = await fetch('/api/resume/upload', {
         method: 'POST',
@@ -1701,6 +2180,7 @@ export default function LandingPage() {
       })
 
       const data = await res.json()
+
       if (!res.ok) {
         throw new Error(data.error || '업로드 실패')
       }
@@ -1714,7 +2194,11 @@ export default function LandingPage() {
         .replace(/\. /g, '.')
         .replace(/\.$/, '')
 
-      const docId = data.docId || data.resumeId || data.id || String(Date.now())
+      const docId =
+        data.docId ||
+        data.resumeId ||
+        data.id ||
+        String(Date.now())
 
       const mappedResume = {
         id: docId,
@@ -1723,10 +2207,14 @@ export default function LandingPage() {
         size: Math.round(file.size / 1024) + ' KB',
         date: dateStr,
         status: data.status || 'INIT',
-        matchPreferences: data.matchPreferences || matchPreferences,
+        matchPreferences:
+          data.matchPreferences || matchPreferences,
       }
 
-      setResumes(addResumes([mappedResume], resumeUserId))
+      setResumes(
+        addResumes([mappedResume], resumeUserId)
+      )
+
       setShowSavedResumes(true)
       setSelectedResume(mappedResume)
       setShowPreferenceModal(false)
@@ -1740,7 +2228,11 @@ export default function LandingPage() {
       setDesiredKeywords([])
     } catch (error) {
       console.error(error)
-      alert(error.message || '업로드 중 오류가 발생했습니다.')
+
+      alert(
+        error.message || '업로드 중 오류가 발생했습니다.'
+      )
+
       setIsAnalyzing(false)
     }
   }
@@ -1749,8 +2241,15 @@ export default function LandingPage() {
     if (!mounted) return
 
     const savedResumes = getResumes(resumeUserId)
+
     setResumes(savedResumes)
-    setBookmarkIds(getBookmarks(resumeUserId).map((item) => getJobKey(item)))
+
+    setBookmarkIds(
+      getBookmarks(resumeUserId).map((item) =>
+        getJobKey(item)
+      )
+    )
+
     fetchJobs()
 
     if (savedResumes.length > 0) {
@@ -1764,6 +2263,7 @@ export default function LandingPage() {
     }
 
     window.addEventListener('pageshow', handlePageShow)
+
     return () => {
       window.removeEventListener('pageshow', handlePageShow)
     }
@@ -1773,15 +2273,22 @@ export default function LandingPage() {
 
   const handleResumeAnalyze = (resume) => {
     const restored = restoreMatchedJobsFromStorage(resume)
+
     if (restored) return
+
     runAiMatchingByResume(resume, false)
   }
 
   const handleDeleteResume = (resumeId) => {
     const next = removeResume(resumeId, resumeUserId)
+
     setResumes(next)
 
-    const storageKey = getMatchedJobsStorageKey(resumeUserId, resumeId)
+    const storageKey = getMatchedJobsStorageKey(
+      resumeUserId,
+      resumeId
+    )
+
     localStorage.removeItem(storageKey)
 
     if (getResumeDocId(selectedResume) === resumeId) {
@@ -1791,6 +2298,7 @@ export default function LandingPage() {
       setShowAiSummary(false)
       setIsGeneratingAiSummary(false)
       setAiSummaryError('')
+
       setMatchMeta({
         matchPreferences: {},
         totalJobCount: null,
@@ -1803,16 +2311,29 @@ export default function LandingPage() {
     pushRecentJob(job)
 
     if (job.sourceUrl) {
-      window.open(job.sourceUrl, '_blank', 'noopener,noreferrer')
+      window.open(
+        job.sourceUrl,
+        '_blank',
+        'noopener,noreferrer'
+      )
+
       return
     }
 
     const jobId = String(job.id || job.jobId || '')
+
     const alioId = jobId.replace(/^moef_/, '')
 
     if (/^\d+$/.test(alioId)) {
-      const alioUrl = `http://job.alio.go.kr/recruitview.do?idx=${alioId}`
-      window.open(alioUrl, '_blank', 'noopener,noreferrer')
+      const alioUrl =
+        `http://job.alio.go.kr/recruitview.do?idx=${alioId}`
+
+      window.open(
+        alioUrl,
+        '_blank',
+        'noopener,noreferrer'
+      )
+
       return
     }
 
@@ -1828,8 +2349,12 @@ export default function LandingPage() {
       router.push('/login')
       return
     }
+
     const next = toggleBookmark(job, resumeUserId)
-    setBookmarkIds(next.map((item) => getJobKey(item)))
+
+    setBookmarkIds(
+      next.map((item) => getJobKey(item))
+    )
   }
 
   const handleOpenPreferenceEdit = async (resume) => {
@@ -1841,14 +2366,19 @@ export default function LandingPage() {
     }
 
     try {
-      const res = await fetch(`/api/resume/${resumeId}/preferences`, {
-        cache: 'no-store',
-      })
+      const res = await fetch(
+        `/api/resume/${resumeId}/preferences`,
+        {
+          cache: 'no-store',
+        }
+      )
 
       const data = await res.json().catch(() => ({}))
 
       if (!res.ok) {
-        throw new Error(data.error || '기존 조건을 불러오지 못했습니다.')
+        throw new Error(
+          data.error || '기존 조건을 불러오지 못했습니다.'
+        )
       }
 
       const matchPreferences = data.matchPreferences || {}
@@ -1858,25 +2388,33 @@ export default function LandingPage() {
           ? matchPreferences.desiredRoles
           : []
       )
+
       setEditDesiredLocations(
         Array.isArray(matchPreferences.desiredLocations)
           ? matchPreferences.desiredLocations
           : []
       )
+
       setEditEmploymentTypes(
         Array.isArray(matchPreferences.employmentTypes)
           ? matchPreferences.employmentTypes
           : []
       )
+
       setEditDesiredKeywords(
         Array.isArray(matchPreferences.desiredKeywords)
           ? matchPreferences.desiredKeywords
           : []
       )
+
       setEditingResume(resume)
     } catch (error) {
       console.error(error)
-      alert(error.message || '이력서 조건을 불러오는 중 오류가 발생했습니다.')
+
+      alert(
+        error.message ||
+          '이력서 조건을 불러오는 중 오류가 발생했습니다.'
+      )
     }
   }
 
@@ -1908,23 +2446,30 @@ export default function LandingPage() {
     try {
       setIsUpdatingPreferences(true)
 
-      const res = await fetch(`/api/resume/${resumeId}/preferences`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          matchPreferences,
-        }),
-      })
+      const res = await fetch(
+        `/api/resume/${resumeId}/preferences`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            matchPreferences,
+          }),
+        }
+      )
 
       const data = await res.json().catch(() => ({}))
 
       if (!res.ok) {
-        throw new Error(data.error || '조건 수정에 실패했습니다.')
+        throw new Error(
+          data.error || '조건 수정에 실패했습니다.'
+        )
       }
 
-      const savedPreferences = data.matchPreferences || matchPreferences
+      const savedPreferences =
+        data.matchPreferences || matchPreferences
+
       const updatedResume = {
         ...editingResume,
         matchPreferences: savedPreferences,
@@ -1958,7 +2503,11 @@ export default function LandingPage() {
       await runAiMatchingByResume(updatedResume, true)
     } catch (error) {
       console.error(error)
-      alert(error.message || '이력서 조건 수정 중 오류가 발생했습니다.')
+
+      alert(
+        error.message ||
+          '이력서 조건 수정 중 오류가 발생했습니다.'
+      )
     } finally {
       setIsUpdatingPreferences(false)
     }
@@ -1974,7 +2523,10 @@ export default function LandingPage() {
   }
 
   const filteredMatchedJobs = useMemo(() => {
-    if (matchScoreFilter === 'all' && matchHiringFilter === 'all') {
+    if (
+      matchScoreFilter === 'all' &&
+      matchHiringFilter === 'all'
+    ) {
       return matchedJobs
     }
 
@@ -1990,13 +2542,29 @@ export default function LandingPage() {
     [filteredMatchedJobs]
   )
 
-  // AI 추천 매칭 리스트 페이징 데이터
-  const totalMatchPages = Math.ceil(filteredMatchedJobs.length / matchItemsPerPage)
-  const matchStartIndex = (matchPage - 1) * matchItemsPerPage
-  const matchEndIndex = matchStartIndex + matchItemsPerPage
-  const pagedMatchedJobs = filteredMatchedJobs.slice(matchStartIndex, matchEndIndex)
+  const totalMatchPages = Math.ceil(
+    filteredMatchedJobs.length / matchItemsPerPage
+  )
+
+  const matchStartIndex =
+    (matchPage - 1) * matchItemsPerPage
+
+  const matchEndIndex =
+    matchStartIndex + matchItemsPerPage
+
+  const pagedMatchedJobs =
+    filteredMatchedJobs.slice(
+      matchStartIndex,
+      matchEndIndex
+    )
+
   const aiRecommendationSummary = useMemo(
-    () => buildOverallRecommendationSummary(matchedJobs, matchMeta, selectedResume),
+    () =>
+      buildOverallRecommendationSummary(
+        matchedJobs,
+        matchMeta,
+        selectedResume
+      ),
     [matchedJobs, matchMeta, selectedResume]
   )
 
@@ -2007,12 +2575,18 @@ export default function LandingPage() {
       return undefined
     }
 
-    const characters = Array.from(aiRecommendationSummary.description || '')
+    const characters = Array.from(
+      aiRecommendationSummary.description || ''
+    )
+
     const prefersReducedMotion = window.matchMedia(
       '(prefers-reduced-motion: reduce)'
     ).matches
 
-    if (prefersReducedMotion || characters.length === 0) {
+    if (
+      prefersReducedMotion ||
+      characters.length === 0
+    ) {
       setTypedAiSummary(characters.join(''))
       setShowAiSummaryDetails(true)
       return undefined
@@ -2022,67 +2596,122 @@ export default function LandingPage() {
     let typingStep = 0
     let typingTimer
     let detailTimer
+
     setTypedAiSummary('')
     setShowAiSummaryDetails(false)
 
     const typeNextCharacters = () => {
       const chunkPattern = [1, 2, 1, 1, 2, 1]
       const delayPattern = [22, 14, 25, 18, 14, 24]
-      const shouldStreamBurst = typingStep % 7 === 4 || typingStep % 11 === 8
-      let chunkSize = chunkPattern[typingStep % chunkPattern.length]
+
+      const shouldStreamBurst =
+        typingStep % 7 === 4 ||
+        typingStep % 11 === 8
+
+      let chunkSize =
+        chunkPattern[typingStep % chunkPattern.length]
 
       if (shouldStreamBurst) {
-        const remainingText = characters.slice(characterIndex).join('')
-        const nextSpaceIndex = remainingText.search(/\s/)
+        const remainingText = characters
+          .slice(characterIndex)
+          .join('')
+
+        const nextSpaceIndex =
+          remainingText.search(/\s/)
+
         chunkSize =
           nextSpaceIndex > 2
             ? Math.min(nextSpaceIndex + 1, 9)
             : Math.min(5, remainingText.length)
       }
 
-      characterIndex = Math.min(characterIndex + chunkSize, characters.length)
-      setTypedAiSummary(characters.slice(0, characterIndex).join(''))
+      characterIndex = Math.min(
+        characterIndex + chunkSize,
+        characters.length
+      )
+
+      setTypedAiSummary(
+        characters
+          .slice(0, characterIndex)
+          .join('')
+      )
 
       if (characterIndex >= characters.length) {
         detailTimer = window.setTimeout(() => {
           setShowAiSummaryDetails(true)
         }, 180)
+
         return
       }
 
-      const lastCharacter = characters[characterIndex - 1]
-      const punctuationPause = /[.!?。！？]/.test(lastCharacter) ? 65 : 0
-      const commaPause = /[,，]/.test(lastCharacter) ? 35 : 0
+      const lastCharacter =
+        characters[characterIndex - 1]
+
+      const punctuationPause =
+        /[.!?。！？]/.test(lastCharacter)
+          ? 65
+          : 0
+
+      const commaPause =
+        /[,，]/.test(lastCharacter)
+          ? 35
+          : 0
+
       const nextDelay =
-        delayPattern[typingStep % delayPattern.length] +
+        delayPattern[
+          typingStep % delayPattern.length
+        ] +
         (shouldStreamBurst ? 32 : 0) +
         punctuationPause +
         commaPause
+
       typingStep += 1
-      typingTimer = window.setTimeout(typeNextCharacters, nextDelay)
+
+      typingTimer = window.setTimeout(
+        typeNextCharacters,
+        nextDelay
+      )
     }
 
-    typingTimer = window.setTimeout(typeNextCharacters, 80)
+    typingTimer = window.setTimeout(
+      typeNextCharacters,
+      80
+    )
 
     return () => {
       window.clearTimeout(typingTimer)
-      if (detailTimer) window.clearTimeout(detailTimer)
+
+      if (detailTimer) {
+        window.clearTimeout(detailTimer)
+      }
     }
-  }, [showAiSummary, aiRecommendationSummary.description])
+  }, [
+    showAiSummary,
+    aiRecommendationSummary.description,
+  ])
 
   console.log('matchedJobs:', matchedJobs)
   console.log('matchedJobs length:', matchedJobs.length)
   console.log('totalMatchPages:', totalMatchPages)
 
-  // 인기 커리어 리스트 페이징 데이터
   const filteredJobs = jobs.filter((job) => {
     if (selectedPopularCategory === '전체') return true
+
     return job.category === selectedPopularCategory
   })
-  const totalPages = Math.ceil(filteredJobs.length / itemsPerPage)
-  const startIndex = (currentPage - 1) * itemsPerPage
-  const endIndex = startIndex + itemsPerPage
-  const popularJobs = filteredJobs.slice(startIndex, endIndex)
+
+  const totalPages = Math.ceil(
+    filteredJobs.length / itemsPerPage
+  )
+
+  const startIndex =
+    (currentPage - 1) * itemsPerPage
+
+  const endIndex =
+    startIndex + itemsPerPage
+
+  const popularJobs =
+    filteredJobs.slice(startIndex, endIndex)
 
   useEffect(() => {
     setCurrentPage(1)
@@ -2120,7 +2749,9 @@ export default function LandingPage() {
 
     const interval = setInterval(() => {
       setLoadingStepIndex((prev) =>
-        prev < AI_LOADING_STEPS.length - 1 ? prev + 1 : prev
+        prev < AI_LOADING_STEPS.length - 1
+          ? prev + 1
+          : prev
       )
     }, 1500)
 
@@ -2132,8 +2763,10 @@ export default function LandingPage() {
       {isAuthenticated ? (
         <section className="py-6 md:py-8">
           <h1 className="text-2xl md:text-4xl font-bold mb-1">
-            안녕하세요, <span className="text-primary">{name}</span> 님!
+            안녕하세요,{' '}
+            <span className="text-primary">{name}</span> 님!
           </h1>
+
           <p className="text-gray-500 text-base md:text-lg">
             AI 기반 이력서/채용공고 매칭 서비스예요.
           </p>
@@ -2143,9 +2776,11 @@ export default function LandingPage() {
           <h1 className="text-3xl md:text-5xl font-bold text-primary mb-2">
             로그인을 해주세요!
           </h1>
+
           <p className="text-gray-500 mb-6 text-base md:text-lg">
             AI 기반 이력서/채용공고 매칭 서비스예요.
           </p>
+
           <button
             onClick={handleGetStarted}
             className="px-8 py-3 md:py-4 md:text-lg bg-primary text-white rounded-xl font-medium hover:bg-primary-dark transition-colors"
@@ -2155,20 +2790,25 @@ export default function LandingPage() {
         </section>
       )}
 
-      {/* AI 매칭 추천 블록 */}
       <section
         className={`mt-8 md:mt-10 ${
-          !isAuthenticated ? 'blur-sm opacity-60 select-none' : ''
+          !isAuthenticated
+            ? 'blur-sm opacity-60 select-none'
+            : ''
         }`}
       >
         <div className="bg-blue-50 rounded-2xl p-5 md:p-8 border border-blue-200 relative">
           <h2 className="text-2xl md:text-2xl font-bold mb-4 flex items-center gap-2">
-            <Sparkles className="w-5 h-5 md:w-6 md:h-6 text-primary" aria-hidden />
+            <Sparkles
+              className="w-5 h-5 md:w-6 md:h-6 text-primary"
+              aria-hidden
+            />
             AI 커리어 매칭 분석
           </h2>
 
           <p className="text-gray-500 text-base md:text-base mb-4">
-            로그인 후 이력서를 업로드하면 AI가 분석하여 맞춤 채용공고를 추천해드립니다.
+            로그인 후 이력서를 업로드하면 AI가 분석하여 맞춤
+            채용공고를 추천해드립니다.
           </p>
 
           <div className="relative border-2 border-dashed border-gray-200 rounded-xl md:rounded-2xl p-5 md:p-8 bg-white">
@@ -2180,8 +2820,13 @@ export default function LandingPage() {
                   className="w-full h-full flex flex-col items-center justify-center gap-2 bg-black/30 text-white rounded-2xl"
                   aria-label="로그인 안내"
                 >
-                  <span className="text-lg font-medium">로그인 후 이용 가능합니다</span>
-                  <span className="text-sm underline">로그인하러 가기</span>
+                  <span className="text-lg font-medium">
+                    로그인 후 이용 가능합니다
+                  </span>
+
+                  <span className="text-sm underline">
+                    로그인하러 가기
+                  </span>
                 </button>
               </div>
             )}
@@ -2191,7 +2836,9 @@ export default function LandingPage() {
                 type="button"
                 onClick={handleShowSavedClick}
                 className={`px-5 py-2.5 rounded-xl text-sm md:text-base font-medium ${
-                  showSavedResumes ? 'bg-primary text-white' : 'bg-slate-100 text-gray-700'
+                  showSavedResumes
+                    ? 'bg-primary text-white'
+                    : 'bg-slate-100 text-gray-700'
                 }`}
               >
                 등록한 이력서 불러오기
@@ -2215,7 +2862,8 @@ export default function LandingPage() {
             </div>
 
             <p className="text-sm md:text-base text-gray-500 mb-3">
-              PDF, DOC, DOCX 파일을 업로드하거나, 등록한 이력서를 선택해 분석해보세요.
+              PDF, DOC, DOCX 파일을 업로드하거나, 등록한 이력서를
+              선택해 분석해보세요.
             </p>
 
             {showSavedResumes && (
@@ -2227,10 +2875,11 @@ export default function LandingPage() {
                 ) : (
                   resumes.map((resume) => {
                     const isSelected =
-                      getResumeDocId(selectedResume) === getResumeDocId(resume)
-                    const hasSelectedResume = Boolean(
-                      getResumeDocId(selectedResume)
-                    )
+                      getResumeDocId(selectedResume) ===
+                      getResumeDocId(resume)
+
+                    const hasSelectedResume =
+                      Boolean(getResumeDocId(selectedResume))
 
                     return (
                       <div
@@ -2254,7 +2903,9 @@ export default function LandingPage() {
                         >
                           <FileText
                             className={`h-6 w-6 flex-shrink-0 ${
-                              isSelected ? 'text-blue-600' : 'text-gray-500'
+                              isSelected
+                                ? 'text-blue-600'
+                                : 'text-gray-500'
                             }`}
                             aria-hidden
                           />
@@ -2263,7 +2914,9 @@ export default function LandingPage() {
                             <div className="flex flex-wrap items-center gap-2">
                               <span
                                 className={`truncate font-semibold ${
-                                  isSelected ? 'text-blue-900' : 'text-gray-900'
+                                  isSelected
+                                    ? 'text-blue-900'
+                                    : 'text-gray-900'
                                 }`}
                               >
                                 {resume.name}
@@ -2279,22 +2932,29 @@ export default function LandingPage() {
 
                             <span
                               className={`mt-1 block text-sm ${
-                                isSelected ? 'text-blue-700' : 'text-gray-500'
+                                isSelected
+                                  ? 'text-blue-700'
+                                  : 'text-gray-500'
                               }`}
                             >
                               {resume.size} · {resume.date}
                             </span>
 
                             <span className="mt-1 inline-flex w-fit rounded bg-blue-50 px-2 py-1 text-xs text-blue-600">
-                              {resume.status === 'INIT' && '업로드 완료'}
-                              {resume.status === 'PROCESSING' && '분석 중'}
-                              {resume.status === 'DONE' && '분석 완료'}
-                              {resume.status === 'FAILED' && '실패'}
+                              {resume.status === 'INIT' &&
+                                '업로드 완료'}
+                              {resume.status === 'PROCESSING' &&
+                                '분석 중'}
+                              {resume.status === 'DONE' &&
+                                '분석 완료'}
+                              {resume.status === 'FAILED' &&
+                                '실패'}
                             </span>
 
                             {isSelected && (
                               <p className="mt-2 text-xs font-medium text-blue-600">
-                                현재 매칭에 사용할 이력서로 선택되어 있습니다.
+                                현재 매칭에 사용할 이력서로 선택되어
+                                있습니다.
                               </p>
                             )}
                           </div>
@@ -2305,7 +2965,9 @@ export default function LandingPage() {
                             type="button"
                             onClick={() =>
                               isAuthenticated
-                                ? handleDeleteResume(getResumeDocId(resume))
+                                ? handleDeleteResume(
+                                    getResumeDocId(resume)
+                                  )
                                 : router.push('/login')
                             }
                             className="h-fit rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100"
@@ -2315,8 +2977,13 @@ export default function LandingPage() {
 
                           <button
                             type="button"
-                            onClick={() => handleOpenPreferenceEdit(resume)}
-                            disabled={isAnalyzing || isUpdatingPreferences}
+                            onClick={() =>
+                              handleOpenPreferenceEdit(resume)
+                            }
+                            disabled={
+                              isAnalyzing ||
+                              isUpdatingPreferences
+                            }
                             className="h-fit rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             조건 수정
@@ -2325,7 +2992,10 @@ export default function LandingPage() {
                           <button
                             type="button"
                             onClick={() => handleRematch(resume)}
-                            disabled={isAnalyzing || isUpdatingPreferences}
+                            disabled={
+                              isAnalyzing ||
+                              isUpdatingPreferences
+                            }
                             className="h-fit rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             재분석
@@ -2337,30 +3007,28 @@ export default function LandingPage() {
                 )}
               </div>
             )}
-
-            {isAnalyzing && (
-              <div className="mt-4 p-4 bg-white/80 rounded-lg flex items-center gap-3 text-sm text-gray-700">
-                <div className="w-5 h-5 border-2 border-gray-200 border-t-primary rounded-full animate-spin" />
-                <span key={loadingStepIndex} className="animate-fade-in">
-                  {AI_LOADING_STEPS[loadingStepIndex]}
-                </span>
-              </div>
-            )}
           </div>
 
-          {/* AI 추천 공고 목록 노출 영역 */}
           {analysisDone && (
             <div className="mt-6 bg-white rounded-xl md:rounded-2xl p-5 md:p-6 border border-blue-200">
               {matchSuccessBanner && (
                 <div
                   className={`overflow-hidden transition-all duration-500 ${
-                    matchSuccessBannerFading ? 'max-h-0 opacity-0 mb-0' : 'max-h-24 opacity-100 mb-4'
+                    matchSuccessBannerFading
+                      ? 'max-h-0 opacity-0 mb-0'
+                      : 'max-h-24 opacity-100 mb-4'
                   }`}
                 >
                   <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 animate-fade-in">
                     <div className="flex items-start gap-3">
                       <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <svg
+                          width="18"
+                          height="18"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          aria-hidden="true"
+                        >
                           <path
                             d="M5 13l4 4L19 7"
                             stroke="currentColor"
@@ -2370,10 +3038,15 @@ export default function LandingPage() {
                           />
                         </svg>
                       </span>
+
                       <div>
-                        <p className="font-semibold text-emerald-800">AI 분석 완료</p>
+                        <p className="font-semibold text-emerald-800">
+                          AI 분석 완료
+                        </p>
+
                         <p className="text-sm text-emerald-700">
-                          {matchSuccessBanner.count}개의 추천 공고를 찾았습니다.
+                          {matchSuccessBanner.count}개의 추천 공고를
+                          찾았습니다.
                         </p>
                       </div>
                     </div>
@@ -2390,7 +3063,8 @@ export default function LandingPage() {
               )}
 
               <p className="text-base md:text-base text-gray-600 mb-3">
-                {name} 님의 이력서 기준으로 아래 채용 공고를 추천드려요.
+                {name} 님의 이력서 기준으로 아래 채용 공고를
+                추천드려요.
               </p>
 
               {matchedJobs.length > 0 && (
@@ -2398,39 +3072,67 @@ export default function LandingPage() {
                   <div className="border-b border-blue-50 bg-blue-50/70 px-4 py-3 md:px-5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-primary">AI 추천 요약</p>
+                        <p className="text-sm font-semibold text-primary">
+                          AI 추천 요약
+                        </p>
+
                         <span
                           className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
-                            aiRecommendationSummary.source === 'gemini'
+                            aiRecommendationSummary.source ===
+                            'gemini'
                               ? 'border-blue-200 bg-white text-blue-600'
                               : 'border-gray-200 bg-white text-gray-500'
                           }`}
                         >
-                          {aiRecommendationSummary.source === 'gemini' ? 'Gemini 요약' : '기본 요약'}
+                          {aiRecommendationSummary.source ===
+                          'gemini'
+                            ? 'Gemini 요약'
+                            : '기본 요약'}
                         </span>
                       </div>
+
                       <div className="flex flex-wrap gap-1.5 text-xs text-gray-600">
                         <span className="rounded-full bg-white px-2 py-1">
-                          적합도 {aiRecommendationSummary.fitAverage}점
+                          적합도{' '}
+                          {aiRecommendationSummary.fitAverage}점
                         </span>
+
                         <span className="rounded-full bg-white px-2 py-1">
-                          지원 {aiRecommendationSummary.accessibilityAverage}점
+                          지원{' '}
+                          {
+                            aiRecommendationSummary.accessibilityAverage
+                          }
+                          점
                         </span>
+
                         <span className="rounded-full bg-white px-2 py-1">
-                          판단 근거 {aiRecommendationSummary.confidenceAverage}점
+                          판단 근거{' '}
+                          {
+                            aiRecommendationSummary.confidenceAverage
+                          }
+                          점
                         </span>
                       </div>
                     </div>
+
                     <p className="mt-1 text-xs text-gray-500">
                       {aiRecommendationSummary.summaryCaption}
                     </p>
+
                     <button
                       type="button"
                       onClick={handleToggleAiSummary}
                       disabled={isGeneratingAiSummary}
                       className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-wait disabled:opacity-80"
                     >
-                      <Sparkles className={`h-4 w-4 ${isGeneratingAiSummary ? 'animate-spin' : ''}`} />
+                      <Sparkles
+                        className={`h-4 w-4 ${
+                          isGeneratingAiSummary
+                            ? 'animate-spin'
+                            : ''
+                        }`}
+                      />
+
                       {isGeneratingAiSummary
                         ? 'Gemini 요약 생성 중...'
                         : showAiSummary
@@ -2440,82 +3142,118 @@ export default function LandingPage() {
                   </div>
 
                   {showAiSummary && (
-                  <div className="p-4 md:p-5">
-                    {aiSummaryError && (
-                      <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                        {aiSummaryError} 기본 요약을 표시합니다.
-                      </p>
-                    )}
-                    <p
-                      className="text-sm leading-6 text-gray-800 md:text-[15px]"
-                      aria-label={aiRecommendationSummary.description}
-                    >
-                      <span aria-hidden="true">{typedAiSummary}</span>
-                      {typedAiSummary !== aiRecommendationSummary.description && (
-                        <span
-                          aria-hidden="true"
-                          className="animate-type-caret ml-0.5 inline-block h-[1.05em] w-0.5 translate-y-0.5 bg-blue-500"
-                        />
+                    <div className="p-4 md:p-5">
+                      {aiSummaryError && (
+                        <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                          {aiSummaryError} 기본 요약을 표시합니다.
+                        </p>
                       )}
-                    </p>
 
-                    {showAiSummaryDetails && (
-                      <>
-                    <div className="mt-3 animate-fade-in space-y-1.5 rounded-lg bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-600">
-                      <p>{aiRecommendationSummary.preferenceText}</p>
-                      {aiRecommendationSummary.filterText && (
-                        <p>{aiRecommendationSummary.filterText}</p>
-                      )}
-                    </div>
-
-                    {aiRecommendationSummary.nextAction && (
-                      <div
-                        className="mt-3 animate-fade-in rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 opacity-0"
-                        style={{ animationDelay: '120ms' }}
+                      <p
+                        className="text-sm leading-6 text-gray-800 md:text-[15px]"
+                        aria-label={
+                          aiRecommendationSummary.description
+                        }
                       >
-                        <p className="text-xs font-semibold text-blue-600">
-                          다음 행동 추천
-                        </p>
-                        <p className="mt-1 text-sm font-medium leading-5 text-gray-800">
-                          {aiRecommendationSummary.nextAction}
-                        </p>
-                      </div>
-                    )}
+                        <span aria-hidden="true">
+                          {typedAiSummary}
+                        </span>
 
-                    <div
-                      className="mt-4 grid animate-fade-in gap-3 opacity-0 md:grid-cols-2"
-                      style={{ animationDelay: '240ms' }}
-                    >
-                      <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-3">
-                        <p className="text-sm font-semibold text-gray-900">
-                          가장 강한 추천 근거
-                        </p>
-                        <ul className="mt-2 space-y-1.5 text-sm leading-5 text-gray-700">
-                          {aiRecommendationSummary.strongSignals.map((signal) => (
-                            <li key={signal} className="flex gap-2">
-                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
-                              <span>{signal}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-3">
-                        <p className="text-sm font-semibold text-gray-900">
-                          확인하면 좋은 점
-                        </p>
-                        <ul className="mt-2 space-y-1.5 text-sm leading-5 text-gray-700">
-                          {aiRecommendationSummary.checkPoints.map((point) => (
-                            <li key={point} className="flex gap-2">
-                              <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
-                              <span>{point}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
+                        {typedAiSummary !==
+                          aiRecommendationSummary.description && (
+                          <span
+                            aria-hidden="true"
+                            className="animate-type-caret ml-0.5 inline-block h-[1.05em] w-0.5 translate-y-0.5 bg-blue-500"
+                          />
+                        )}
+                      </p>
+
+                      {showAiSummaryDetails && (
+                        <>
+                          <div className="mt-3 animate-fade-in space-y-1.5 rounded-lg bg-gray-50 px-3 py-2 text-xs leading-5 text-gray-600">
+                            <p>
+                              {
+                                aiRecommendationSummary.preferenceText
+                              }
+                            </p>
+
+                            {aiRecommendationSummary.filterText && (
+                              <p>
+                                {
+                                  aiRecommendationSummary.filterText
+                                }
+                              </p>
+                            )}
+                          </div>
+
+                          {aiRecommendationSummary.nextAction && (
+                            <div
+                              className="mt-3 animate-fade-in rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2.5 opacity-0"
+                              style={{
+                                animationDelay: '120ms',
+                              }}
+                            >
+                              <p className="text-xs font-semibold text-blue-600">
+                                다음 행동 추천
+                              </p>
+
+                              <p className="mt-1 text-sm font-medium leading-5 text-gray-800">
+                                {
+                                  aiRecommendationSummary.nextAction
+                                }
+                              </p>
+                            </div>
+                          )}
+
+                          <div
+                            className="mt-4 grid animate-fade-in gap-3 opacity-0 md:grid-cols-2"
+                            style={{
+                              animationDelay: '240ms',
+                            }}
+                          >
+                            <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-3">
+                              <p className="text-sm font-semibold text-gray-900">
+                                가장 강한 추천 근거
+                              </p>
+
+                              <ul className="mt-2 space-y-1.5 text-sm leading-5 text-gray-700">
+                                {aiRecommendationSummary.strongSignals.map(
+                                  (signal) => (
+                                    <li
+                                      key={signal}
+                                      className="flex gap-2"
+                                    >
+                                      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-400" />
+                                      <span>{signal}</span>
+                                    </li>
+                                  )
+                                )}
+                              </ul>
+                            </div>
+
+                            <div className="rounded-lg border border-gray-100 bg-gray-50/70 p-3">
+                              <p className="text-sm font-semibold text-gray-900">
+                                확인하면 좋은 점
+                              </p>
+
+                              <ul className="mt-2 space-y-1.5 text-sm leading-5 text-gray-700">
+                                {aiRecommendationSummary.checkPoints.map(
+                                  (point) => (
+                                    <li
+                                      key={point}
+                                      className="flex gap-2"
+                                    >
+                                      <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" />
+                                      <span>{point}</span>
+                                    </li>
+                                  )
+                                )}
+                              </ul>
+                            </div>
+                          </div>
+                        </>
+                      )}
                     </div>
-                      </>
-                    )}
-                  </div>
                   )}
                 </div>
               )}
@@ -2524,17 +3262,22 @@ export default function LandingPage() {
                 <p className="text-sm font-medium text-gray-800">
                   추천 공고 {matchResultStats.total}개
                 </p>
+
                 <p className="mt-1 text-xs text-gray-500">
-                  AI 적합 {matchResultStats.aiSuitable}개 · 보통 {matchResultStats.normal}개 · 지원
-                  가능 {matchResultStats.accessible}개 · 정보 부족 {matchResultStats.infoLacking}개 ·
-                  부적합 {matchResultStats.unsuitable}개
+                  AI 적합 {matchResultStats.aiSuitable}개 · 보통{' '}
+                  {matchResultStats.normal}개 · 지원 가능{' '}
+                  {matchResultStats.accessible}개 · 정보 부족{' '}
+                  {matchResultStats.infoLacking}개 · 부적합{' '}
+                  {matchResultStats.unsuitable}개
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-2 mb-4">
                 <select
                   value={matchScoreFilter}
-                  onChange={(e) => setMatchScoreFilter(e.target.value)}
+                  onChange={(e) =>
+                    setMatchScoreFilter(e.target.value)
+                  }
                   className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm"
                 >
                   <option value="all">점수: 전체</option>
@@ -2551,7 +3294,9 @@ export default function LandingPage() {
 
                 <select
                   value={matchHiringFilter}
-                  onChange={(e) => setMatchHiringFilter(e.target.value)}
+                  onChange={(e) =>
+                    setMatchHiringFilter(e.target.value)
+                  }
                   className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm"
                 >
                   <option value="all">채용형태: 전체</option>
@@ -2569,7 +3314,8 @@ export default function LandingPage() {
                   pagedMatchedJobs.map((job) => {
                     const jobKey = getJobKey(job)
                     const badges = getMatchBadges(job)
-                    const jobExplanation = buildJobExplanation(job)
+                    const jobExplanation =
+                      buildJobExplanation(job)
 
                     return (
                       <div
@@ -2580,28 +3326,33 @@ export default function LandingPage() {
                           <p className="text-sm md:text-base text-gray-500 mb-1">
                             {job.company}
                           </p>
+
                           <button
                             onClick={() => handleGoJob(job)}
                             className="font-semibold text-base md:text-lg text-left hover:text-primary transition-colors block"
                           >
                             {job.title}
                           </button>
+
                           <div className="flex gap-2 mt-2 flex-wrap">
                             {job.category && (
                               <span className="text-xs md:text-sm px-2 py-1 bg-blue-50 rounded text-blue-600">
                                 {job.category}
                               </span>
                             )}
+
                             {job.location && (
                               <span className="text-xs md:text-sm px-2 py-1 bg-slate-100 rounded text-gray-500">
                                 {job.location}
                               </span>
                             )}
+
                             {job.career && (
                               <span className="text-xs md:text-sm px-2 py-1 bg-slate-100 rounded text-gray-500">
                                 {job.career}
                               </span>
                             )}
+
                             {job.salary && (
                               <span className="text-xs md:text-sm px-2 py-1 bg-slate-100 rounded text-gray-500">
                                 {job.salary}
@@ -2611,11 +3362,16 @@ export default function LandingPage() {
 
                           <div className="mt-4 space-y-2 rounded-lg bg-slate-50 p-3 text-sm text-gray-700">
                             <p>
-                              <span className="font-semibold text-gray-900">AI 추천 이유: </span>
+                              <span className="font-semibold text-gray-900">
+                                AI 추천 이유:{' '}
+                              </span>
                               {jobExplanation.reason}
                             </p>
+
                             <p>
-                              <span className="font-semibold text-gray-900">판정 이유: </span>
+                              <span className="font-semibold text-gray-900">
+                                판정 이유:{' '}
+                              </span>
                               {jobExplanation.statusReason}
                             </p>
                           </div>
@@ -2623,33 +3379,49 @@ export default function LandingPage() {
 
                         <div className="flex flex-row sm:flex-col items-start sm:items-end justify-between sm:justify-start gap-2 flex-shrink-0 sm:pt-7">
                           <div className="flex items-center gap-3">
-                          {job.matchRate > 0 && (
+                            {job.matchRate > 0 && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setScoreDetailJob(job)
+                                }
+                                className="rounded-lg px-2 py-1 text-primary font-bold text-lg md:text-xl whitespace-nowrap transition-colors hover:bg-blue-50 hover:text-blue-700"
+                                aria-label={`${job.matchRate}점 매칭 상세 분석 보기`}
+                                title="점수 계산 과정 보기"
+                              >
+                                {job.matchRate}점
+                              </button>
+                            )}
+
                             <button
-                              type="button"
-                              onClick={() => setScoreDetailJob(job)}
-                              className="rounded-lg px-2 py-1 text-primary font-bold text-lg md:text-xl whitespace-nowrap transition-colors hover:bg-blue-50 hover:text-blue-700"
-                              aria-label={`${job.matchRate}점 매칭 상세 분석 보기`}
-                              title="점수 계산 과정 보기"
+                              onClick={() =>
+                                handleToggleBookmark(job)
+                              }
+                              aria-label="북마크"
                             >
-                              {job.matchRate}점
+                              <svg
+                                width="22"
+                                height="22"
+                                viewBox="0 0 24 24"
+                                fill={
+                                  bookmarkIds.includes(jobKey)
+                                    ? '#2563eb'
+                                    : '#ffffff'
+                                }
+                                xmlns="http://www.w3.org/2000/svg"
+                              >
+                                <path
+                                  d="M6 3.75C6 3.33579 6.33579 3 6.75 3H17.25C17.6642 3 18 3.33579 18 3.75V21L12 16.5L6 21V3.75Z"
+                                  stroke={
+                                    bookmarkIds.includes(jobKey)
+                                      ? '#2563eb'
+                                      : '#94a3b8'
+                                  }
+                                  strokeWidth="1.8"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
                             </button>
-                          )}
-                          <button onClick={() => handleToggleBookmark(job)} aria-label="북마크">
-                            <svg
-                              width="22"
-                              height="22"
-                              viewBox="0 0 24 24"
-                              fill={bookmarkIds.includes(jobKey) ? '#2563eb' : '#ffffff'}
-                              xmlns="http://www.w3.org/2000/svg"
-                            >
-                              <path
-                                d="M6 3.75C6 3.33579 6.33579 3 6.75 3H17.25C17.6642 3 18 3.33579 18 3.75V21L12 16.5L6 21V3.75Z"
-                                stroke={bookmarkIds.includes(jobKey) ? '#2563eb' : '#94a3b8'}
-                                strokeWidth="1.8"
-                                strokeLinejoin="round"
-                              />
-                            </svg>
-                          </button>
                           </div>
 
                           {badges.length > 0 && (
@@ -2658,8 +3430,12 @@ export default function LandingPage() {
                                 <button
                                   key={`${jobKey}-${badge}`}
                                   type="button"
-                                  onClick={() => setResultGuideBadge(badge)}
-                                  className={`text-xs md:text-sm px-2 py-1 rounded border font-medium transition-colors ${getBadgeClassName(badge)}`}
+                                  onClick={() =>
+                                    setResultGuideBadge(badge)
+                                  }
+                                  className={`text-xs md:text-sm px-2 py-1 rounded border font-medium transition-colors ${getBadgeClassName(
+                                    badge
+                                  )}`}
                                 >
                                   {badge}
                                 </button>
@@ -2673,10 +3449,14 @@ export default function LandingPage() {
                 )}
               </div>
 
-              {/* AI 매칭결과 전용 페이지네이션 */}
               {totalMatchPages > 1 && (
                 <div className="flex justify-center items-center gap-2 mt-6">
-                  {Array.from({ length: totalMatchPages }, (_, i) => i + 1).map((page) => (
+                  {Array.from(
+                    {
+                      length: totalMatchPages,
+                    },
+                    (_, i) => i + 1
+                  ).map((page) => (
                     <button
                       key={page}
                       onClick={() => setMatchPage(page)}
@@ -2708,7 +3488,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* 인기 커리어 영역 */}
       <section className="mt-10 md:mt-12">
         <h2 className="text-2xl md:text-3xl font-bold mb-4 md:mb-6">
           인기 커리어
@@ -2717,7 +3496,9 @@ export default function LandingPage() {
         <div className="mb-4">
           <select
             value={selectedPopularCategory}
-            onChange={(e) => setSelectedPopularCategory(e.target.value)}
+            onChange={(e) =>
+              setSelectedPopularCategory(e.target.value)
+            }
             className="px-4 py-3 border border-gray-200 rounded-xl text-sm md:text-base bg-white w-full sm:w-auto min-h-[48px]"
           >
             <option value="전체">전체</option>
@@ -2737,6 +3518,7 @@ export default function LandingPage() {
         {isLoadingJobs ? (
           <div className="p-8 md:p-10 bg-white rounded-2xl border border-gray-200 text-center">
             <div className="w-10 h-10 border-2 border-gray-200 border-t-primary rounded-full animate-spin mx-auto mb-4" />
+
             <p className="text-sm md:text-base text-gray-500">
               DB 공고를 불러오는 중입니다...
             </p>
@@ -2758,7 +3540,9 @@ export default function LandingPage() {
                       className="relative bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-gray-200"
                     >
                       <button
-                        onClick={() => handleToggleBookmark(job)}
+                        onClick={() =>
+                          handleToggleBookmark(job)
+                        }
                         className="absolute top-5 right-5 md:top-6 md:right-6 max-md:p-3 max-md:min-h-[44px] max-md:min-w-[44px] max-md:flex max-md:items-center max-md:justify-center"
                         aria-label="북마크"
                       >
@@ -2766,12 +3550,20 @@ export default function LandingPage() {
                           width="22"
                           height="22"
                           viewBox="0 0 24 24"
-                          fill={bookmarkIds.includes(jobKey) ? '#2563eb' : '#ffffff'}
+                          fill={
+                            bookmarkIds.includes(jobKey)
+                              ? '#2563eb'
+                              : '#ffffff'
+                          }
                           xmlns="http://www.w3.org/2000/svg"
                         >
                           <path
                             d="M6 3.75C6 3.33579 6.33579 3 6.75 3H17.25C17.6642 3 18 3.33579 18 3.75V21L12 16.5L6 21V3.75Z"
-                            stroke={bookmarkIds.includes(jobKey) ? '#2563eb' : '#94a3b8'}
+                            stroke={
+                              bookmarkIds.includes(jobKey)
+                                ? '#2563eb'
+                                : '#94a3b8'
+                            }
                             strokeWidth="1.8"
                             strokeLinejoin="round"
                           />
@@ -2779,7 +3571,9 @@ export default function LandingPage() {
                       </button>
 
                       <button
-                        onClick={() => handleGoPopularJob(job)}
+                        onClick={() =>
+                          handleGoPopularJob(job)
+                        }
                         className="font-bold text-lg md:text-2xl mb-2 hover:text-primary transition-colors text-left pr-10 block"
                       >
                         {job.title}
@@ -2795,16 +3589,19 @@ export default function LandingPage() {
                             {job.category}
                           </span>
                         )}
+
                         {job.location && (
                           <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
                             {job.location}
                           </span>
                         )}
+
                         {job.career && (
                           <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
                             {job.career}
                           </span>
                         )}
+
                         {job.salary && (
                           <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
                             {job.salary}
@@ -2817,143 +3614,166 @@ export default function LandingPage() {
               )}
             </div>
 
-            {/* 인기 커리어 전용 페이지네이션 */}
-{totalPages > 1 && (
-  <div className="flex justify-center items-center gap-2 mt-6">
-    {/* 이전 페이지 */}
-    <button
-      type="button"
-      onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-      disabled={currentPage === 1}
-      className="min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-    >
-      &lt;
-    </button>
+            {totalPages > 1 && (
+              <div className="flex justify-center items-center gap-2 mt-6">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage((prev) =>
+                      Math.max(1, prev - 1)
+                    )
+                  }
+                  disabled={currentPage === 1}
+                  className="min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  &lt;
+                </button>
 
-    {/* 첫 페이지 */}
-    <button
-      type="button"
-      onClick={() => setCurrentPage(1)}
-      className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
-        currentPage === 1
-          ? 'bg-primary text-white'
-          : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
-      }`}
-    >
-      1
-    </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
+                    currentPage === 1
+                      ? 'bg-primary text-white'
+                      : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  1
+                </button>
 
-    {/* 앞쪽 ... */}
-    {currentPage > 4 && (
-  <button
-    type="button"
-    onClick={() => {
-      const page = window.prompt(
-        `이동할 페이지 번호를 입력하세요. (1~${totalPages})`
-      );
+                {currentPage > 4 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const page = window.prompt(
+                        `이동할 페이지 번호를 입력하세요. (1~${totalPages})`
+                      )
 
-      if (page === null) return;
+                      if (page === null) return
 
-      const targetPage = Number(page);
+                      const targetPage = Number(page)
 
-      if (
-        Number.isInteger(targetPage) &&
-        targetPage >= 1 &&
-        targetPage <= totalPages
-      ) {
-        setCurrentPage(targetPage);
-      } else {
-        window.alert(`1부터 ${totalPages} 사이의 페이지 번호를 입력해주세요.`);
-      }
-    }}
-    className="px-1 text-gray-400 hover:text-gray-700 cursor-pointer"
-    title="페이지 번호 직접 입력"
-  >
-    ...
-  </button>
-)}
+                      if (
+                        Number.isInteger(targetPage) &&
+                        targetPage >= 1 &&
+                        targetPage <= totalPages
+                      ) {
+                        setCurrentPage(targetPage)
+                      } else {
+                        window.alert(
+                          `1부터 ${totalPages} 사이의 페이지 번호를 입력해주세요.`
+                        )
+                      }
+                    }}
+                    className="px-1 text-gray-400 hover:text-gray-700 cursor-pointer"
+                    title="페이지 번호 직접 입력"
+                  >
+                    ...
+                  </button>
+                )}
 
-    {/* 현재 페이지 주변 번호 */}
-    {Array.from({ length: totalPages }, (_, i) => i + 1)
-      .filter((page) => {
-        if (page === 1 || page === totalPages) return false
-        return Math.abs(page - currentPage) <= 2
-      })
-      .map((page) => (
-        <button
-          key={page}
-          type="button"
-          onClick={() => setCurrentPage(page)}
-          className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
-            currentPage === page
-              ? 'bg-primary text-white'
-              : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
-          }`}
-        >
-          {page}
-        </button>
-      ))}
+                {Array.from(
+                  {
+                    length: totalPages,
+                  },
+                  (_, i) => i + 1
+                )
+                  .filter((page) => {
+                    if (
+                      page === 1 ||
+                      page === totalPages
+                    ) {
+                      return false
+                    }
 
-    {/* 뒤쪽 ... */}
-    {currentPage < totalPages - 3 && (
-  <button
-    type="button"
-    onClick={() => {
-      const page = window.prompt(
-        `이동할 페이지 번호를 입력하세요. (1~${totalPages})`
-      );
+                    return (
+                      Math.abs(page - currentPage) <= 2
+                    )
+                  })
+                  .map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      onClick={() =>
+                        setCurrentPage(page)
+                      }
+                      className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
+                        currentPage === page
+                          ? 'bg-primary text-white'
+                          : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  ))}
 
-      if (page === null) return;
+                {currentPage < totalPages - 3 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const page = window.prompt(
+                        `이동할 페이지 번호를 입력하세요. (1~${totalPages})`
+                      )
 
-      const targetPage = Number(page);
+                      if (page === null) return
 
-      if (
-        Number.isInteger(targetPage) &&
-        targetPage >= 1 &&
-        targetPage <= totalPages
-      ) {
-        setCurrentPage(targetPage);
-      } else {
-        window.alert(`1부터 ${totalPages} 사이의 페이지 번호를 입력해주세요.`);
-      }
-    }}
-    className="px-1 text-gray-400 hover:text-gray-700 cursor-pointer"
-    title="페이지 번호 직접 입력"
-  >
-    ...
-  </button>
-)}
-    {/* 마지막 페이지 */}
-    {totalPages > 1 && (
-      <button
-        type="button"
-        onClick={() => setCurrentPage(totalPages)}
-        className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
-          currentPage === totalPages
-            ? 'bg-primary text-white'
-            : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
-        }`}
-      >
-        {totalPages}
-      </button>
-    )}
+                      const targetPage = Number(page)
 
-    {/* 다음 페이지 */}
-    <button
-      type="button"
-      onClick={() =>
-        setCurrentPage((prev) => Math.min(totalPages, prev + 1))
-      }
-      disabled={currentPage === totalPages}
-      className="min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-    >
-      &gt;
-    </button>
-  </div>
-)}
+                      if (
+                        Number.isInteger(targetPage) &&
+                        targetPage >= 1 &&
+                        targetPage <= totalPages
+                      ) {
+                        setCurrentPage(targetPage)
+                      } else {
+                        window.alert(
+                          `1부터 ${totalPages} 사이의 페이지 번호를 입력해주세요.`
+                        )
+                      }
+                    }}
+                    className="px-1 text-gray-400 hover:text-gray-700 cursor-pointer"
+                    title="페이지 번호 직접 입력"
+                  >
+                    ...
+                  </button>
+                )}
+
+                {totalPages > 1 && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCurrentPage(totalPages)
+                    }
+                    className={`min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium transition-colors ${
+                      currentPage === totalPages
+                        ? 'bg-primary text-white'
+                        : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    {totalPages}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCurrentPage((prev) =>
+                      Math.min(totalPages, prev + 1)
+                    )
+                  }
+                  disabled={
+                    currentPage === totalPages
+                  }
+                  className="min-w-[40px] h-10 px-3 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  &gt;
+                </button>
+              </div>
+            )}
           </>
         )}
       </section>
+
       {editingResume && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl md:p-7">
@@ -2962,8 +3782,10 @@ export default function LandingPage() {
                 <h3 className="text-xl font-bold text-gray-900">
                   채용 조건 수정
                 </h3>
+
                 <p className="mt-1 text-sm text-gray-500">
-                  수정된 조건은 이력서와 함께 저장되며, 저장 후 채용공고를 다시 추천합니다.
+                  수정된 조건은 이력서와 함께 저장되며, 저장 후
+                  채용공고를 다시 추천합니다.
                 </p>
               </div>
 
@@ -2979,12 +3801,16 @@ export default function LandingPage() {
             </div>
 
             <div className="mb-5 rounded-xl border border-blue-100 bg-blue-50 p-4">
-              <p className="text-xs text-gray-500">수정할 이력서</p>
+              <p className="text-xs text-gray-500">
+                수정할 이력서
+              </p>
+
               <div className="mt-2 flex items-center gap-3">
                 <FileText
                   className="h-6 w-6 flex-shrink-0 text-primary"
                   aria-hidden
                 />
+
                 <p className="min-w-0 truncate font-medium text-gray-900">
                   {editingResume.name ||
                     editingResume.filename ||
@@ -2999,7 +3825,10 @@ export default function LandingPage() {
                 options={ROLE_OPTIONS}
                 selectedValues={editDesiredRoles}
                 onToggle={(value) =>
-                  toggleSelectedValue(setEditDesiredRoles, value)
+                  toggleSelectedValue(
+                    setEditDesiredRoles,
+                    value
+                  )
                 }
               />
 
@@ -3008,7 +3837,10 @@ export default function LandingPage() {
                 options={LOCATION_OPTIONS}
                 selectedValues={editDesiredLocations}
                 onToggle={(value) =>
-                  toggleSelectedValue(setEditDesiredLocations, value)
+                  toggleSelectedValue(
+                    setEditDesiredLocations,
+                    value
+                  )
                 }
               />
 
@@ -3017,7 +3849,10 @@ export default function LandingPage() {
                 options={EMPLOYMENT_TYPE_OPTIONS}
                 selectedValues={editEmploymentTypes}
                 onToggle={(value) =>
-                  toggleSelectedValue(setEditEmploymentTypes, value)
+                  toggleSelectedValue(
+                    setEditEmploymentTypes,
+                    value
+                  )
                 }
               />
 
@@ -3026,13 +3861,17 @@ export default function LandingPage() {
                 options={JOB_KEYWORD_OPTIONS}
                 selectedValues={editDesiredKeywords}
                 onToggle={(value) =>
-                  toggleSelectedValue(setEditDesiredKeywords, value)
+                  toggleSelectedValue(
+                    setEditDesiredKeywords,
+                    value
+                  )
                 }
               />
             </div>
 
             <p className="mt-5 text-xs text-gray-400">
-              선택하지 않은 항목은 제한 없이 전체 공고를 대상으로 합니다.
+              선택하지 않은 항목은 제한 없이 전체 공고를 대상으로
+              합니다.
             </p>
 
             {(editDesiredRoles.length > 0 ||
@@ -3070,7 +3909,9 @@ export default function LandingPage() {
                 disabled={isUpdatingPreferences}
                 className="rounded-xl bg-primary px-5 py-2.5 font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isUpdatingPreferences ? '조건 저장 중...' : '저장 후 재분석'}
+                {isUpdatingPreferences
+                  ? '조건 저장 중...'
+                  : '저장 후 재분석'}
               </button>
             </div>
           </div>
@@ -3085,8 +3926,10 @@ export default function LandingPage() {
                 <h3 className="text-xl font-bold text-gray-900">
                   이력서 등록 조건 설정
                 </h3>
+
                 <p className="mt-1 text-sm text-gray-500">
-                  이력서와 함께 저장할 희망 채용 조건을 선택해주세요.
+                  이력서와 함께 저장할 희망 채용 조건을
+                  선택해주세요.
                 </p>
               </div>
 
@@ -3102,15 +3945,26 @@ export default function LandingPage() {
             </div>
 
             <div className="mb-5 rounded-xl border border-blue-100 bg-blue-50 p-4">
-              <p className="text-xs text-gray-500">선택한 이력서</p>
+              <p className="text-xs text-gray-500">
+                선택한 이력서
+              </p>
+
               <div className="mt-2 flex items-center gap-3">
-                <FileText className="h-6 w-6 text-primary" aria-hidden />
+                <FileText
+                  className="h-6 w-6 text-primary"
+                  aria-hidden
+                />
+
                 <div className="min-w-0">
                   <p className="truncate font-medium text-gray-900">
                     {pendingFile.name}
                   </p>
+
                   <p className="text-sm text-gray-500">
-                    {Math.round(pendingFile.size / 1024)} KB
+                    {Math.round(
+                      pendingFile.size / 1024
+                    )}{' '}
+                    KB
                   </p>
                 </div>
               </div>
@@ -3121,33 +3975,54 @@ export default function LandingPage() {
                 title="희망 직무"
                 options={ROLE_OPTIONS}
                 selectedValues={desiredRoles}
-                onToggle={(value) => toggleSelectedValue(setDesiredRoles, value)}
+                onToggle={(value) =>
+                  toggleSelectedValue(
+                    setDesiredRoles,
+                    value
+                  )
+                }
               />
 
               <PreferenceOptionGroup
                 title="희망 지역"
                 options={LOCATION_OPTIONS}
                 selectedValues={desiredLocations}
-                onToggle={(value) => toggleSelectedValue(setDesiredLocations, value)}
+                onToggle={(value) =>
+                  toggleSelectedValue(
+                    setDesiredLocations,
+                    value
+                  )
+                }
               />
 
               <PreferenceOptionGroup
                 title="고용 형태"
                 options={EMPLOYMENT_TYPE_OPTIONS}
                 selectedValues={employmentTypes}
-                onToggle={(value) => toggleSelectedValue(setEmploymentTypes, value)}
+                onToggle={(value) =>
+                  toggleSelectedValue(
+                    setEmploymentTypes,
+                    value
+                  )
+                }
               />
 
               <PreferenceOptionGroup
                 title="관심 직무 키워드"
                 options={JOB_KEYWORD_OPTIONS}
                 selectedValues={desiredKeywords}
-                onToggle={(value) => toggleSelectedValue(setDesiredKeywords, value)}
+                onToggle={(value) =>
+                  toggleSelectedValue(
+                    setDesiredKeywords,
+                    value
+                  )
+                }
               />
             </div>
 
             <p className="mt-5 text-xs text-gray-400">
-              선택하지 않은 항목은 제한 없이 전체 공고를 대상으로 합니다.
+              선택하지 않은 항목은 제한 없이 전체 공고를 대상으로
+              합니다.
             </p>
 
             {(desiredRoles.length > 0 ||
@@ -3185,17 +4060,28 @@ export default function LandingPage() {
                 disabled={isAnalyzing}
                 className="rounded-xl bg-primary px-5 py-2.5 font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {isAnalyzing ? '등록 및 분석 중...' : '등록 및 분석'}
+                {isAnalyzing
+                  ? '등록 및 분석 중...'
+                  : '등록 및 분석'}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <ScoreDetailModal job={scoreDetailJob} onClose={() => setScoreDetailJob(null)} />
+      <ScoreDetailModal
+        job={scoreDetailJob}
+        onClose={() => setScoreDetailJob(null)}
+      />
+
       <MatchResultGuideModal
         selectedBadge={resultGuideBadge}
         onClose={() => setResultGuideBadge(null)}
+      />
+
+      <AiMatchingTipModal
+        open={isAnalyzing}
+        loadingStep={AI_LOADING_STEPS[loadingStepIndex]}
       />
     </main>
   )
