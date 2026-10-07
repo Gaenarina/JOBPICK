@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { X } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { getJobById } from '@/lib/jobs'
-import { getBookmarks, toggleBookmark } from '@/lib/userStorage'
+import { getBookmarks, pushRecentJob, toggleBookmark } from '@/lib/userStorage'
 
 function getJobKey(job) {
   return String(job?.id || job?.jobId || '')
@@ -52,6 +52,11 @@ export default function JobDetailPage() {
 
     setIsBookmarked(bookmarked)
   }, [mounted, job, resumeUserId])
+
+  useEffect(() => {
+    if (!mounted || !job) return
+    pushRecentJob(job)
+  }, [mounted, job])
 
   if (!mounted) return null
 

@@ -59,6 +59,10 @@ export function upsertApplication(application, userId) {
   return next
 }
 
+function getBookmarkKey(job) {
+  return String(job?.id || job?.jobId || '')
+}
+
 export function getBookmarks(userId) {
   const key = getUserStorageKey('bookmarks', userId)
   return key ? readJson(key, []) : []
@@ -74,13 +78,40 @@ export function toggleBookmark(job, userId) {
   return next
 }
 
+export function updateBookmarkMemo(jobId, memo, userId) {
+  const key = getUserStorageKey('bookmarks', userId)
+  if (!key) return []
+
+  const targetId = String(jobId || '')
+  if (!targetId) return getBookmarks(userId)
+
+  const prev = readJson(key, [])
+  const text = String(memo ?? '').trim()
+
+  const next = prev.map((item) => {
+    if (getBookmarkKey(item) !== targetId) return item
+
+    if (!text) {
+      const rest = { ...item }
+      delete rest.memo
+      return rest
+    }
+
+    return { ...item, memo: text }
+  })
+
+  writeJson(key, next)
+  return next
+}
+
 export function getRecentJobs() {
   return readJson('jobpick_recent_jobs', [])
 }
 
 export function pushRecentJob(job) {
   const prev = getRecentJobs()
-  const next = [job, ...prev.filter((item) => item.id !== job.id)].slice(0, 20)
+  const entry = { ...job, viewedAt: new Date().toISOString() }
+  const next = [entry, ...prev.filter((item) => item.id !== job.id)].slice(0, 20)
   writeJson('jobpick_recent_jobs', next)
   return next
 }
