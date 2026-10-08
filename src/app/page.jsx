@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/context/AuthContext'
+import MatchingImprovementPanel from '@/components/MatchingImprovementPanel'
 import {
   addResumes,
   getBookmarks,
@@ -1237,6 +1238,7 @@ export default function LandingPage() {
   const [bookmarkIds, setBookmarkIds] = useState([])
   const [scoreDetailJob, setScoreDetailJob] = useState(null)
   const [resultGuideBadge, setResultGuideBadge] = useState(null)
+  const [improvementJob, setImprovementJob] = useState(null)
   const [showAiSummary, setShowAiSummary] = useState(false)
   const [isGeneratingAiSummary, setIsGeneratingAiSummary] = useState(false)
   const [aiSummaryError, setAiSummaryError] = useState('')
@@ -1477,7 +1479,10 @@ export default function LandingPage() {
       }
 
       const rawMatches = extractMatchedJobsFromResponse(data)
-      const topMatches = normalizeJobs(rawMatches)
+      const topMatches = normalizeJobs(rawMatches).map((job) => ({
+        ...job,
+        resumeId,
+      }))
       const analyzedAt = formatAiAnalysisTime()
       const nextMatchMeta = extractMatchMetaFromResponse(data)
 
@@ -2614,10 +2619,21 @@ export default function LandingPage() {
                               <span className="font-semibold text-gray-900">AI 추천 이유: </span>
                               {jobExplanation.reason}
                             </p>
+
                             <p>
                               <span className="font-semibold text-gray-900">판정 이유: </span>
                               {jobExplanation.statusReason}
                             </p>
+
+                            <div className="pt-2">
+                              <button
+                                type="button"
+                                onClick={() => setImprovementJob(job)}
+                                className="text-sm font-semibold text-primary hover:underline"
+                              >
+                                이 공고와 더 가까워지기 
+                              </button>
+                            </div>
                           </div>
                         </div>
 
@@ -3188,6 +3204,36 @@ export default function LandingPage() {
                 {isAnalyzing ? '등록 및 분석 중...' : '등록 및 분석'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {improvementJob && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm text-gray-500 truncate">{improvementJob.company}</p>
+                <h3 className="mt-1 text-xl font-bold text-gray-900">
+                  이 공고와 더 가까워지기
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">{improvementJob.title}</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setImprovementJob(null)}
+                className="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="이 공고와 더 가까워지기 닫기"
+              >
+                <X className="h-5 w-5" aria-hidden />
+              </button>
+            </div>
+
+            <MatchingImprovementPanel
+              resumeId={improvementJob.resumeId || getResumeDocId(selectedResume) || ''}
+              jobId={improvementJob.jobId || improvementJob.id}
+            />
           </div>
         </div>
       )}
