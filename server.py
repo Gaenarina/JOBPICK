@@ -16,7 +16,10 @@ from database.firebase_save_matching import (
 )
 
 from main.main_resume import process_resume_by_doc_id
-from main.main_matching import process_matching_groups_by_resume_id
+from main.main_matching import (
+    process_matching_groups_by_resume_id,
+    get_latest_resume_analysis,
+)
 from main.main_matching_one import process_matching_one_by_ids
 
 from matching.improvement_candidates import build_improvement_candidates
@@ -1010,6 +1013,32 @@ def process_one_match():
             "error": str(e)
         }), 500
 
+def get_resume_for_improvement(resume_id):
+    snapshot = (
+        db.collection("resumes")
+        .document(resume_id)
+        .get()
+    )
+
+    if not snapshot.exists:
+        raise ValueError("이력서를 찾을 수 없습니다.")
+
+    resume_raw = snapshot.to_dict() or {}
+
+    analysis, _ = get_latest_resume_analysis(
+        resume_raw
+    )
+
+    if not analysis:
+        raise ValueError(
+            "사용 가능한 이력서 분석 결과가 없습니다."
+        )
+
+    return {
+        **resume_raw,
+        "resume": analysis,
+    }
+
 @app.route("/matching/improvements", methods=["POST"])
 def get_matching_improvements():
     try:
@@ -1063,8 +1092,13 @@ def get_matching_improvements():
                 "message": "해당 공고의 매칭 결과를 찾을 수 없습니다."
             }), 404
 
+        resume_for_candidates = get_resume_for_improvement(
+            resume_id
+        )
+
         candidates = build_improvement_candidates(
-            target_match
+            target_match,
+            resume_for_candidates,
         )
 
         return jsonify({
@@ -1104,147 +1138,172 @@ def simulate_match_improvement():
     try:
         data = request.get_json(silent=True) or {}
 
-        resume_id = str(data.get("resumeId", "")).strip()
-        job_id = str(data.get("jobId", "")).strip()
-        selected = data.get("selected", []) or []
+        if not isinstance(data, dict):
+            return jsonify({
+                "success": False,
+                "message": "요청 데이터는 JSON 객체여야 합니다.",
+            }), 400
+
+        resume_id = str(data.get("resumeId") or "").strip()
+        job_id = str(data.get("jobId") or "").strip()
+        selected = data.get("selected", [])
 
         if not resume_id or not job_id:
             return jsonify({
                 "success": False,
-                "message": "resumeId와 jobId가 필요합니다."
+                "message": "resumeId와 jobId가 필요합니다.",
             }), 400
 
-        if not isinstance(selected, list):
+        if (
+            not isinstance(selected, list)
+            or not selected
+            or any(
+                not isinstance(item, dict)
+                for item in selected
+            )
+        ):
             return jsonify({
                 "success": False,
-                "message": "selected는 배열이어야 합니다."
+                "message": "보완 항목을 하나 이상 선택해주세요.",
             }), 400
 
-        # 원본 이력서
-        resume_snap = (
+        # 1. 저장된 공고별 매칭 결과 조회
+        saved = get_matching_result(db, resume_id) or {}
+
+        target = next(
+            (
+                match
+                for match in [
+                    *(saved.get("matches") or []),
+                    *(saved.get("manualMatches") or []),
+                ]
+                if (
+                    isinstance(match, dict)
+                    and str(get_match_job_id(match)) == job_id
+                )
+            ),
+            None,
+        )
+
+        if target is None:
+            return jsonify({
+                "success": False,
+                "message": (
+                    "해당 공고의 저장된 매칭 결과가 없습니다."
+                ),
+            }), 404
+
+        # 2. 선택한 항목이 실제 추천 목록에 있는지 검사
+        resume_for_candidates = get_resume_for_improvement(
+            resume_id
+        )
+
+        candidates = build_improvement_candidates(
+            target,
+            resume_for_candidates,
+        )
+        
+        allowed = {
+            (str(item["type"]), str(item["value"]))
+            for item in candidates
+        }
+
+        for item in selected:
+            key = (
+                str(item.get("type", "")),
+                str(item.get("value", "")),
+            )
+
+            if key not in allowed:
+                return jsonify({
+                    "success": False,
+                    "message": "유효하지 않은 보완 항목입니다.",
+                }), 400
+
+        # 3. 이력서 조회
+        resume_snapshot = (
             db.collection("resumes")
             .document(resume_id)
             .get()
         )
 
-        if not resume_snap.exists:
+        if not resume_snapshot.exists:
             return jsonify({
                 "success": False,
-                "message": "이력서를 찾을 수 없습니다."
+                "message": "이력서를 찾을 수 없습니다.",
             }), 404
 
-        # 원본 공고
-        job_snap = (
-            db.collection("job_postings")
-            .document(job_id)
-            .get()
+        resume_raw = resume_snapshot.to_dict() or {}
+
+        # 4. 일반 매칭과 같은 방식으로 최신 분석 결과 선택
+        resume_analysis, analysis_meta = (
+            get_latest_resume_analysis(resume_raw)
         )
 
-        if not job_snap.exists:
+        if not resume_analysis:
             return jsonify({
                 "success": False,
-                "message": "채용공고를 찾을 수 없습니다."
-            }), 404
+                "message": (
+                    "사용 가능한 이력서 분석 결과가 없습니다."
+                ),
+            }), 400
 
-        resume_doc = resume_snap.to_dict() or {}
-        job_doc = job_snap.to_dict() or {}
+        # 서로 다른 이력서 버전의 결과가 섞이지 않도록 확인
+        saved_version = target.get("resumeAnalysisVersion")
+        current_version = analysis_meta.get(
+            "resumeAnalysisVersion"
+        )
 
-        simulation = simulate_matching(
-            resume_doc,
-            job_doc,
+        if (
+            saved_version is not None
+            and current_version is not None
+            and str(saved_version) != str(current_version)
+        ):
+            return jsonify({
+                "success": False,
+                "message": (
+                    "이력서 분석 버전이 저장된 매칭 결과와 "
+                    "다릅니다. 매칭 결과를 갱신한 뒤 "
+                    "다시 시도해주세요."
+                ),
+            }), 409
+
+        resume_for_simulation = {
+            **resume_raw,
+            "resume": resume_analysis,
+        }
+
+        # 5. 새 시뮬레이터에 인자 3개 전달
+        result = simulate_matching(
+            target,
             selected,
+            resume_for_simulation,
         )
 
-        score_result = simulation.get("scoreResult", {}) or {}
-
-        simulated_score = round(
-            float(
-                score_result.get(
-                    "fit_score",
-                    score_result.get("final_score", 0)
-                )
-                or 0
-            ),
-            2
-        )
-
-        simulated_type = score_result.get(
-            "recommend_type",
-            ""
-        )
-
-        # 현재 저장된 결과 찾기
-        saved_result = get_matching_result(
-            db,
-            resume_id
-        ) or {}
-
-        original_match = None
-
-        for match in saved_result.get("matches", []) or []:
-            if str(match.get("jobId", "")) == job_id:
-                original_match = match
-                break
-
-        if original_match is None:
-            for match in saved_result.get("manualMatches", []) or []:
-                if str(match.get("jobId", "")) == job_id:
-                    original_match = match
-                    break
-
-        original_score = 0
-        original_type = ""
-
-        if original_match:
-            original_score = float(
-                original_match.get(
-                    "fitScore",
-                    original_match.get("finalScore", 0)
-                )
-                or 0
-            )
-
-            original_type = original_match.get(
-                "recommendType",
-                ""
-            )
-
+        # 6. 프론트가 사용하는 구조로 반환
         return jsonify({
             "success": True,
             "resumeId": resume_id,
             "jobId": job_id,
-
-            "original": {
-                "score": round(original_score, 2),
-                "recommendType": original_type,
-            },
-
-            "simulated": {
-                "score": simulated_score,
-                "recommendType": simulated_type,
-            },
-
-            "scoreChange": round(
-                simulated_score - original_score,
-                2
-            ),
-
-            "selected": selected,
-
-            "notice": (
-                "현재 JOBPICK 매칭 기준에 따른 "
-                "시뮬레이션 예상 결과입니다."
-            ),
+            **result,
         })
 
-    except Exception as e:
-        print("[matching/simulate] error:", e)
+    except ValueError as error:
+        return jsonify({
+            "success": False,
+            "message": str(error),
+        }), 400
+
+    except Exception:
+        print("[matching/simulate] 처리 실패")
         print(traceback.format_exc())
 
         return jsonify({
             "success": False,
-            "message": str(e)
-        }), 500    
+            "message": (
+                "시뮬레이션 처리 중 오류가 발생했습니다."
+            ),
+        }), 500  
         
 
 if __name__ == "__main__":
