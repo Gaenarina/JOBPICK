@@ -14,6 +14,8 @@ RUN apt-get update && \
 COPY requirements-render.txt .
 
 RUN pip install --upgrade pip && \
+    pip install --no-cache-dir torch==2.10.0 \
+      --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements-render.txt
 
 # SBERT 모델을 빌드할 때 미리 받아둠
