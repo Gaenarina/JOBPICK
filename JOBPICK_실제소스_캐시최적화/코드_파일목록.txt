@@ -1,0 +1,13 @@
+ZIP 안에 실제 들어 있는 Python 소스코드:
+
+matching/job_cache.py          2,383 bytes  전체 함수 구현 코드
+matching/optimized_preload.py  2,908 bytes  전체 함수 구현 코드
+apply_to_jobpick.py           5,662 bytes  실제 main_matching.py 변경 코드
+
+수정 전 JOBPICK의 대형 main/main_matching.py를 ZIP에 복사한 것은 아닙니다.
+위 apply_to_jobpick.py가 원래 프로젝트 내의 그 전체 파일을 직접 수정합니다.
+기존 matching/matchtest.py는 이번에는 수정하지 않습니다.
+
+사용법: JOBPICK 프로젝트 루트에서
+python .\JOBPICK_실제소스_캐시최적화\apply_to_jobpick.py --check
+python .\JOBPICK_실제소스_캐시최적화\apply_to_jobpick.py

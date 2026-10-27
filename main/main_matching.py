@@ -10,6 +10,8 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from database.firebase_init import init_firebase
+from matching.job_cache import get_cached_flattened_job, get_cached_job_embedding_text
+from matching.optimized_preload import preload_prepared_score_embeddings as optimized_preload
 from matching.matchtest import (
     flatten_resume,
     flatten_job,
@@ -2393,13 +2395,15 @@ def process_matching_groups_by_resume_id(
     # ------------------------------------------------------------
     stage_start = time.perf_counter()
 
-    flattened_jobs = [
-        flatten_job(
-            job_raw
-        )
-        for _, job_raw
-        in candidate_jobs
+    flattened_job_cache_results = [
+        get_cached_flattened_job(job_raw)
+        for _, job_raw in candidate_jobs
     ]
+    flattened_jobs = [result for result, _ in flattened_job_cache_results]
+    print(
+        f"[job-cache] flatten: {sum(hit for _, hit in flattened_job_cache_results)}/"
+        f"{len(flattened_job_cache_results)} RAM hits", flush=True,
+    )
 
     flatten_elapsed = (
         time.perf_counter()
@@ -2448,10 +2452,15 @@ def process_matching_groups_by_resume_id(
     # ------------------------------------------------------------
     stage_start = time.perf_counter()
 
-    job_embedding_texts = [
-        get_job_embedding_text(job_raw)
+    embedding_text_cache_results = [
+        get_cached_job_embedding_text(job_raw)
         for _, job_raw in candidate_jobs
     ]
+    job_embedding_texts = [result for result, _ in embedding_text_cache_results]
+    print(
+        f"[job-cache] embedding text: {sum(hit for _, hit in embedding_text_cache_results)}/"
+        f"{len(embedding_text_cache_results)} RAM hits", flush=True,
+    )
 
     job_embedding_text_prepare_elapsed = (
         time.perf_counter()
@@ -2468,7 +2477,7 @@ def process_matching_groups_by_resume_id(
     # ------------------------------------------------------------
     stage_start = time.perf_counter()
 
-    preload_stats = preload_prepared_score_embeddings(
+    preload_stats = optimized_preload(
         prepared_score_contexts,
         extra_similarity_texts=[
             resume_embedding_text,
@@ -2486,6 +2495,23 @@ def process_matching_groups_by_resume_id(
         f"{preload_elapsed:.2f}초 "
         f"(live encode {int((preload_stats or {}).get('encodedCount', 0))}개)"
     )
+    print(
+        f"[embedding-cache] unique={preload_stats['uniqueCount']} "
+        f"RAM={preload_stats['memoryHitCount']} "
+        f"precomputed={preload_stats['vectorHitCount']} "
+        f"live={preload_stats['encodedCount']} "
+        f"duplicates={preload_stats['duplicateCount']}",
+        flush=True,
+    )
+    for field, counts in preload_stats["fieldStats"].items():
+        print(
+            f"[embedding-cache] {field}: "
+            f"RAM={counts['memory']} "
+            f"precomputed={counts['precomputed']} "
+            f"live={counts['live']} "
+            f"duplicates={counts['duplicate']}",
+            flush=True,
+        )
 
     # ------------------------------------------------------------
     # 7. 공고별 정밀 매칭
