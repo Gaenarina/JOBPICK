@@ -2625,18 +2625,21 @@ export default function LandingPage() {
                               {jobExplanation.statusReason}
                             </p>
 
-                            <div className="pt-2">
-                              <button
-                                type="button"
-                                onClick={() => setImprovementJob(job)}
-                                className="text-sm font-semibold text-primary hover:underline"
-                              >
-                                이 공고와 더 가까워지기 
-                              </button>
-                            </div>
+                            {String(
+                              job.recommendType || job.recommend_type || ''
+                            ).trim() === '부적합' && (
+                              <div className="pt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setImprovementJob(job)}
+                                  className="text-sm font-semibold text-primary hover:underline"
+                                >
+                                  이 공고와 더 가까워지기
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        </div>
-
+                        </div>  
                         <div className="flex flex-row sm:flex-col items-start sm:items-end justify-between sm:justify-start gap-2 flex-shrink-0 sm:pt-7">
                           <div className="flex items-center gap-3">
                           {job.matchRate > 0 && (
