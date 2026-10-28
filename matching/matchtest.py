@@ -1191,6 +1191,16 @@ def evaluate_eligibility_qualification(
         return True, "matched", keys
     return True, "unknown", keys
 
+NON_RESTRICTIVE_QUALIFICATION_KEYWORDS = [
+    "제한없음",
+    "제한 없음",
+    "학력무관",
+    "학력 무관",
+    "자격무관",
+    "자격 무관",
+    "해당사항 없음",
+    "해당 사항 없음",
+]
 
 def is_valid_required_qualification(text: Any) -> bool:
     value = clean_text(text)
@@ -1202,6 +1212,14 @@ def is_valid_required_qualification(text: Any) -> bool:
     if value in {"담당업무 및", "자격요건 및", "[자격요건 및 ]", "근무환경", "근무 조건"}:
         return False
     if re.fullmatch(r"[0-9○O]+명", value):
+        return False
+
+    normalized_value = re.sub(r"\s+", "", value)
+
+    if any(
+        re.sub(r"\s+", "", keyword) in normalized_value
+        for keyword in NON_RESTRICTIVE_QUALIFICATION_KEYWORDS
+    ):
         return False
 
     # 특정 모집분야 제목은 필수 자격요건 점수에서 제외
@@ -2435,10 +2453,32 @@ def calculate_qualification_rule_score_detailed(
         / len(required)
     ) * 10
 
+    required_quals_for_result = unique_preserve_order(required)
+
+    matched_quals_for_result = unique_preserve_order(matched)
+
+    eligibility_unknown_for_result = unique_preserve_order(
+        eligibility_unknown
+    )
+
+    missing_quals_for_result = [
+        qualification
+        for qualification in required_quals_for_result
+        if qualification not in matched_quals_for_result
+        and qualification not in eligibility_unknown_for_result
+    ]
+
     detail = {
-        "eligibility_matched": unique_preserve_order(eligibility_matched),
-        "eligibility_unmatched": unique_preserve_order(eligibility_unmatched),
-        "eligibility_unknown": unique_preserve_order(eligibility_unknown),
+        "required_quals": required_quals_for_result,
+        "missing_quals": missing_quals_for_result,
+
+        "eligibility_matched": unique_preserve_order(
+            eligibility_matched
+        ),
+        "eligibility_unmatched": unique_preserve_order(
+            eligibility_unmatched
+        ),
+        "eligibility_unknown": eligibility_unknown_for_result,
         "eligibility_fields": eligibility_fields,
     }
 
@@ -4458,6 +4498,20 @@ def calculate_full_score(
         job.get("skills", {}), resume.get("skills", [])
     )
 
+    required_skills = (
+        flatten_skill_items(
+            (job.get("skills", {}) or {}).get("required", [])
+        )
+        if isinstance(job.get("skills", {}), dict)
+        else flatten_skill_items(job.get("skills", {}))
+    )
+
+    missing_skills = [
+        skill
+        for skill in required_skills
+        if skill not in matched_skills
+    ]
+
     _record_full_score_perf(
         "rule_skill",
         time.perf_counter() - stage_start,
@@ -4489,6 +4543,25 @@ def calculate_full_score(
     cert_score_raw, cert_match_count, cert_total_count, cert_used, matched_certs = calculate_certification_score(
         job.get("certifications", []), resume.get("certifications", [])
     )
+
+    required_certs = [
+        normalize_cert_name(item)
+        for item in as_list(job.get("certifications", []))
+    ]
+
+    required_certs = [
+        item
+        for item in required_certs
+        if item
+    ]
+
+    required_certs = unique_preserve_order(required_certs)
+
+    missing_certs = [
+        cert
+        for cert in required_certs
+        if cert not in matched_certs
+    ]
 
     _record_full_score_perf(
         "rule_certification",
@@ -5137,7 +5210,9 @@ def calculate_full_score(
             "skill_total_count": skill_total_count,
             "skill_used": skill_used,
             "matched_skills": matched_skills,
-
+            "required_skills": required_skills,
+            "missing_skills": missing_skills,
+            
             "edu_score": round(edu_score, 2),
             "edu_score_max": rule_weights["edu"],
             "edu_raw_score": edu_score_raw,
@@ -5165,6 +5240,8 @@ def calculate_full_score(
             "cert_total_count": cert_total_count,
             "cert_used": cert_used,
             "matched_certs": matched_certs,
+            "required_certs": required_certs,
+            "missing_certs": missing_certs,
             "certification_scope": certification_scope_info,
 
             "qual_rule_score": round(qual_rule_score, 2),
@@ -5173,6 +5250,19 @@ def calculate_full_score(
             "qual_raw_score_max": 10,
             "qual_accessibility_raw_score": round(qual_accessibility_score_raw, 2),
             "matched_quals": matched_quals,
+            "required_quals": as_list(
+                qual_detail.get(
+                    "required_quals",
+                    []
+                )
+            ),
+
+            "missing_quals": as_list(
+                qual_detail.get(
+                    "missing_quals",
+                    []
+                )
+            ),
             "qual_total_count": qual_total_count,
             "qual_original_count": qual_original_count,
             "qual_scoped_count": qual_scoped_count,

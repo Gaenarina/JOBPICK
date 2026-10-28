@@ -809,11 +809,13 @@ def sort_for_confidence(item):
 
 
 def build_matching_groups(results, limit=5):
-    fit_candidates = [
-        item
-        for item in results
-        if is_fit_candidate(item)
-    ]
+    #fit_candidates = [
+    #    item
+    #    for item in results
+    #    if is_fit_candidate(item)
+    #]
+
+    fit_candidates = results
 
     top_fit_matches = sorted(
         fit_candidates,
@@ -1738,6 +1740,18 @@ def build_match_result(
                         []
                     ),
 
+                "requiredSkills":
+                    rule_details.get(
+                        "required_skills",
+                        []
+                    ),   
+
+                "missingSkills":
+                    rule_details.get(
+                        "missing_skills",
+                        []
+                    ),     
+
                 "used":
                     rule_details.get(
                         "skill_used",
@@ -1924,6 +1938,18 @@ def build_match_result(
                         []
                     ),
 
+                "requiredCerts":
+                    rule_details.get(
+                        "required_certs",
+                        []
+                    ),
+
+                "missingCerts":
+                    rule_details.get(
+                        "missing_certs",
+                        []
+                    ),    
+
                 "used":
                     rule_details.get(
                         "cert_used",
@@ -1965,6 +1991,18 @@ def build_match_result(
                         "matched_quals",
                         []
                     ),
+
+                "requiredQuals":
+                    rule_details.get(
+                        "required_quals",
+                        []
+                    ),
+
+                "missingQuals":
+                    rule_details.get(
+                        "missing_quals",
+                        []
+                    ),    
 
                 "totalCount":
                     rule_details.get(

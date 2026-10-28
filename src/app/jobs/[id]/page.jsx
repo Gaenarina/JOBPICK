@@ -29,12 +29,39 @@ export default function JobDetailPage() {
     if (!mounted || !id) return
 
     try {
-      const saved = localStorage.getItem('jobpick_matched_jobs')
-      const matchedJobs = saved ? JSON.parse(saved) : []
+      let foundJob = null
 
-      const foundJob = matchedJobs.find(
-        (item) => String(item.id) === String(id) || String(item.jobId) === String(id)
-      )
+      for (let i = 0; i < localStorage.length; i += 1) {
+        const key = localStorage.key(i)
+
+        if (!key || !key.startsWith('jobpick_matched_jobs_')) {
+          continue
+        }
+
+        const saved = localStorage.getItem(key)
+
+        if (!saved) continue
+
+        const parsed = JSON.parse(saved)
+
+        const matchedJobs = Array.isArray(parsed)
+          ? parsed
+          : parsed.jobs || []
+
+        const found = matchedJobs.find(
+          (item) =>
+            String(item.id) === String(id) ||
+            String(item.jobId) === String(id)
+        )
+
+        if (found) {
+          foundJob = {
+            ...found,
+            resumeId: found.resumeId || parsed.resumeId || '',
+          }
+          break
+        }
+      }
 
       if (foundJob) {
         setMatchedJob(foundJob)
