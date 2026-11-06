@@ -244,12 +244,38 @@ export default function MatchingImprovementPanel({
               <button
                 type="button"
                 onClick={runSimulation}
-                disabled={
-                  loading ||
-                  selectedIds.length === 0
-                }
+                disabled={loading || selectedIds.length === 0}
+                className="
+                  mt-5 inline-flex min-h-[48px] items-center justify-center
+                  gap-2 rounded-xl border border-transparent
+                  bg-blue-600 px-6 py-3
+                  text-base font-bold text-white
+                  shadow-md transition-all duration-150
+                  hover:bg-blue-700 hover:shadow-lg
+                  active:translate-y-[1px] active:shadow-sm
+                  focus-visible:outline-none
+                  focus-visible:ring-4 focus-visible:ring-blue-200
+                  disabled:cursor-not-allowed disabled:bg-slate-200
+                  disabled:text-slate-500 disabled:shadow-none
+                  disabled:hover:bg-slate-200
+                  disabled:active:translate-y-0
+                "
               >
-                예상 결과 확인하기
+                <svg
+                  aria-hidden="true"
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="5" y="3" width="14" height="18" rx="2" />
+                  <path d="M8 7h8M8 11h2m4 0h2m-8 4h2m4 0h2m-8 3h2m4 0h2" />
+                </svg>
+                예상 점수 계산하기
               </button>
             </>
           )}
