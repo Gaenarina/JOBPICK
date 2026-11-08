@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getAiServerBaseUrl } from "@/lib/aiServer";
 
 export async function POST(
   req: NextRequest,
@@ -13,11 +14,11 @@ export async function POST(
     );
   }
 
-  const serverUrl = process.env.AI_SERVER_URL;
+  const serverUrl = getAiServerBaseUrl();
 
   if (!serverUrl) {
     return NextResponse.json(
-      { error: "AI_SERVER_URL이 설정되지 않았습니다." },
+      { error: "AI_SERVER_URL이 설정되지 않았거나 유효하지 않습니다." },
       { status: 500 }
     );
   }

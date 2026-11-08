@@ -14,13 +14,7 @@ import {
   upsertApplication,
 } from '@/lib/userStorage'
 
-const MATCH_API_URL =
-  process.env.NEXT_PUBLIC_MATCH_API_URL ||
-  'http://localhost:8000/process-resume'
-
-const ONE_MATCH_API_URL =
-  process.env.NEXT_PUBLIC_ONE_MATCH_API_URL ||
-  'http://localhost:8000/process-one-match'
+const ONE_MATCH_API_URL = '/api/ai/process-one-match'
 
 const BASIC_JOBS_PER_PAGE = 10
 
@@ -678,7 +672,7 @@ export default function DashboardPage() {
         try {
           const res =
             await fetch(
-              `http://localhost:8000/matching-results/${resumeId}`,
+              `/api/ai/matching-results/${encodeURIComponent(String(resumeId))}`,
               {
                 method: 'GET',
                 cache: 'no-store',
@@ -1072,7 +1066,7 @@ export default function DashboardPage() {
       try {
         const res =
           await fetch(
-            `http://localhost:8000/matching-results/${resumeId}`,
+            `/api/ai/matching-results/${encodeURIComponent(String(resumeId))}`,
             {
               method: 'GET',
               cache: 'no-store',

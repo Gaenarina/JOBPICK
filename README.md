@@ -1,5 +1,27 @@
 # JOBPICK
 
+## AI 서버 연결 (Vercel + 별도 Flask 백엔드)
+
+Vercel은 Next.js 프론트엔드와 `/api/*` 라우트를 배포합니다. `server.py`의
+Flask AI 서버는 Docker/Render 등의 별도 실행 환경에 배포해야 합니다.
+
+Vercel Project → Settings → Environment Variables 에 **서버 전용** 주소를 추가합니다.
+
+```dotenv
+AI_SERVER_URL=https://your-ai-backend.onrender.com
+```
+
+`AI_SERVER_URL`은 실제 Flask 백엔드의 **기본 주소**(경로 없이)로 교체하세요.
+변수 변경 후 Vercel을 다시 배포해야 합니다. 배포된 Flask 주소의 `/` 경로에서
+`Python OCR server is running` 응답이 나오는지도 확인하세요.
+
+로컬 개발의 `.env.local`에서는 `AI_SERVER_URL=http://localhost:8000`을 설정하고
+Flask 서버를 별도로 실행할 수 있습니다. 배포 시에는 localhost를 사용하지 마세요.
+`NEXT_PUBLIC_MATCH_API_URL`, `NEXT_PUBLIC_ONE_MATCH_API_URL`은 더 이상
+필요하지 않으며 브라우저는 `/api/ai/*`의 동일 출처 API만 호출합니다.
+환경변수가 없거나 Vercel에서 localhost를 가리키면 AI 기능은 명시적으로 503 오류를
+반환하므로 로컬 서버로 몰래 연결하지 않습니다.
+
 ## 채용공고 수집
 
 기본 수집원은 공공데이터포털의 `재정경제부_공공기관 채용정보 조회서비스`입니다.
