@@ -531,14 +531,14 @@ export default function ResumeManagePage() {
   }
 
   return (
-    <main className="max-w-4xl mx-auto p-8">
-      <div className="flex items-center justify-between gap-4 mb-6">
-        <h1 className="text-3xl font-bold">이력서 관리</h1>
-        <div className="flex gap-3">
+    <main className="max-w-4xl mx-auto p-4 sm:p-6 md:p-8">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+        <h1 className="text-2xl font-bold sm:text-3xl">이력서 관리</h1>
+        <div className="flex w-full gap-3 sm:w-auto">
           <button
             type="button"
             onClick={handleUploadClick}
-            className="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary-dark transition-colors"
+            className="min-h-[44px] w-full rounded-lg bg-primary px-4 py-2 font-medium text-white transition-colors hover:bg-primary-dark sm:w-auto"
           >
             새 이력서 등록하기
           </button>
@@ -554,7 +554,7 @@ export default function ResumeManagePage() {
       </div>
 
       {resumes.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-gray-500">
+        <div className="rounded-2xl border border-gray-200 bg-white p-5 text-gray-500 sm:p-8">
           등록된 이력서가 없습니다.
         </div>
       ) : (
@@ -577,7 +577,7 @@ export default function ResumeManagePage() {
                     handleSelectResume(resume)
                   }
                 }}
-                className={`relative flex cursor-pointer items-center justify-between gap-3 rounded-xl border p-4 transition-all duration-200 ${
+                className={`relative flex cursor-pointer flex-col items-stretch gap-3 rounded-xl border p-3 transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 sm:flex-row sm:items-center sm:justify-between sm:p-4 ${
                   isSelected
                     ? 'border-blue-500 bg-blue-50/70 shadow-md ring-2 ring-blue-100'
                     : hasSelectedResume
@@ -588,7 +588,7 @@ export default function ResumeManagePage() {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p
-                      className={`font-semibold ${
+                      className={`break-words font-semibold ${
                         isSelected ? 'text-blue-900' : 'text-gray-900'
                       }`}
                     >
@@ -619,7 +619,7 @@ export default function ResumeManagePage() {
                   )}
                 </div>
 
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex w-full flex-wrap items-stretch gap-2 sm:w-auto sm:shrink-0 sm:items-center">
                   {!isSelected && (
                     <button
                       type="button"
@@ -627,7 +627,7 @@ export default function ResumeManagePage() {
                         event.stopPropagation()
                         handleSelectResume(resume)
                       }}
-                      className="rounded-md border border-gray-200 bg-white px-3 py-1 text-sm font-medium text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                      className="min-h-[44px] flex-1 rounded-md border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 sm:min-h-0 sm:flex-none sm:py-1"
                     >
                       이 이력서 선택
                     </button>
@@ -639,7 +639,7 @@ export default function ResumeManagePage() {
                       event.stopPropagation()
                       handleOpenAnalysis(resume)
                     }}
-                    className="rounded-md bg-blue-50 px-3 py-1 text-sm text-blue-600 transition-colors hover:bg-blue-100"
+                    className="min-h-[44px] flex-1 rounded-md bg-blue-50 px-3 py-2 text-sm text-blue-600 transition-colors hover:bg-blue-100 sm:min-h-0 sm:flex-none sm:py-1"
                   >
                     분석 내용 보기
                   </button>
@@ -650,7 +650,7 @@ export default function ResumeManagePage() {
                       event.stopPropagation()
                       handleDeleteResume(resumeId)
                     }}
-                    className="rounded-md bg-red-50 px-3 py-1 text-sm text-red-600 transition-colors hover:bg-red-100"
+                    className="min-h-[44px] rounded-md bg-red-50 px-3 py-2 text-sm text-red-600 transition-colors hover:bg-red-100 sm:min-h-0 sm:py-1"
                   >
                     삭제
                   </button>
@@ -706,11 +706,11 @@ function ResumeAnalysisModal({
   const coreCompetencies = analysis?.coreCompetencies || []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-xl p-6">
-        <div className="flex items-start justify-between gap-4 mb-5">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4">
+      <div className="w-full max-w-4xl max-h-[100dvh] overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-xl sm:max-h-[90vh] sm:rounded-2xl sm:p-6">
+        <div className="mb-5 flex items-start justify-between gap-3 sm:gap-4">
           <div>
-            <h2 className="text-2xl font-bold">이력서 분석 내용</h2>
+            <h2 className="text-xl font-bold sm:text-2xl">이력서 분석 내용</h2>
             <p className="text-sm text-gray-500 mt-1">
               AI가 이력서를 어떻게 분석했는지 확인하고, 필요한 경우 수정할 수 있습니다.
             </p>
@@ -719,7 +719,7 @@ function ResumeAnalysisModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-1 rounded-md text-gray-500 hover:bg-gray-100"
+            className="min-h-[44px] shrink-0 rounded-md px-3 py-2 text-gray-500 hover:bg-gray-100 sm:min-h-0 sm:py-1"
           >
             닫기
           </button>
@@ -738,7 +738,7 @@ function ResumeAnalysisModal({
             <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mb-5 text-sm text-gray-600">
               <p>
                 파일명:{' '}
-                <span className="font-medium text-gray-800">
+                <span className="break-all font-medium text-gray-800">
                   {analysisData.filename || selectedResume?.name || '-'}
                 </span>
               </p>
@@ -790,14 +790,14 @@ function ResumeAnalysisModal({
                   <summary className="cursor-pointer font-semibold">
                     전체 분석 원본 데이터 보기
                   </summary>
-                  <pre className="mt-3 bg-gray-50 rounded-lg p-3 text-xs overflow-x-auto whitespace-pre-wrap">
+                  <pre className="mt-3 max-w-full overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-gray-50 p-3 text-xs">
                     {JSON.stringify(analysisRoot, null, 2)}
                   </pre>
                 </details>
               </div>
             )}
 
-            <div className="flex justify-end gap-2 mt-6">
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               {editMode ? (
                 <>
                   <button
@@ -806,7 +806,7 @@ function ResumeAnalysisModal({
                       setEditMode(false)
                       setEditForm(createResumeEditForm(analysis || {}))
                     }}
-                    className="px-4 py-2 rounded-lg border border-gray-300 text-sm hover:bg-gray-50"
+                    className="min-h-[44px] w-full rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 sm:w-auto"
                   >
                     취소
                   </button>
@@ -815,7 +815,7 @@ function ResumeAnalysisModal({
                     type="button"
                     onClick={onSave}
                     disabled={analysisSaving}
-                    className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:bg-gray-400"
+                    className="min-h-[44px] w-full rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:bg-gray-400 sm:w-auto"
                   >
                     {analysisSaving ? '저장 중...' : '저장하기'}
                   </button>
@@ -828,7 +828,7 @@ function ResumeAnalysisModal({
                     setEditMode(true)
                   }}
                   disabled={!analysis}
-                  className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:bg-gray-400"
+                  className="min-h-[44px] w-full rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:bg-gray-400 sm:w-auto"
                 >
                   수정하기
                 </button>
@@ -1510,7 +1510,7 @@ function EditSection({
   children,
 }) {
   return (
-    <section className="rounded-xl border border-gray-200 p-4 md:p-5">
+    <section className="rounded-xl border border-gray-200 p-3 sm:p-4 md:p-5">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="font-semibold text-gray-900">{title}</h3>
@@ -1523,7 +1523,7 @@ function EditSection({
           <button
             type="button"
             onClick={onAction}
-            className="rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
+            className="min-h-[44px] rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 sm:min-h-0 sm:py-1.5"
           >
             + {actionLabel}
           </button>
@@ -1552,7 +1552,7 @@ function FormField({
         value={value ?? ''}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        className="w-full min-w-0 rounded-lg border border-gray-300 px-3 py-2.5 text-base text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:text-sm"
       />
     </label>
   )
@@ -1575,7 +1575,7 @@ function TextareaField({
         onChange={(event) => onChange(event.target.value)}
         rows={rows}
         placeholder={placeholder}
-        className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        className="w-full min-w-0 resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-base text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:text-sm"
       />
     </label>
   )
@@ -1628,7 +1628,7 @@ function TagEditor({ label, values, onChange, placeholder }) {
         )}
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <input
           type="text"
           value={draft}
@@ -1640,12 +1640,12 @@ function TagEditor({ label, values, onChange, placeholder }) {
             }
           }}
           placeholder={placeholder}
-          className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          className="min-h-[44px] min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-base outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:text-sm"
         />
         <button
           type="button"
           onClick={addTag}
-          className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50"
+          className="min-h-[44px] w-full rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 sm:w-auto"
         >
           추가
         </button>
@@ -1674,7 +1674,7 @@ function EditableItemCard({ title, onRemove, children }) {
         <button
           type="button"
           onClick={onRemove}
-          className="rounded-md bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100"
+          className="min-h-[44px] rounded-md bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 hover:bg-red-100 sm:min-h-0"
         >
           삭제
         </button>
@@ -1700,9 +1700,9 @@ function BasicInfoSection({ value }) {
       <h3 className="mb-3 font-semibold">기본 정보</h3>
       <dl className="grid gap-x-6 gap-y-3 text-sm md:grid-cols-2">
         {items.map(([label, itemValue]) => (
-          <div key={label} className="grid grid-cols-[88px_1fr] gap-2">
+          <div key={label} className="grid min-w-0 grid-cols-[minmax(0,72px)_minmax(0,1fr)] gap-2 sm:grid-cols-[88px_minmax(0,1fr)]">
             <dt className="text-gray-500">{label}</dt>
-            <dd className="break-words text-gray-800">
+            <dd className="min-w-0 break-all text-gray-800">
               {itemValue || '분석된 내용 없음'}
             </dd>
           </div>
@@ -1743,7 +1743,7 @@ function AnalysisSection({ title, value }) {
           <p className="text-sm text-gray-400">분석된 내용 없음</p>
         )
       ) : typeof value === 'object' && value !== null ? (
-        <pre className="bg-gray-50 rounded-lg p-3 text-sm overflow-x-auto whitespace-pre-wrap">
+        <pre className="max-w-full overflow-x-auto whitespace-pre-wrap break-all rounded-lg bg-gray-50 p-3 text-sm">
           {JSON.stringify(value, null, 2)}
         </pre>
       ) : (
