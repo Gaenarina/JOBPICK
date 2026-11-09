@@ -1,3 +1,4 @@
+
 'use client'
 
 import { useMemo, useState, useEffect } from 'react'
@@ -18,7 +19,15 @@ const ONE_MATCH_API_URL = '/api/ai/process-one-match'
 
 const BASIC_JOBS_PER_PAGE = 10
 
-const LAST_AI_ANALYSIS_AT_KEY = 'jobpick_last_ai_analysis_at'
+const MATCHED_JOBS_STORAGE_PREFIX = 'jobpick_matched_jobs'
+
+function getSelectedResumeKey(userId) {
+  return `jobpick-selected-resume-${userId}`
+}
+
+function getMatchedJobsStorageKey(userId, resumeId) {
+  return `${MATCHED_JOBS_STORAGE_PREFIX}_${userId}_${resumeId}`
+}
 
 const AI_LOADING_STEPS = [
   '이력서 분석 중...',
@@ -419,6 +428,8 @@ export default function DashboardPage() {
     resumes,
     setResumes,
   ] = useState([])
+  const [selectedResumeId, setSelectedResumeId] = useState('')
+  const [showResumePicker, setShowResumePicker] = useState(false)
 
   const [
     matchedJobs,
@@ -516,6 +527,14 @@ export default function DashboardPage() {
     )
 
     setResumes(savedResumes)
+    const previouslySelectedId = resumeUserId
+      ? localStorage.getItem(getSelectedResumeKey(resumeUserId))
+      : null
+    const selectedResume = savedResumes.find(
+      (resume) => getResumeDocId(resume) === previouslySelectedId
+    ) || savedResumes[0]
+    const activeResumeId = getResumeDocId(selectedResume) || ''
+    setSelectedResumeId(activeResumeId)
 
     setAppliedMap(
       applications.reduce(
@@ -527,11 +546,15 @@ export default function DashboardPage() {
       )
     )
 
-    if (isAuthenticated) {
+    setMatchedJobs([])
+    setAiMatched(false)
+    setLastAiAnalysisAt('')
+
+    if (isAuthenticated && resumeUserId && activeResumeId) {
       try {
         const savedMatchedJobs =
           localStorage.getItem(
-            'jobpick_matched_jobs'
+            getMatchedJobsStorageKey(resumeUserId, activeResumeId)
           )
 
         if (savedMatchedJobs) {
@@ -540,8 +563,9 @@ export default function DashboardPage() {
               savedMatchedJobs
             )
 
-          const normalized =
-            normalizeJobs(parsed)
+          const normalized = normalizeJobs(
+            Array.isArray(parsed) ? parsed : parsed.jobs || []
+          )
 
           if (
             normalized.length > 0
@@ -553,9 +577,7 @@ export default function DashboardPage() {
             setAiMatched(true)
 
             setLastAiAnalysisAt(
-              localStorage.getItem(
-                LAST_AI_ANALYSIS_AT_KEY
-              ) || ''
+              Array.isArray(parsed) ? '' : parsed.analyzedAt || ''
             )
           }
         }
@@ -633,15 +655,27 @@ export default function DashboardPage() {
 
     setMatchedJobs(fixedMatches)
 
-    localStorage.setItem(
-      'jobpick_matched_jobs',
-      JSON.stringify(
-        fixedMatches
-      )
-    )
+    if (resumeUserId && selectedResumeId) {
+      const key = getMatchedJobsStorageKey(resumeUserId, selectedResumeId)
+      const previous = localStorage.getItem(key)
+      let metadata = {}
+      try {
+        if (previous) {
+          const parsed = JSON.parse(previous)
+          if (!Array.isArray(parsed)) metadata = parsed
+        }
+      } catch (error) {
+        console.error('매칭 기록 메타데이터 조회 실패:', error)
+      }
+      localStorage.setItem(key, JSON.stringify({
+        ...metadata, resumeId: selectedResumeId, jobs: fixedMatches,
+      }))
+    }
   }, [
     jobs,
     matchedJobs.length,
+    resumeUserId,
+    selectedResumeId,
   ])
 
   useEffect(() => {
@@ -657,7 +691,7 @@ export default function DashboardPage() {
 
     const resumeId =
       getResumeDocId(
-        resumes[0]
+        resumes.find((resume) => getResumeDocId(resume) === selectedResumeId)
       )
 
     if (!resumeId) {
@@ -744,6 +778,7 @@ export default function DashboardPage() {
     isAuthenticated,
     resumeUserId,
     resumes,
+    selectedResumeId,
   ])
 
   useEffect(() => {
@@ -997,6 +1032,39 @@ export default function DashboardPage() {
       [filteredMatchedJobs]
     )
 
+  const handleChangeMatchingResume = (resume) => {
+    const resumeId = getResumeDocId(resume)
+    if (!resumeUserId || !resumeId || isMatching) return
+
+    setSelectedResumeId(resumeId)
+    localStorage.setItem(getSelectedResumeKey(resumeUserId), resumeId)
+    setShowResumePicker(false)
+    setMatchedJobs([])
+    setAiMatched(false)
+    setLastAiAnalysisAt('')
+    setScoreMap({})
+    setMatchMinScore(0)
+    setMatchMaxScore(100)
+    setMatchRoleFilter('all')
+    setMatchRegionFilter('all')
+    setVisibleMatchCount(10)
+    setMatchSuccessBanner(null)
+
+    try {
+      const raw = localStorage.getItem(
+        getMatchedJobsStorageKey(resumeUserId, resumeId)
+      )
+      if (!raw) return
+      const parsed = JSON.parse(raw)
+      const savedJobs = Array.isArray(parsed) ? parsed : parsed.jobs || []
+      setMatchedJobs(normalizeJobs(savedJobs))
+      setAiMatched(true)
+      setLastAiAnalysisAt(Array.isArray(parsed) ? '' : parsed.analyzedAt || '')
+    } catch (error) {
+      console.error('선택 이력서의 매칭 결과 불러오기 실패:', error)
+    }
+  }
+
   const runAiMatching =
     async () => {
       const userId =
@@ -1025,7 +1093,7 @@ export default function DashboardPage() {
 
       const resumeId =
         getResumeDocId(
-          resumes[0]
+          resumes.find((resume) => getResumeDocId(resume) === selectedResumeId)
         )
 
       if (!resumeId) {
@@ -1163,9 +1231,9 @@ export default function DashboardPage() {
           !fixedMatches.length
         ) {
           setMatchedJobs([])
-
-          localStorage.removeItem(
-            'jobpick_matched_jobs'
+          localStorage.setItem(
+            getMatchedJobsStorageKey(userId, resumeId),
+            JSON.stringify({ resumeId, jobs: [], analyzedAt: formatAiAnalysisTime() })
           )
 
           setAiMatched(true)
@@ -1181,19 +1249,11 @@ export default function DashboardPage() {
           fixedMatches
         )
 
-        localStorage.setItem(
-          'jobpick_matched_jobs',
-          JSON.stringify(
-            fixedMatches
-          )
-        )
-
         const analyzedAt =
           formatAiAnalysisTime()
-
         localStorage.setItem(
-          LAST_AI_ANALYSIS_AT_KEY,
-          analyzedAt
+          getMatchedJobsStorageKey(userId, resumeId),
+          JSON.stringify({ resumeId, jobs: fixedMatches, analyzedAt })
         )
 
         setLastAiAnalysisAt(
@@ -1390,6 +1450,15 @@ export default function DashboardPage() {
             resumeUserId
           )
         )
+        if (uploadedResumes.length > 0 && resumeUserId) {
+          const newResumeId = getResumeDocId(uploadedResumes[0])
+          setSelectedResumeId(newResumeId)
+          localStorage.setItem(getSelectedResumeKey(resumeUserId), newResumeId)
+          setMatchedJobs([])
+          setAiMatched(false)
+          setLastAiAnalysisAt('')
+          setScoreMap({})
+        }
 
         alert(
           '이력서 첨부가 완료되었습니다.'
@@ -1502,7 +1571,7 @@ export default function DashboardPage() {
 
       const resumeId =
         getResumeDocId(
-          resumes[0]
+          resumes.find((resume) => getResumeDocId(resume) === selectedResumeId)
         )
 
       const jobKey =
@@ -1601,10 +1670,6 @@ export default function DashboardPage() {
 
   const handleResetMatching =
     () => {
-      localStorage.removeItem(
-        'jobpick_matched_jobs'
-      )
-
       setMatchedJobs([])
       setAiMatched(false)
 
@@ -1964,18 +2029,42 @@ export default function DashboardPage() {
           {isAuthenticated &&
             resumes.length >
               0 && (
-              <p className="mt-3 break-words text-sm text-gray-500">
-                최근 첨부 파일:{' '}
-                {
-                  resumes[0]
-                    .name
-                }{' '}
-                외{' '}
-                {
-                  resumes.length
-                }
-                개
-              </p>
+              <div className="relative mt-3 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+                <span className="min-w-0 break-all">
+                  현재 매칭 이력서: {' '}
+                  <span className="font-medium text-gray-700">
+                    {resumes.find((resume) => getResumeDocId(resume) === selectedResumeId)?.name || '선택된 이력서 없음'}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  disabled={isMatching}
+                  aria-expanded={showResumePicker}
+                  onClick={() => setShowResumePicker((prev) => !prev)}
+                  className="rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-xs font-medium text-gray-600 hover:border-blue-300 hover:text-blue-600 disabled:opacity-50"
+                >
+                  변경
+                </button>
+                {showResumePicker && (
+                  <div className="absolute left-0 top-full z-30 mt-2 w-full max-w-sm rounded-xl border border-gray-200 bg-white p-1 shadow-lg">
+                    {resumes.map((resume) => {
+                      const resumeId = getResumeDocId(resume)
+                      const active = resumeId === selectedResumeId
+                      return (
+                        <button
+                          key={resumeId}
+                          type="button"
+                          onClick={() => handleChangeMatchingResume(resume)}
+                          className={`flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-blue-50 ${active ? 'bg-blue-50 text-blue-700' : 'text-gray-700'}`}
+                        >
+                          <span className="truncate">{resume.name || resume.filename || resumeId}</span>
+                          {active && <span className="shrink-0 text-xs">선택됨</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             )}
         </div>
       </section>

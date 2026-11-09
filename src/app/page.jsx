@@ -23,6 +23,32 @@ import {
 } from '@/lib/matchingPreferenceOptions'
 
 const MATCHED_JOBS_STORAGE_PREFIX = 'jobpick_matched_jobs'
+// 사용자별 마지막 선택 이력서 저장 키
+const SELECTED_RESUME_STORAGE_PREFIX = 'jobpick-selected-resume'
+
+// 사용자별 저장 키 생성
+function getSelectedResumeStorageKey(userId) {
+  return `${SELECTED_RESUME_STORAGE_PREFIX}-${userId}`
+}
+
+// 마지막으로 선택한 이력서 저장
+function saveSelectedResume(userId, resumeId) {
+  if (!userId || !resumeId) return
+
+  localStorage.setItem(
+    getSelectedResumeStorageKey(userId),
+    resumeId
+  )
+}
+
+// 마지막으로 선택한 이력서 불러오기
+function getSavedSelectedResumeId(userId) {
+  if (!userId) return null
+
+  return localStorage.getItem(
+    getSelectedResumeStorageKey(userId)
+  )
+}
 
 const AI_LOADING_STEPS = [
   '이력서 분석 중...',
@@ -1802,6 +1828,8 @@ export default function LandingPage() {
 
       if (normalized.length > 0) {
         setSelectedResume(resume)
+        // 마지막으로 선택한 이력서 저장
+        saveSelectedResume(userId, resumeId)
         setMatchedJobs(normalized)
         setShowAiSummary(false)
         setIsGeneratingAiSummary(false)
@@ -1855,6 +1883,8 @@ export default function LandingPage() {
     const userId = user?.uid || user?.id || ''
 
     setSelectedResume(resume)
+    // 마지막으로 선택하거나 재분석한 이력서 저장
+    saveSelectedResume(userId, resumeId)
     setIsAnalyzing(true)
     setAnalysisDone(false)
     setMatchedJobs([])
@@ -2257,19 +2287,76 @@ export default function LandingPage() {
 
     fetchJobs()
 
-    if (savedResumes.length > 0) {
-      restoreMatchedJobsFromStorage(savedResumes[0])
+    // 마지막으로 선택한 이력서 복원
+    const restoreSelectedResume = () => {
+      if (!resumeUserId) return
+
+      const latestResumes = getResumes(resumeUserId)
+
+      // 등록된 이력서가 없는 경우
+      if (latestResumes.length === 0) {
+        setSelectedResume(null)
+        setMatchedJobs([])
+        setAnalysisDone(false)
+        setLastAiAnalysisAt('')
+        return
+      }
+
+      // 마지막 선택 이력서 ID 가져오기
+      const savedResumeId =
+        getSavedSelectedResumeId(resumeUserId)
+
+      // 마지막 선택 이력서 찾기
+      const lastSelectedResume = latestResumes.find(
+        (resume) =>
+          getResumeDocId(resume) === savedResumeId
+      )
+
+      // 선택 기록이 없거나 삭제된 경우 최신 업로드 이력서 선택
+      const targetResume =
+        lastSelectedResume || latestResumes[0]
+
+      // 선택 이력서 저장
+      setSelectedResume(targetResume)
+
+      // 선택 기록 갱신
+      saveSelectedResume(
+        resumeUserId,
+        getResumeDocId(targetResume)
+      )
+
+      // 해당 이력서의 기존 매칭 결과 복원
+      const restored =
+        restoreMatchedJobsFromStorage(targetResume)
+
+      // 저장된 매칭 결과가 없는 경우
+      if (!restored) {
+        setMatchedJobs([])
+        setAnalysisDone(false)
+        setLastAiAnalysisAt('')
+        setShowAiSummary(false)
+
+        setMatchMeta({
+          matchPreferences:
+            targetResume?.matchPreferences || {},
+          totalJobCount: null,
+          filteredJobCount: null,
+        })
+      }
     }
 
-    const handlePageShow = () => {
-      if (savedResumes.length > 0) {
-        restoreMatchedJobsFromStorage(savedResumes[0])
+    restoreSelectedResume()
+
+    // 페이지에 다시 돌아왔을 때도 선택 상태 복원
+    const handlePageShow = (event) => {
+      if (event.persisted) {
+        restoreSelectedResume()
       }
     }
 
     window.addEventListener('pageshow', handlePageShow)
 
-    return () => {
+  return () => {
       window.removeEventListener('pageshow', handlePageShow)
     }
   }, [mounted, resumeUserId])
@@ -2277,10 +2364,20 @@ export default function LandingPage() {
   const name = user?.displayName || user?.name || '회원'
 
   const handleResumeAnalyze = (resume) => {
+    const resumeId = getResumeDocId(resume)
+
+    if (!resumeId) return
+
+    // 이력서를 클릭하는 순간 선택 상태 저장
+    setSelectedResume(resume)
+    saveSelectedResume(resumeUserId, resumeId)
+
+    // 기존 매칭 결과 불러오기
     const restored = restoreMatchedJobsFromStorage(resume)
 
     if (restored) return
 
+    // 저장된 결과가 없다면 기존 분석 로직 실행
     runAiMatchingByResume(resume, false)
   }
 
