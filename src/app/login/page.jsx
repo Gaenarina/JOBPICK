@@ -54,8 +54,8 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-72px)] flex items-center justify-center p-4 sm:p-8 bg-gradient-to-br from-sky-100 to-sky-50">
-      <div className="w-full max-w-[420px] bg-white rounded-2xl p-10 shadow-lg">
+    <main className="min-h-[calc(100dvh-72px)] sm:min-h-[calc(100vh-72px)] flex items-center justify-center px-4 py-6 sm:p-8 bg-gradient-to-br from-sky-100 to-sky-50">
+      <div className="w-full min-w-0 max-w-[420px] bg-white rounded-2xl p-5 sm:p-10 shadow-lg">
         <div className="flex items-center justify-center gap-2 font-bold text-xl text-gray-800 mb-6">
           <ClipboardList className="w-7 h-7 text-primary" aria-hidden />
           <span>JOB PICK</span>
@@ -71,7 +71,7 @@ export default function LoginPage() {
                 placeholder="example@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="flex-1 py-3 border-none outline-none"
+                className="min-w-0 flex-1 py-3 text-base border-none outline-none"
                 required
               />
             </div>
@@ -85,13 +85,13 @@ export default function LoginPage() {
                 placeholder="********"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="flex-1 py-3 border-none outline-none"
+                className="min-w-0 flex-1 py-3 text-base border-none outline-none"
                 required
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="ml-1 p-1"
+                className="ml-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg sm:h-auto sm:w-auto sm:p-1"
                 aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 보기'}
               >
                 {showPassword ? <EyeOff className="w-5 h-5 text-gray-600" aria-hidden /> : <Eye className="w-5 h-5 text-gray-600" aria-hidden />}
@@ -124,7 +124,7 @@ export default function LoginPage() {
                   placeholder="example@email.com"
                   value={resetEmail}
                   onChange={(e) => setResetEmail(e.target.value)}
-                  className="w-full py-2.5 px-3 rounded-lg border border-gray-200 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
+                  className="w-full min-w-0 py-2.5 px-3 text-base rounded-lg border border-gray-200 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
                 />
                 <button
                   type="submit"
@@ -138,7 +138,7 @@ export default function LoginPage() {
           )}
           <button
             type="submit"
-            className="w-full py-3 bg-primary text-white rounded-lg font-semibold hover:bg-primary-dark transition-colors"
+            className="w-full min-h-[44px] py-3 bg-primary text-white rounded-lg font-semibold hover:bg-primary-dark transition-colors"
           >
             로그인
           </button>

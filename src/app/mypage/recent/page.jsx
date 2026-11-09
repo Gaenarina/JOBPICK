@@ -50,10 +50,10 @@ export default function RecentJobsPage() {
   const jobs = getRecentJobs()
 
   return (
-    <main className="max-w-4xl mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-6">최근 본 공고</h1>
+    <main className="max-w-4xl mx-auto p-4 sm:p-6 md:p-8">
+      <h1 className="text-2xl sm:text-3xl font-bold mb-6">최근 본 공고</h1>
       {jobs.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-gray-500">최근 본 공고가 없습니다.</div>
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 sm:p-8 text-gray-500">최근 본 공고가 없습니다.</div>
       ) : (
         <div className="space-y-3">
           {jobs.map((job) => {
@@ -66,7 +66,7 @@ export default function RecentJobsPage() {
                     const next = toggleBookmark(job, resumeUserId)
                     setBookmarkIds(next.map((item) => item.id))
                   }}
-                  className="absolute top-4 right-4"
+                  className="absolute top-2 right-2 flex h-11 w-11 items-center justify-center sm:top-4 sm:right-4 sm:h-auto sm:w-auto"
                   aria-label="북마크"
                 >
                   <svg width="22" height="22" viewBox="0 0 24 24" fill={bookmarkIds.includes(job.id) ? '#2563eb' : '#ffffff'} xmlns="http://www.w3.org/2000/svg">
@@ -78,8 +78,8 @@ export default function RecentJobsPage() {
                     />
                   </svg>
                 </button>
-                <p className="text-gray-500">{job.company}</p>
-                <button onClick={() => router.push(`/jobs/${job.id}`)} className="font-semibold hover:text-primary transition-colors">
+                <p className="text-gray-500 pr-10 break-words">{job.company}</p>
+                <button onClick={() => router.push(`/jobs/${job.id}`)} className="block max-w-full pr-10 break-words text-left font-semibold hover:text-primary transition-colors">
                   {job.title}
                 </button>
                 <div className="flex gap-2 mt-2 flex-wrap items-center">

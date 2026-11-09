@@ -46,8 +46,8 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="min-h-[calc(100vh-60px)] flex items-center justify-center p-8 bg-gradient-to-br from-sky-100 to-sky-50">
-      <div className="w-full max-w-[420px] bg-white rounded-2xl p-10 shadow-lg">
+    <main className="min-h-[calc(100dvh-72px)] sm:min-h-[calc(100vh-60px)] flex items-center justify-center p-4 sm:p-8 bg-gradient-to-br from-sky-100 to-sky-50">
+      <div className="w-full min-w-0 max-w-[420px] bg-white rounded-2xl p-5 sm:p-10 shadow-lg">
         <div className="flex items-center justify-center gap-2 font-bold text-xl text-gray-800 mb-6">
           <ClipboardList className="w-7 h-7 text-primary" aria-hidden />
           <span>JOB PICK</span>
@@ -63,7 +63,7 @@ export default function SignupPage() {
                 placeholder="홍길동"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="flex-1 py-3 border-none outline-none"
+                className="min-w-0 flex-1 py-3 text-base border-none outline-none"
                 required
               />
             </div>
@@ -77,7 +77,7 @@ export default function SignupPage() {
                 placeholder="example@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="flex-1 py-3 border-none outline-none"
+                className="min-w-0 flex-1 py-3 text-base border-none outline-none"
                 required
               />
             </div>
@@ -91,13 +91,13 @@ export default function SignupPage() {
                 placeholder="........"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="flex-1 py-3 border-none outline-none"
+                className="min-w-0 flex-1 py-3 text-base border-none outline-none"
                 required
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="ml-1 p-1"
+                className="ml-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg sm:h-auto sm:w-auto sm:p-1"
               >
                 {showPassword ? <EyeOff className="w-5 h-5 text-gray-600" aria-hidden /> : <Eye className="w-5 h-5 text-gray-600" aria-hidden />}
               </button>
@@ -113,31 +113,31 @@ export default function SignupPage() {
                 placeholder="........"
                 value={passwordConfirm}
                 onChange={(e) => setPasswordConfirm(e.target.value)}
-                className="flex-1 py-3 border-none outline-none"
+                className="min-w-0 flex-1 py-3 text-base border-none outline-none"
                 required
               />
               <button
                 type="button"
                 onClick={() => setShowPasswordConfirm(!showPasswordConfirm)}
-                className="ml-1 p-1"
+                className="ml-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg sm:h-auto sm:w-auto sm:p-1"
               >
                 {showPasswordConfirm ? <EyeOff className="w-5 h-5 text-gray-600" aria-hidden /> : <Eye className="w-5 h-5 text-gray-600" aria-hidden />}
               </button>
             </div>
           </div>
           <div className="flex flex-col gap-3">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={termsAgreed} onChange={(e) => setTermsAgreed(e.target.checked)} required />
+            <label className="flex items-start sm:items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" className="mt-0.5 shrink-0 sm:mt-0" checked={termsAgreed} onChange={(e) => setTermsAgreed(e.target.checked)} required />
               (필수) 이용약관 및 개인정보 처리방침에 동의합니다
             </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={marketingAgreed} onChange={(e) => setMarketingAgreed(e.target.checked)} />
+            <label className="flex items-start sm:items-center gap-2 text-sm cursor-pointer">
+              <input type="checkbox" className="mt-0.5 shrink-0 sm:mt-0" checked={marketingAgreed} onChange={(e) => setMarketingAgreed(e.target.checked)} />
               (선택) 마케팅 정보 수신에 동의합니다
             </label>
           </div>
           <button
             type="submit"
-            className="w-full py-3 bg-primary text-white rounded-lg font-semibold hover:bg-primary-dark transition-colors"
+            className="w-full min-h-[44px] py-3 bg-primary text-white rounded-lg font-semibold hover:bg-primary-dark transition-colors"
           >
             회원가입
           </button>

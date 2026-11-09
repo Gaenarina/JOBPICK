@@ -119,7 +119,7 @@ export default function MatchingHistoryPage() {
   // 1. 로딩 스켈레톤/메시지 공통 처리
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 px-6 py-10">
+      <main className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 sm:py-10">
         <div className="mx-auto max-w-6xl">
           <p className="text-gray-600">AI 매칭 결과를 불러오는 중입니다...</p>
         </div>
@@ -130,8 +130,8 @@ export default function MatchingHistoryPage() {
   // 2. 미인증 사용자 처리
   if (!user) {
     return (
-      <main className="min-h-screen bg-gray-50 px-6 py-10">
-        <div className="mx-auto max-w-6xl rounded-2xl bg-white p-8 shadow-sm">
+      <main className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 sm:py-10">
+        <div className="mx-auto max-w-6xl rounded-2xl bg-white p-5 sm:p-8 shadow-sm">
           <h1 className="text-2xl font-bold text-gray-900">AI 매칭 결과</h1>
           <p className="mt-4 text-gray-600">
             로그인 후 내 이력서의 AI 매칭 결과를 확인할 수 있습니다.
@@ -149,18 +149,18 @@ export default function MatchingHistoryPage() {
 
   // 3. 정상 인증 완료 후 메인 뷰
   return (
-    <main className="min-h-screen bg-gray-50 px-6 py-10">
+    <main className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 sm:py-10">
       <div className="mx-auto max-w-6xl">
         {/* 헤더 */}
         <div className="mb-8">
-          <h1 className="mt-3 text-3xl font-bold text-gray-900">AI 매칭 결과</h1>
+          <h1 className="mt-3 text-2xl sm:text-3xl font-bold text-gray-900">AI 매칭 결과</h1>
           <p className="mt-2 text-gray-600">
             내가 업로드한 전체 이력서의 AI 매칭 결과를 한 페이지에서 확인할 수 있습니다.
           </p>
         </div>
 
         {/* 컨트롤러 (필터 & 정렬) */}
-        <section className="mb-6 rounded-2xl bg-white p-5 shadow-sm">
+        <section className="mb-6 rounded-2xl bg-white p-4 sm:p-5 shadow-sm">
           <div className="grid gap-4 md:grid-cols-3">
             <div>
               <label className="mb-2 block text-sm font-semibold text-gray-700">
@@ -169,7 +169,7 @@ export default function MatchingHistoryPage() {
               <select
                 value={selectedResumeId}
                 onChange={(event) => setSelectedResumeId(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-gray-800 outline-none focus:border-blue-500"
+                className="w-full min-w-0 rounded-lg border border-gray-300 bg-white px-4 py-3 text-base sm:text-sm text-gray-800 outline-none focus:border-blue-500"
               >
                 {resumeOptions.map((resume) => (
                   <option key={resume.resumeId} value={resume.resumeId}>
@@ -186,7 +186,7 @@ export default function MatchingHistoryPage() {
               <select
                 value={sortOption}
                 onChange={(event) => setSortOption(event.target.value)}
-                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-3 text-sm text-gray-800 outline-none focus:border-blue-500"
+                className="w-full min-w-0 rounded-lg border border-gray-300 bg-white px-4 py-3 text-base sm:text-sm text-gray-800 outline-none focus:border-blue-500"
               >
                 {SORT_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -209,7 +209,7 @@ export default function MatchingHistoryPage() {
 
         {/* 결과 리스트 혹은 빈 화면 */}
         {filteredResults.length === 0 ? (
-          <section className="rounded-2xl bg-white p-10 text-center shadow-sm">
+          <section className="rounded-2xl bg-white p-5 sm:p-10 text-center shadow-sm">
             <h2 className="text-xl font-bold text-gray-900">
               아직 저장된 AI 매칭 결과가 없습니다.
             </h2>
@@ -229,14 +229,14 @@ export default function MatchingHistoryPage() {
               {pagedResults.map((result) => (
                 <article
                   key={result.id}
-                  className="rounded-2xl bg-white p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
+                  className="rounded-2xl bg-white p-4 sm:p-6 shadow-sm transition hover:-translate-y-1 hover:shadow-md"
                 >
-                  <div className="mb-4 flex items-start justify-between gap-4">
-                    <div>
-                      <h2 className="text-lg font-bold text-gray-900">{result.title}</h2>
+                  <div className="mb-4 flex min-w-0 items-start justify-between gap-2 sm:gap-4">
+                    <div className="min-w-0 flex-1">
+                      <h2 className="text-lg font-bold text-gray-900 break-words">{result.title}</h2>
                       <p className="mt-1 text-sm text-gray-600">{result.company}</p>
                     </div>
-                    <div className="shrink-0 rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-600">
+                    <div className="shrink-0 rounded-full bg-blue-50 px-2 sm:px-3 py-1 text-sm font-bold text-blue-600">
                       {formatScore(result.score)}%
                     </div>
                   </div>
@@ -266,7 +266,7 @@ export default function MatchingHistoryPage() {
                     </p>
                   )}
 
-                  <div className="mt-5 flex gap-2">
+                  <div className="mt-5 flex flex-wrap gap-2">
                     {result.sourceUrl ? (
                       <a
                         href={result.sourceUrl}
@@ -292,12 +292,15 @@ export default function MatchingHistoryPage() {
 
             {/* 페이지네이션 배치 완료 */}
             {totalPages > 1 && (
-              <div className="flex justify-center gap-2 mt-8">
+              <div className="flex flex-wrap justify-center items-center gap-2 mt-8">
+                <button type="button" className="sm:hidden min-h-[44px] px-3 rounded-lg border bg-white text-gray-700 disabled:opacity-40" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1} aria-label="이전 페이지">이전</button>
+                <span className="sm:hidden min-w-[72px] text-center text-sm text-gray-600" aria-live="polite">{page} / {totalPages}</span>
+                <button type="button" className="sm:hidden min-h-[44px] px-3 rounded-lg border bg-white text-gray-700 disabled:opacity-40" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={page === totalPages} aria-label="다음 페이지">다음</button>
                 {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
                   <button
                     key={p}
                     onClick={() => setPage(p)}
-                    className={`px-3 py-1 rounded-lg border ${
+                    className={`hidden sm:inline-flex min-h-[40px] items-center justify-center px-3 py-1 rounded-lg border ${
                       page === p
                         ? "bg-blue-600 text-white border-blue-600"
                         : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50"
