@@ -20,23 +20,23 @@ export default function Navbar() {
 
   return (
     <>
-      <nav className="flex items-center justify-between px-4 sm:px-8 py-5 md:py-6 min-h-[72px] md:min-h-[76px] bg-white shadow-sm">
-        <Link href="/" className="flex items-center gap-2 font-bold text-2xl md:text-3xl text-primary">
+      <nav className="flex items-center justify-between gap-2 px-3 sm:px-8 py-5 md:py-6 min-h-[72px] md:min-h-[76px] bg-white shadow-sm">
+        <Link href="/" className="flex min-w-0 shrink-0 items-center gap-1 sm:gap-2 font-bold text-lg sm:text-2xl md:text-3xl text-primary">
   <img
     src="/jobpick-logo.png"
     alt="JOB PICK"
-    className="w-9 h-9 md:w-10 md:h-10 object-contain"
+    className="w-8 h-8 sm:w-9 sm:h-9 md:w-10 md:h-10 object-contain"
   />
   <span>JOB PICK</span>
 </Link>
 
-        <div className="flex items-center gap-4">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-4">
           {showMinimal ? (
             <>
-              <Link href="/login" className="text-gray-800 text-sm hover:text-primary transition-colors">
+              <Link href="/login" className="whitespace-nowrap text-gray-800 text-xs sm:text-sm hover:text-primary transition-colors">
                 로그인
               </Link>
-              <Link href="/signup" className="text-gray-800 text-sm hover:text-primary transition-colors">
+              <Link href="/signup" className="whitespace-nowrap text-gray-800 text-xs sm:text-sm hover:text-primary transition-colors">
                 회원가입
               </Link>
             </>
@@ -72,10 +72,10 @@ export default function Navbar() {
 
               {!isAuthenticated && (
                 <>
-                  <Link href="/login" className="text-gray-800 text-sm hover:text-primary transition-colors">
+                  <Link href="/login" className="whitespace-nowrap text-gray-800 text-xs sm:text-sm hover:text-primary transition-colors">
                     로그인
                   </Link>
-                  <Link href="/signup" className="text-gray-800 text-sm hover:text-primary transition-colors">
+                  <Link href="/signup" className="whitespace-nowrap text-gray-800 text-xs sm:text-sm hover:text-primary transition-colors">
                     회원가입
                   </Link>
                 </>

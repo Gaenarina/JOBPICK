@@ -38,15 +38,15 @@ export default function ForgotPasswordPage() {
 
   if (!mounted) {
     return (
-      <main className="min-h-[calc(100vh-60px)] flex items-center justify-center p-8">
+      <main className="min-h-[calc(100vh-60px)] flex items-center justify-center p-4 sm:p-8">
         <div className="animate-spin w-10 h-10 border-2 border-primary border-t-transparent rounded-full" />
       </main>
     )
   }
 
   return (
-    <main className="min-h-[calc(100vh-60px)] flex items-center justify-center py-20 px-8 bg-gradient-to-br from-sky-100 to-sky-50">
-      <div className="w-full max-w-[560px] bg-white rounded-2xl p-12 min-h-[560px] shadow-lg flex flex-col justify-center">
+    <main className="min-h-[calc(100dvh-72px)] sm:min-h-[calc(100vh-60px)] flex items-center justify-center px-4 py-6 sm:px-8 sm:py-20 bg-gradient-to-br from-sky-100 to-sky-50">
+      <div className="w-full min-w-0 max-w-[560px] bg-white rounded-2xl p-5 sm:p-12 sm:min-h-[560px] shadow-lg flex flex-col justify-center">
         <div className="flex items-center justify-center gap-2 font-bold text-xl text-gray-800 mb-6">
           <img src="/brand-logo.svg" alt="JOB PICK 로고" className="w-8 h-8 object-contain" />
           <span>JOB PICK</span>
@@ -66,14 +66,14 @@ export default function ForgotPasswordPage() {
                 placeholder="example@email.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="flex-1 py-3 border-none outline-none"
+                className="min-w-0 flex-1 py-3 text-base border-none outline-none"
                 required
               />
             </div>
           </div>
           <button
             type="submit"
-            className="w-full py-3 bg-primary text-white rounded-lg font-semibold hover:bg-primary-dark transition-colors"
+            className="w-full min-h-[44px] py-3 bg-primary text-white rounded-lg font-semibold hover:bg-primary-dark transition-colors"
           >
             재설정 링크 보내기
           </button>

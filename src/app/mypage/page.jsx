@@ -47,25 +47,38 @@ export default function MyPage() {
     router.replace('/')
   }
 
-  const handleSaveNickname = async () => {
-    const u = auth.currentUser
-    if (!u || !nickname.trim()) return
-    setSavingNickname(true)
-    try {
-      await updateProfile(u, { displayName: nickname.trim() })
-      await setDoc(
-        doc(db, 'users', u.uid),
-        { name: nickname.trim(), updatedAt: serverTimestamp() },
-        { merge: true }
-      )
-      alert('닉네임이 저장되었습니다.')
-    } catch (error) {
-      console.error(error)
-      alert(error.message || '저장에 실패했습니다.')
-    } finally {
-      setSavingNickname(false)
-    }
+const handleSaveNickname = async () => {
+  const u = auth.currentUser
+  if (!u || !nickname.trim()) return
+
+  setSavingNickname(true)
+
+  try {
+    await updateProfile(u, {
+      displayName: nickname.trim(),
+    })
+
+    await setDoc(
+      doc(db, 'users', u.uid),
+      {
+        name: nickname.trim(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    )
+
+    // 저장 성공 후 닉네임 수정란 자동 닫기
+    setIsEditingProfile(false)
+
+    alert('닉네임이 저장되었습니다.')
+  } catch (error) {
+    console.error(error)
+    alert(error.message || '저장에 실패했습니다.')
+  } finally {
+    setSavingNickname(false)
   }
+}
+
 
   const handleAvatarSelect = async (e) => {
     const file = e.target.files?.[0]
@@ -167,7 +180,7 @@ export default function MyPage() {
       <h1 className="text-2xl md:text-3xl font-bold mb-6">마이페이지</h1>
 
       {/* 프로필 편집 카드 */}
-      <div className="bg-white border border-gray-200 rounded-2xl p-5 md:p-6 shadow-sm mb-8">
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-5 md:p-6 shadow-sm mb-8">
         <div className="flex flex-col md:flex-row md:items-start gap-6">
           <div className="flex flex-col items-center md:items-start gap-3">
             <div className="relative w-24 h-24 md:w-28 md:h-28 rounded-2xl bg-slate-100 overflow-hidden flex-shrink-0 ring-1 ring-gray-200">
@@ -196,7 +209,7 @@ export default function MyPage() {
                   type="button"
                   onClick={() => avatarInputRef.current?.click()}
                   disabled={uploadingPhoto}
-                  className="inline-flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl bg-slate-900 text-white font-medium hover:bg-slate-800 disabled:opacity-50 transition-colors"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 text-sm px-3.5 py-2 rounded-xl bg-slate-900 text-white font-medium hover:bg-slate-800 disabled:opacity-50 transition-colors"
                 >
                   <Camera className="w-4 h-4" aria-hidden />
                   사진 업로드
@@ -206,7 +219,7 @@ export default function MyPage() {
                     type="button"
                     onClick={handleRemovePhoto}
                     disabled={uploadingPhoto}
-                    className="inline-flex items-center gap-2 text-sm px-3.5 py-2 rounded-xl bg-white text-gray-700 font-medium border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                    className="inline-flex min-h-[44px] items-center justify-center gap-2 text-sm px-3.5 py-2 rounded-xl bg-white text-gray-700 font-medium border border-gray-200 hover:bg-gray-50 disabled:opacity-50 transition-colors"
                   >
                     <Trash2 className="w-4 h-4" aria-hidden />
                     사진 삭제
@@ -224,7 +237,7 @@ export default function MyPage() {
           </div>
 
           <div className="flex-1 min-w-0 w-full">
-            <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="text-xl md:text-2xl font-bold text-gray-900 truncate">{displayName}</h2>
                 <p className="text-sm md:text-base text-gray-500 break-all">{email}</p>
@@ -232,7 +245,7 @@ export default function MyPage() {
               <button
                 type="button"
                 onClick={() => setIsEditingProfile(!isEditingProfile)}
-                className="flex items-center gap-2 text-gray-400 hover:text-primary transition-colors"
+                className="flex h-10 w-10 shrink-0 items-center justify-center gap-2 text-gray-400 hover:text-primary transition-colors sm:h-auto sm:w-auto"
                 aria-label="프로필 편집"
               >
                 <PencilLine className="w-5 h-5" aria-hidden />
@@ -259,7 +272,7 @@ export default function MyPage() {
                   type="button"
                   onClick={handleSaveNickname}
                   disabled={savingNickname || !nickname.trim()}
-                  className="shrink-0 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white font-medium text-sm hover:bg-primary-dark disabled:opacity-50 transition-colors"
+                  className="w-full shrink-0 inline-flex min-h-[44px] items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white font-medium text-sm hover:bg-primary-dark disabled:opacity-50 transition-colors sm:w-auto"
                 >
                   {savingNickname ? '저장 중...' : '저장'}
                 </button>
@@ -315,7 +328,7 @@ export default function MyPage() {
 
       {withdrawStep === 1 && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
+          <div className="bg-white rounded-2xl p-5 sm:p-6 max-w-sm w-full max-h-[calc(100dvh-2rem)] overflow-y-auto shadow-xl">
             <p className="text-base font-medium text-gray-800 mb-6 text-center">
               정말 탈퇴하시겠습니까?
             </p>
@@ -341,7 +354,7 @@ export default function MyPage() {
 
       {withdrawStep === 2 && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
+          <div className="bg-white rounded-2xl p-5 sm:p-6 max-w-sm w-full max-h-[calc(100dvh-2rem)] overflow-y-auto shadow-xl">
             <p className="text-base font-medium text-gray-800 mb-6 text-center leading-relaxed">
               탈퇴 후 복구할 수 없습니다. 계속하시겠습니까?
             </p>

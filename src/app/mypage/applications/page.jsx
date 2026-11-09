@@ -32,21 +32,21 @@ export default function ApplicationStatusPage() {
   const applications = getApplications(resumeUserId)
 
   return (
-    <main className="max-w-4xl mx-auto p-8">
-      <h1 className="text-3xl font-bold mb-6">지원현황</h1>
+    <main className="max-w-4xl mx-auto p-4 sm:p-6 md:p-8">
+      <h1 className="text-2xl sm:text-3xl font-bold mb-6">지원현황</h1>
       {applications.length === 0 ? (
-        <div className="bg-white border border-gray-200 rounded-2xl p-8 text-gray-500">지원한 기업 정보가 없습니다.</div>
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 sm:p-8 text-gray-500">지원한 기업 정보가 없습니다.</div>
       ) : (
         <div className="space-y-3">
           {applications.map((application) => (
-            <div key={application.jobId} className="bg-white border border-gray-200 rounded-xl p-4 flex justify-between items-center gap-3 relative">
+            <div key={application.jobId} className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 relative">
               <button
                 onClick={() => {
                   const job = { id: application.jobId, title: application.title, company: application.company }
                   const next = toggleBookmark(job, resumeUserId)
                   setBookmarkIds(next.map((item) => item.id))
                 }}
-                className="absolute top-4 right-4"
+                className="absolute top-2 right-2 flex h-11 w-11 items-center justify-center sm:top-4 sm:right-4 sm:h-auto sm:w-auto"
                 aria-label="북마크"
               >
                 <svg width="22" height="22" viewBox="0 0 24 24" fill={bookmarkIds.includes(application.jobId) ? '#2563eb' : '#ffffff'} xmlns="http://www.w3.org/2000/svg">
@@ -58,14 +58,14 @@ export default function ApplicationStatusPage() {
                   />
                 </svg>
               </button>
-              <div>
-                <p className="text-gray-500">{application.company}</p>
-                <button onClick={() => router.push(`/jobs/${application.jobId}`)} className="font-semibold hover:text-primary transition-colors text-left">
+              <div className="min-w-0 w-full pr-10 sm:w-auto sm:flex-1 sm:pr-0">
+                <p className="text-gray-500 break-words">{application.company}</p>
+                <button onClick={() => router.push(`/jobs/${application.jobId}`)} className="block max-w-full break-words font-semibold hover:text-primary transition-colors text-left">
                   {application.title}
                 </button>
                 <p className="text-sm text-gray-500">지원일: {application.appliedAt}</p>
               </div>
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${STATUS_STYLE[application.status] || 'bg-gray-100 text-gray-700'}`}>
+              <span className={`self-start sm:self-auto shrink-0 px-3 py-1 rounded-full text-sm font-medium ${STATUS_STYLE[application.status] || 'bg-gray-100 text-gray-700'}`}>
                 {application.status}
               </span>
             </div>

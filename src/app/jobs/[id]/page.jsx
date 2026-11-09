@@ -89,7 +89,7 @@ export default function JobDetailPage() {
 
   if (!job) {
     return (
-      <main className="max-w-4xl mx-auto p-8">
+      <main className="max-w-4xl mx-auto p-4 sm:p-6 md:p-8">
         <h1 className="text-2xl font-bold mb-4">공고를 찾을 수 없습니다.</h1>
         <button onClick={() => router.back()} className="px-4 py-2 rounded-lg bg-slate-100">
           이전으로
@@ -102,8 +102,8 @@ export default function JobDetailPage() {
   const hasMatchResult = job.matchRate !== undefined && job.matchRate !== null
 
   return (
-    <main className="max-w-4xl mx-auto p-8">
-      <div className="bg-white border border-gray-200 rounded-2xl p-6">
+    <main className="max-w-4xl mx-auto p-4 sm:p-6 md:p-8">
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-6">
         <div className="flex justify-end mb-2">
           <button
             type="button"
@@ -132,7 +132,7 @@ export default function JobDetailPage() {
         </div>
 
         <p className="text-gray-500 mb-2">{job.company}</p>
-        <h1 className="text-3xl font-bold mb-4">{job.title}</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold mb-4 break-words">{job.title}</h1>
 
         <div className="flex gap-2 flex-wrap mb-6">
           <span className="text-xs px-2 py-1 bg-slate-100 rounded text-gray-500">
@@ -170,7 +170,7 @@ export default function JobDetailPage() {
           </div>
         </div>
 
-        <div className="bg-slate-50 rounded-xl p-5 text-gray-700 leading-7">
+        <div className="bg-slate-50 rounded-xl p-4 sm:p-5 text-gray-700 leading-7 break-words">
           담당 업무: 직무 운영 및 협업, 데이터 기반 개선, 고객/내부 커뮤니케이션 수행
           <br />
           자격 요건: 관련 직무 이해도, 문서 커뮤니케이션 능력, 기본적인 OA 또는 협업툴 활용 가능
@@ -180,8 +180,8 @@ export default function JobDetailPage() {
       </div>
 
       {showDetail && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 px-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-xl max-h-[80vh] overflow-y-auto">
+        <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 px-2 sm:px-4 pt-4 sm:pt-0">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl p-4 sm:p-6 w-full max-w-xl max-h-[calc(100dvh-1rem)] sm:max-h-[80vh] overflow-y-auto overscroll-contain pb-[max(1rem,env(safe-area-inset-bottom))] sm:pb-6">
             <div className="flex justify-between items-start gap-4 mb-4">
               <div>
                 <p className="text-sm text-gray-500">{job.company}</p>
@@ -191,7 +191,7 @@ export default function JobDetailPage() {
               <button
                 type="button"
                 onClick={() => setShowDetail(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="flex h-10 w-10 shrink-0 items-center justify-center text-gray-400 hover:text-gray-600 sm:h-auto sm:w-auto"
               >
                 <X className="w-5 h-5" aria-hidden />
               </button>
