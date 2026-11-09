@@ -1693,15 +1693,15 @@ export default function DashboardPage() {
     'px-7 py-3 rounded-xl font-medium transition-colors disabled:opacity-60 bg-slate-100 text-gray-700 hover:bg-slate-200'
 
   const btnSecondaryActive =
-    'px-5 py-3 rounded-xl font-medium transition-colors bg-primary text-white hover:bg-primary-dark'
+    'min-h-[44px] w-full rounded-xl bg-primary px-3 py-3 text-center font-medium text-white transition-colors hover:bg-primary-dark sm:w-auto sm:px-5'
 
   const btnSecondaryInactive =
-    'px-5 py-3 rounded-xl font-medium transition-colors bg-white text-gray-700 border border-gray-200 hover:bg-slate-50'
+    'min-h-[44px] w-full rounded-xl border border-gray-200 bg-white px-3 py-3 text-center font-medium text-gray-700 transition-colors hover:bg-slate-50 sm:w-auto sm:px-5'
 
   return (
-    <main className="max-w-5xl mx-auto p-4 md:p-8">
+    <main className="mx-auto max-w-5xl px-3 py-4 sm:p-4 md:p-8">
       <section className="mb-8">
-        <h1 className="text-2xl md:text-4xl font-bold mb-4 md:mb-6">
+        <h1 className="mb-4 break-words text-xl font-bold sm:text-2xl md:mb-6 md:text-4xl">
           채용 정보
         </h1>
 
@@ -1710,7 +1710,7 @@ export default function DashboardPage() {
             onSubmit={
               handleSearchSubmit
             }
-            className="mb-4 md:mb-6 flex gap-2"
+            className="mb-4 flex flex-col gap-2 sm:flex-row md:mb-6"
           >
             <input
               type="text"
@@ -1724,18 +1724,18 @@ export default function DashboardPage() {
                 )
               }
               placeholder="포지션, 회사명, 키워드 검색"
-              className="flex-1 bg-slate-100 rounded-xl px-4 md:px-5 py-3 md:py-4 text-gray-700 text-base md:text-xl outline-none border border-transparent focus:border-primary"
+              className="w-full min-w-0 flex-1 rounded-xl border border-transparent bg-slate-100 px-4 py-3 text-base text-gray-700 outline-none focus:border-primary sm:w-auto md:px-5 md:py-4 md:text-xl"
             />
 
             <button
               type="submit"
-              className="px-5 py-3 rounded-xl bg-slate-700 text-white"
+              className="min-h-[44px] w-full rounded-xl bg-slate-700 px-5 py-3 text-white sm:w-auto"
             >
               검색
             </button>
           </form>
 
-          <div className="flex flex-wrap gap-3">
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
             <select
               value={
                 selectedRegion
@@ -1746,7 +1746,7 @@ export default function DashboardPage() {
                     .value
                 )
               }
-              className="px-5 py-3 rounded-xl bg-slate-100 text-gray-700"
+              className="min-h-[44px] w-full min-w-0 rounded-xl bg-slate-100 px-3 py-3 text-base text-gray-700 sm:w-auto sm:px-5"
             >
               <option value="전체">
                 지역별
@@ -1831,7 +1831,7 @@ export default function DashboardPage() {
                     .value
                 )
               }
-              className="px-5 py-3 rounded-xl bg-slate-100 text-gray-700"
+              className="min-h-[44px] w-full min-w-0 rounded-xl bg-slate-100 px-3 py-3 text-base text-gray-700 sm:w-auto sm:px-5"
             >
               <option value="전체">
                 직업별
@@ -1886,7 +1886,7 @@ export default function DashboardPage() {
               className={
                 !isAuthenticated ||
                 isMatching
-                  ? 'px-5 py-3 rounded-xl bg-gray-200 text-gray-400 cursor-not-allowed opacity-60'
+                  ? 'min-h-[44px] w-full rounded-xl bg-gray-200 px-3 py-3 text-center text-gray-400 opacity-60 cursor-not-allowed sm:w-auto sm:px-5'
                   : aiMatched
                     ? btnSecondaryActive
                     : btnSecondaryInactive
@@ -1915,7 +1915,7 @@ export default function DashboardPage() {
 
             {isAuthenticated ? (
               <label
-                className={`px-5 py-3 rounded-xl text-gray-700 ${
+                className={`col-span-2 flex min-h-[44px] w-full items-center justify-center rounded-xl px-3 py-3 text-center text-gray-700 sm:col-span-1 sm:w-auto sm:px-5 ${
                   isUploadingResume
                     ? 'bg-gray-200 text-gray-500 cursor-not-allowed opacity-60'
                     : 'bg-slate-100 cursor-pointer'
@@ -1946,7 +1946,7 @@ export default function DashboardPage() {
                     '/login'
                   )
                 }
-                className="px-5 py-3 rounded-xl bg-slate-100 text-gray-700"
+                className="col-span-2 min-h-[44px] w-full rounded-xl bg-slate-100 px-3 py-3 text-center text-gray-700 sm:col-span-1 sm:w-auto sm:px-5"
               >
                 이력서 첨부
               </button>
@@ -1964,7 +1964,7 @@ export default function DashboardPage() {
           {isAuthenticated &&
             resumes.length >
               0 && (
-              <p className="text-sm text-gray-500 mt-3">
+              <p className="mt-3 break-words text-sm text-gray-500">
                 최근 첨부 파일:{' '}
                 {
                   resumes[0]
@@ -1981,8 +1981,8 @@ export default function DashboardPage() {
       </section>
 
       <section className="mt-8">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl md:text-3xl font-bold">
+        <div className="mb-4 flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="break-words text-xl font-bold sm:text-2xl md:text-3xl">
             {aiMatched
               ? `${name}님 맞춤 공고`
               : '추천 공고'}
@@ -2092,8 +2092,8 @@ export default function DashboardPage() {
         )}
 
         {aiMatched && (
-          <div className="flex flex-wrap gap-2 mb-4">
-            <div className="relative">
+          <div className="mb-4 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
+            <div className="relative col-span-2 sm:col-span-1">
               <button
                 type="button"
                 onClick={() =>
@@ -2102,7 +2102,7 @@ export default function DashboardPage() {
                       !prev
                   )
                 }
-                className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm hover:bg-slate-200 transition-colors inline-flex items-center"
+                className="inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-slate-100 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-slate-200 sm:w-auto"
               >
                 점수 범위
 
@@ -2145,7 +2145,7 @@ export default function DashboardPage() {
               </button>
 
               {isScoreFilterOpen && (
-                <div className="absolute z-30 top-full left-0 mt-2 w-[320px] max-w-[calc(100vw-2rem)] rounded-xl border border-gray-200 bg-white p-4 shadow-lg">
+                <div className="absolute left-0 top-full z-30 mt-2 w-full max-w-full rounded-xl border border-gray-200 bg-white p-4 shadow-lg sm:w-[320px] sm:max-w-[calc(100vw-2rem)]">
                   <div className="flex items-center justify-between mb-3 text-sm text-gray-600">
                     <span className="font-medium">
                       점수 범위
@@ -2309,7 +2309,7 @@ export default function DashboardPage() {
                   10
                 )
               }}
-              className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm"
+              className="min-h-[44px] w-full min-w-0 rounded-xl bg-slate-100 px-2 py-2 text-sm text-gray-700 sm:w-auto sm:px-4"
             >
               <option value="all">
                 희망 직무:
@@ -2367,7 +2367,7 @@ export default function DashboardPage() {
                   10
                 )
               }}
-              className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm"
+              className="min-h-[44px] w-full min-w-0 rounded-xl bg-slate-100 px-2 py-2 text-sm text-gray-700 sm:w-auto sm:px-4"
             >
               <option value="all">
                 희망 지역:
@@ -2469,7 +2469,7 @@ export default function DashboardPage() {
                     key={
                       jobKey
                     }
-                    className="relative bg-white rounded-2xl p-5 md:p-6 border border-gray-200 min-h-[210px]"
+                    className="relative min-h-0 rounded-2xl border border-gray-200 bg-white p-4 sm:min-h-[210px] sm:p-5 md:p-6"
                   >
                     <button
                       onClick={() =>
@@ -2520,7 +2520,7 @@ export default function DashboardPage() {
                           job
                         )
                       }
-                      className="text-card-title mb-4 text-left hover:text-primary transition-colors pr-8"
+                      className="text-card-title mb-4 block max-w-full break-words pr-8 text-left transition-colors hover:text-primary"
                     >
                       {
                         job.title
@@ -2573,7 +2573,7 @@ export default function DashboardPage() {
                             scoringJobId ===
                             jobKey
                           }
-                          className="px-3 py-2 rounded-lg text-sm bg-primary text-white disabled:opacity-60"
+                          className="min-h-[44px] w-full rounded-lg bg-primary px-3 py-2 text-sm text-white disabled:opacity-60 sm:w-auto"
                         >
                           {scoringJobId ===
                           jobKey
@@ -2598,7 +2598,7 @@ export default function DashboardPage() {
                     )}
 
                     {aiMatched && (
-                      <span className="max-md:static max-md:block max-md:mt-3 max-md:text-right md:absolute md:right-8 md:bottom-6 text-2xl md:text-3xl font-bold text-blue-600 inline-flex items-baseline pointer-events-none">
+                      <span className="pointer-events-none inline-flex items-baseline text-2xl font-bold text-blue-600 max-md:static max-md:mt-3 max-md:flex max-md:justify-end md:absolute md:bottom-6 md:right-8 md:text-3xl">
                         {job.matchRate ??
                           Math.round(
                             job.finalScore ??
@@ -2641,7 +2641,7 @@ export default function DashboardPage() {
                             10
                         )
                       }
-                      className="px-6 py-3 rounded-xl bg-slate-100 text-gray-700 font-medium hover:bg-slate-200 transition-colors"
+                      className="min-h-[44px] w-full rounded-xl bg-slate-100 px-6 py-3 font-medium text-gray-700 transition-colors hover:bg-slate-200 sm:w-auto"
                     >
                       더보기
                     </button>
@@ -2658,7 +2658,29 @@ export default function DashboardPage() {
             {!aiMatched &&
               basicJobTotalPages >
                 1 && (
-                <div className="flex justify-center items-center gap-2 mt-6">
+                <>
+                  <div className="mt-6 flex items-center justify-between gap-2 sm:hidden">
+                    <button
+                      type="button"
+                      onClick={() => goToBasicJobPage(safeBasicJobPage - 1)}
+                      disabled={safeBasicJobPage === 1}
+                      className="min-h-[44px] rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      이전
+                    </button>
+                    <span aria-live="polite" className="text-sm font-medium text-gray-700">
+                      {safeBasicJobPage} / {basicJobTotalPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => goToBasicJobPage(safeBasicJobPage + 1)}
+                      disabled={safeBasicJobPage === basicJobTotalPages}
+                      className="min-h-[44px] rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      다음
+                    </button>
+                  </div>
+                  <div className="mt-6 hidden items-center justify-center gap-2 sm:flex">
                   <button
                     type="button"
                     onClick={() =>
@@ -2818,7 +2840,8 @@ export default function DashboardPage() {
                   >
                     &gt;
                   </button>
-                </div>
+                  </div>
+                </>
               )}
           </div>
         )}
