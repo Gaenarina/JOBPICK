@@ -1004,8 +1004,8 @@ function ScoreDetailModal({ job, onClose }) {
   const unmetConditions = job.unmetConditions || []
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-2xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-5 md:p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:px-4 sm:py-0">
+      <div className="w-full max-w-2xl max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:max-h-[85vh] sm:p-5 md:p-6">
         <div className="flex items-start justify-between gap-4 mb-5">
           <div className="min-w-0">
             <p className="text-sm text-gray-500 truncate">
@@ -1396,8 +1396,8 @@ function MatchResultGuideModal({ selectedBadge, onClose }) {
   )
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-5 md:p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:px-4 sm:py-0">
+      <div className="w-full max-w-xl max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:max-h-[85vh] sm:p-5 md:p-6">
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-medium text-primary">
@@ -1510,7 +1510,7 @@ function PreferenceOptionGroup({
               type="button"
               aria-pressed={isSelected}
               onClick={() => onToggle(option.value)}
-              className={`rounded-full border px-3 py-2 text-sm font-medium transition-colors ${
+              className={`min-h-[44px] rounded-full border px-3 py-2 text-sm font-medium transition-colors ${
                 isSelected
                   ? 'border-primary bg-primary text-white'
                   : 'border-gray-200 bg-white text-gray-600 hover:border-primary hover:text-primary'
@@ -2764,10 +2764,10 @@ export default function LandingPage() {
   }, [isAnalyzing])
 
   return (
-    <main className="max-w-5xl mx-auto p-4 md:p-8">
+    <main className="mx-auto max-w-5xl px-3 py-4 sm:p-4 md:p-8">
       {isAuthenticated ? (
-        <section className="py-6 md:py-8">
-          <h1 className="text-2xl md:text-4xl font-bold mb-1">
+        <section className="py-4 sm:py-6 md:py-8">
+          <h1 className="text-xl sm:text-2xl md:text-4xl font-bold mb-1 break-words">
             안녕하세요,{' '}
             <span className="text-primary">{name}</span> 님!
           </h1>
@@ -2778,7 +2778,7 @@ export default function LandingPage() {
         </section>
       ) : (
         <section className="text-center py-10 md:py-12">
-          <h1 className="text-3xl md:text-5xl font-bold text-primary mb-2">
+          <h1 className="text-2xl sm:text-3xl md:text-5xl font-bold text-primary mb-2">
             로그인을 해주세요!
           </h1>
 
@@ -2802,7 +2802,7 @@ export default function LandingPage() {
             : ''
         }`}
       >
-        <div className="bg-blue-50 rounded-2xl p-5 md:p-8 border border-blue-200 relative">
+        <div className="relative rounded-2xl border border-blue-200 bg-blue-50 p-3 sm:p-5 md:p-8">
           <h2 className="text-2xl md:text-2xl font-bold mb-4 flex items-center gap-2">
             <Sparkles
               className="w-5 h-5 md:w-6 md:h-6 text-primary"
@@ -2816,7 +2816,7 @@ export default function LandingPage() {
             채용공고를 추천해드립니다.
           </p>
 
-          <div className="relative border-2 border-dashed border-gray-200 rounded-xl md:rounded-2xl p-5 md:p-8 bg-white">
+          <div className="relative rounded-xl border-2 border-dashed border-gray-200 bg-white p-3 sm:p-5 md:rounded-2xl md:p-8">
             {!isAuthenticated && (
               <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-auto">
                 <button
@@ -2836,11 +2836,11 @@ export default function LandingPage() {
               </div>
             )}
 
-            <div className="flex flex-wrap gap-3 mb-4">
+            <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:flex-wrap">
               <button
                 type="button"
                 onClick={handleShowSavedClick}
-                className={`px-5 py-2.5 rounded-xl text-sm md:text-base font-medium ${
+                className={`min-h-[44px] w-full rounded-xl px-4 py-2.5 text-sm font-medium sm:w-auto sm:px-5 md:text-base ${
                   showSavedResumes
                     ? 'bg-primary text-white'
                     : 'bg-slate-100 text-gray-700'
@@ -2852,7 +2852,7 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={handleNewUploadClick}
-                className="px-5 py-2.5 rounded-xl text-sm md:text-base font-medium bg-slate-900 text-white"
+                className="min-h-[44px] w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white sm:w-auto sm:px-5 md:text-base"
               >
                 새 이력서 등록하기
               </button>
@@ -2889,7 +2889,7 @@ export default function LandingPage() {
                     return (
                       <div
                         key={resume.id}
-                        className={`relative flex items-center justify-between gap-3 rounded-xl border p-4 transition-all duration-200 ${
+                        className={`relative flex flex-col gap-3 rounded-xl border p-3 transition-all duration-200 sm:flex-row sm:items-center sm:justify-between sm:p-4 ${
                           isSelected
                             ? 'border-blue-500 bg-blue-50/70 shadow-md ring-2 ring-blue-100'
                             : hasSelectedResume
@@ -2904,7 +2904,7 @@ export default function LandingPage() {
                               ? handleResumeAnalyze(resume)
                               : router.push('/login')
                           }
-                          className="flex min-w-0 flex-1 items-center gap-4 text-left"
+                          className="flex w-full min-w-0 flex-1 items-center gap-3 text-left sm:gap-4"
                         >
                           <FileText
                             className={`h-6 w-6 flex-shrink-0 ${
@@ -2965,7 +2965,7 @@ export default function LandingPage() {
                           </div>
                         </button>
 
-                        <div className="flex flex-wrap justify-end gap-2">
+                        <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:justify-end">
                           <button
                             type="button"
                             onClick={() =>
@@ -2975,7 +2975,7 @@ export default function LandingPage() {
                                   )
                                 : router.push('/login')
                             }
-                            className="h-fit rounded-lg bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 hover:bg-red-100"
+                            className="min-h-[44px] rounded-lg bg-red-50 px-2 py-2 text-xs font-medium text-red-600 hover:bg-red-100 sm:min-h-0 sm:px-3 sm:py-1.5"
                           >
                             삭제
                           </button>
@@ -2989,7 +2989,7 @@ export default function LandingPage() {
                               isAnalyzing ||
                               isUpdatingPreferences
                             }
-                            className="h-fit rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                            className="min-h-[44px] rounded-lg border border-gray-200 bg-white px-2 py-2 text-xs font-medium text-gray-700 hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:px-3 sm:py-1.5"
                           >
                             조건 수정
                           </button>
@@ -3001,7 +3001,7 @@ export default function LandingPage() {
                               isAnalyzing ||
                               isUpdatingPreferences
                             }
-                            className="h-fit rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+                            className="min-h-[44px] rounded-lg bg-primary px-2 py-2 text-xs font-medium text-white transition-colors hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:px-3 sm:py-1.5"
                           >
                             재분석
                           </button>
@@ -3015,7 +3015,7 @@ export default function LandingPage() {
           </div>
 
           {analysisDone && (
-            <div className="mt-6 bg-white rounded-xl md:rounded-2xl p-5 md:p-6 border border-blue-200">
+            <div className="mt-6 rounded-xl border border-blue-200 bg-white p-3 sm:p-5 md:rounded-2xl md:p-6">
               {matchSuccessBanner && (
                 <div
                   className={`overflow-hidden transition-all duration-500 ${
@@ -3128,7 +3128,7 @@ export default function LandingPage() {
                       type="button"
                       onClick={handleToggleAiSummary}
                       disabled={isGeneratingAiSummary}
-                      className="mt-3 inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-wait disabled:opacity-80"
+                      className="mt-3 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-wait disabled:opacity-80"
                     >
                       <Sparkles
                         className={`h-4 w-4 ${
@@ -3277,13 +3277,13 @@ export default function LandingPage() {
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-2 mb-4">
+              <div className="mb-4 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap">
                 <select
                   value={matchScoreFilter}
                   onChange={(e) =>
                     setMatchScoreFilter(e.target.value)
                   }
-                  className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm"
+                  className="min-h-[44px] w-full rounded-xl bg-slate-100 px-3 py-2 text-base text-gray-700 sm:w-auto sm:px-4 sm:text-sm"
                 >
                   <option value="all">점수: 전체</option>
                   <option value="90">90점 이상</option>
@@ -3302,7 +3302,7 @@ export default function LandingPage() {
                   onChange={(e) =>
                     setMatchHiringFilter(e.target.value)
                   }
-                  className="px-4 py-2 rounded-xl bg-slate-100 text-gray-700 text-sm"
+                  className="min-h-[44px] w-full rounded-xl bg-slate-100 px-3 py-2 text-base text-gray-700 sm:w-auto sm:px-4 sm:text-sm"
                 >
                   <option value="all">채용형태: 전체</option>
                   <option value="entry">신입</option>
@@ -3325,7 +3325,7 @@ export default function LandingPage() {
                     return (
                       <div
                         key={jobKey}
-                        className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 border border-gray-200 rounded-xl p-5 md:p-6"
+                        className="flex flex-col gap-3 rounded-xl border border-gray-200 p-4 sm:flex-row sm:items-start sm:justify-between sm:p-5 md:p-6"
                       >
                         <div className="min-w-0 flex-1">
                           <p className="text-sm md:text-base text-gray-500 mb-1">
@@ -3334,7 +3334,7 @@ export default function LandingPage() {
 
                           <button
                             onClick={() => handleGoJob(job)}
-                            className="font-semibold text-base md:text-lg text-left hover:text-primary transition-colors block"
+                            className="block break-words text-left text-base font-semibold transition-colors hover:text-primary md:text-lg"
                           >
                             {job.title}
                           </button>
@@ -3403,7 +3403,7 @@ export default function LandingPage() {
                                 onClick={() =>
                                   setScoreDetailJob(job)
                                 }
-                                className="rounded-lg px-2 py-1 text-primary font-bold text-lg md:text-xl whitespace-nowrap transition-colors hover:bg-blue-50 hover:text-blue-700"
+                                className="min-h-[44px] rounded-lg px-2 py-1 text-lg font-bold text-primary whitespace-nowrap transition-colors hover:bg-blue-50 hover:text-blue-700 md:text-xl"
                                 aria-label={`${job.matchRate}점 매칭 상세 분석 보기`}
                                 title="점수 계산 과정 보기"
                               >
@@ -3415,6 +3415,7 @@ export default function LandingPage() {
                               onClick={() =>
                                 handleToggleBookmark(job)
                               }
+                              className="flex min-h-[44px] min-w-[44px] items-center justify-center sm:min-h-0 sm:min-w-0"
                               aria-label="북마크"
                             >
                               <svg
@@ -3451,7 +3452,7 @@ export default function LandingPage() {
                                   onClick={() =>
                                     setResultGuideBadge(badge)
                                   }
-                                  className={`text-xs md:text-sm px-2 py-1 rounded border font-medium transition-colors ${getBadgeClassName(
+                                  className={`min-h-[40px] rounded border px-2 py-1 text-xs font-medium transition-colors sm:min-h-0 md:text-sm ${getBadgeClassName(
                                     badge
                                   )}`}
                                 >
@@ -3468,8 +3469,30 @@ export default function LandingPage() {
               </div>
 
               {totalMatchPages > 1 && (
-                <div className="flex justify-center items-center gap-2 mt-6">
-                  {Array.from(
+                <>
+                  <div className="mt-6 flex items-center justify-between gap-3 sm:hidden">
+                    <button
+                      type="button"
+                      onClick={() => setMatchPage((prev) => Math.max(1, prev - 1))}
+                      disabled={matchPage === 1}
+                      className="min-h-[44px] rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      이전
+                    </button>
+                    <span className="text-sm font-medium text-gray-700" aria-live="polite">
+                      {matchPage} / {totalMatchPages}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setMatchPage((prev) => Math.min(totalMatchPages, prev + 1))}
+                      disabled={matchPage === totalMatchPages}
+                      className="min-h-[44px] rounded-lg border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      다음
+                    </button>
+                  </div>
+                  <div className="hidden justify-center items-center gap-2 mt-6 sm:flex">
+                    {Array.from(
                     {
                       length: totalMatchPages,
                     },
@@ -3487,7 +3510,8 @@ export default function LandingPage() {
                       {page}
                     </button>
                   ))}
-                </div>
+                  </div>
+                </>
               )}
             </div>
           )}
@@ -3555,7 +3579,7 @@ export default function LandingPage() {
                   return (
                     <div
                       key={jobKey}
-                      className="relative bg-white rounded-2xl p-6 md:p-8 shadow-sm border border-gray-200"
+                      className="relative rounded-2xl border border-gray-200 bg-white p-4 shadow-sm sm:p-6 md:p-8"
                     >
                       <button
                         onClick={() =>
@@ -3633,7 +3657,7 @@ export default function LandingPage() {
             </div>
 
             {totalPages > 1 && (
-              <div className="flex justify-center items-center gap-2 mt-6">
+              <div className="mt-6 flex max-w-full items-center justify-start gap-2 overflow-x-auto pb-2 sm:justify-center">
                 <button
                   type="button"
                   onClick={() =>
@@ -3793,8 +3817,8 @@ export default function LandingPage() {
       </section>
 
       {editingResume && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl md:p-7">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:px-4 sm:py-0">
+          <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:max-h-[90vh] sm:p-5 md:p-7">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <h3 className="text-xl font-bold text-gray-900">
@@ -3911,12 +3935,12 @@ export default function LandingPage() {
               </button>
             )}
 
-            <div className="mt-7 flex justify-end gap-3 border-t border-gray-100 pt-5">
+            <div className="mt-7 flex flex-col-reverse gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={handleClosePreferenceEdit}
                 disabled={isUpdatingPreferences}
-                className="rounded-xl border border-gray-200 px-5 py-2.5 font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[44px] w-full rounded-xl border border-gray-200 px-5 py-2.5 font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 취소
               </button>
@@ -3925,7 +3949,7 @@ export default function LandingPage() {
                 type="button"
                 onClick={handleSavePreferenceEdit}
                 disabled={isUpdatingPreferences}
-                className="rounded-xl bg-primary px-5 py-2.5 font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[44px] w-full rounded-xl bg-primary px-5 py-2.5 font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 {isUpdatingPreferences
                   ? '조건 저장 중...'
@@ -3937,8 +3961,8 @@ export default function LandingPage() {
       )}
 
       {showPreferenceModal && pendingFile && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-5 shadow-xl md:p-7">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:px-4 sm:py-0">
+          <div className="max-h-[calc(100dvh-1.5rem)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:max-h-[90vh] sm:p-5 md:p-7">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">
@@ -4062,12 +4086,12 @@ export default function LandingPage() {
               </button>
             )}
 
-            <div className="mt-7 flex justify-end gap-3 border-t border-gray-100 pt-5">
+            <div className="mt-7 flex flex-col-reverse gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={handleCancelUpload}
                 disabled={isAnalyzing}
-                className="rounded-xl border border-gray-200 px-5 py-2.5 font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[44px] w-full rounded-xl border border-gray-200 px-5 py-2.5 font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 취소
               </button>
@@ -4076,7 +4100,7 @@ export default function LandingPage() {
                 type="button"
                 onClick={handleConfirmUpload}
                 disabled={isAnalyzing}
-                className="rounded-xl bg-primary px-5 py-2.5 font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50"
+                className="min-h-[44px] w-full rounded-xl bg-primary px-5 py-2.5 font-medium text-white hover:bg-primary-dark disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"
               >
                 {isAnalyzing
                   ? '등록 및 분석 중...'
@@ -4088,8 +4112,8 @@ export default function LandingPage() {
       )}
 
       {improvementJob && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:px-4 sm:py-0">
+          <div className="w-full max-w-xl max-h-[calc(100dvh-1.5rem)] overflow-y-auto rounded-2xl bg-white p-4 shadow-xl sm:max-h-[85vh] sm:p-6">
             <div className="mb-5 flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <p className="text-sm text-gray-500 truncate">{improvementJob.company}</p>
