@@ -11,7 +11,7 @@ import {
   toggleBookmark,
 } from '@/lib/userStorage'
 
-const MATCH_API_URL = process.env.NEXT_PUBLIC_MATCH_API_URL || 'http://localhost:8000/process-resume'
+const MATCH_API_URL = '/api/ai/process-resume'
 
 const LAST_AI_ANALYSIS_AT_KEY = 'jobpick_last_ai_analysis_at'
 

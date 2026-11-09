@@ -30,3 +30,12 @@ sunlit-plasma-488515-g8-8704e17d4636.json
 data/ncs_excels/
 
 cloudrun-env.yaml
+
+# Temporary cache optimization files
+JOBPICK_실제소스_캐시최적화/
+JOBPICK_캐시최적화_적용/
+JOBPICK_캐시최적화_수정코드_포함/
+
+# Local backups and archives
+*.bak
+*.zip
